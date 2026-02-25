@@ -275,6 +275,13 @@ export default function BillingScreen() {
                 <ChevronRight size={18} color={Colors.primary} />
               </TouchableOpacity>
             </View>
+
+            {upiList.length > 0 && (
+              <QuickPayment
+                upiList={upiList}
+                onPayment={handleQuickPayment}
+              />
+            )}
           </>
         }
         data={totalItems > 0 ? ['summary'] : []}
