@@ -1,4 +1,122 @@
 # muchlove_beta
+
+## Project Overview
+
+This is a __React Native Expo__ application for a beauty salon billing and management system, built with TypeScript and using Supabase as the backend.
+
+## Key Technologies
+
+- __Frontend__: React Native with Expo Router
+- __State Management__: TanStack Query (React Query) with offline support
+- __Backend__: Supabase (PostgreSQL database + authentication)
+- __Styling__: Custom design system with consistent typography and colors
+- __Navigation__: Expo Router with tab-based navigation
+
+## Project Structure
+
+### Core Architecture
+
+- __App Entry__: `app/_layout.tsx` - Main layout with providers and authentication
+- __Navigation__: Tab-based with 4 main sections: Dashboard, Billing, Sales, Settings
+- __Providers__: Auth, Data, and Payment providers for state management
+- __Database__: Supabase integration with comprehensive table structure
+
+### Main Screens
+
+1. __Dashboard__ (`app/(tabs)/(home)/index.tsx`)
+
+   - Sales overview with charts and statistics
+   - Role-based views (admin vs employee)
+   - Real-time data with refresh controls
+
+2. __Billing__ (`app/(tabs)/billing/index.tsx`)
+
+   - Customer selection and service/subscription selection
+   - Dynamic bill calculation with discounts
+   - UPI payment integration with QR codes
+   - Quick payment functionality
+
+3. __Sales__ (`app/(tabs)/sales/index.tsx`)
+
+   - Sales history with filtering and search
+   - Invoice generation and download
+   - Payment method tracking
+
+4. __Settings__ - Comprehensive admin panel with:
+
+   - __Inventory Management__ - Add/edit services and products
+   - __Staff Management__ - Employee CRUD operations
+   - __Customer Management__ - Customer records and visit tracking
+   - __Subscription Plans__ - Plan configuration
+   - __Customer Subscriptions__ - Active/paused subscription management
+   - __Offers__ - Visit-based, promo, and student discounts
+   - __Payments__ - UPI configuration
+
+### Key Features
+
+#### Authentication & Security
+
+- User login with hashed passwords
+- Role-based access (admin/employee)
+- Default credentials: admin/admin123, employee/emp123
+
+#### Billing System
+
+- Service and product selection
+
+- Subscription plan sales
+
+- Dynamic discount calculation based on:
+
+  - Customer subscriptions (30% off for active subscribers)
+  - Visit count (visit-based offers)
+  - Student status
+  - Promo codes
+
+#### Payment Integration
+
+- Cash and UPI payment methods
+- QR code generation for UPI payments
+- Multiple UPI ID support with swipe navigation
+
+#### Data Management
+
+- Offline-first approach with AsyncStorage
+- Real-time sync with Supabase
+- Comprehensive error handling and retry mechanisms
+
+#### Database Schema
+
+The app uses 10 main tables:
+
+- `users` - Staff accounts
+- `customers` - Customer records with visit tracking
+- `services` - Services and products
+- `subscription_plans` - Subscription configurations
+- `sales` - Transaction records
+- `customer_subscriptions` - Active subscriptions
+- `offers` - Discount rules
+- `upi_configs` - Payment configurations
+
+### Development Setup
+
+- __Environment__: Requires Supabase project URL and Anon Key
+- __Build System__: Expo with EAS for production builds
+- __Code Quality__: ESLint configuration included
+- __TypeScript__: Full type safety with comprehensive type definitions
+
+### Notable Features
+
+- __Offline Support__: Graceful handling of network issues
+- __Responsive Design__: Consistent UI across all screens
+- __Accessibility__: Proper labeling and keyboard navigation
+- __Error Handling__: Comprehensive error states and user feedback
+- __Security__: Password hashing and role-based permissions
+
+This is a well-architected, production-ready application with a complete billing system for a beauty salon business, featuring modern React Native patterns and robust backend integration.
+
+
+
 CRM and Billing Mobile App Beta
 ------------------------------------------------------------
 Billing Page
