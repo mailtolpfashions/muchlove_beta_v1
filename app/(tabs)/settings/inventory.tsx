@@ -7,7 +7,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -20,12 +19,15 @@ import { Colors } from '@/constants/colors';
 import { Spacing, BorderRadius, FontSize } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Service } from '@/types';
-import { formatCurrency } from '@/utils/format';
+import { formatCurrency, capitalizeWords, isValidName } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
+import SortPills, { SortOption } from '@/components/SortPills';
 
 const FILTERS = ['All', 'Services', 'Products'];
 
 export default function InventoryScreen() {
   const { services, addService, updateService, deleteService, reload } = useData();
+  const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -38,6 +40,7 @@ export default function InventoryScreen() {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [sortBy, setSortBy] = useState<SortOption>('a-z');
 
   // Form state
   const [name, setName] = useState('');
@@ -63,7 +66,11 @@ export default function InventoryScreen() {
     const mrpNum = mrp ? parseFloat(mrp) : undefined;
 
     if (!name.trim() || !code.trim() || isNaN(priceNum)) {
-      Alert.alert('Error', 'Name, code, and a valid price are required');
+      showAlert('Error', 'Name, code, and a valid price are required');
+      return;
+    }
+    if (!isValidName(name.trim())) {
+      showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
 
@@ -88,25 +95,23 @@ export default function InventoryScreen() {
       setShowForm(false);
       resetForm();
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to save item');
+      showAlert('Error', e.message || 'Failed to save item');
     } finally {
       setLoading(false);
     }
   };
 
   const confirmDeleteItem = (item: Service) => {
-    Alert.alert('Delete Item', `Are you sure you want to delete "${item.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteService(item.id),
-      },
-    ]);
+    showConfirm(
+      'Delete Item',
+      `Are you sure you want to delete "${item.name}"?`,
+      () => deleteService(item.id),
+      'Delete',
+    );
   };
 
   const filteredItems = useMemo(() => {
-    let filtered = services;
+    let filtered = [...services];
     if (activeFilter !== 'All') {
       const filterKind = activeFilter === 'Services' ? 'service' : 'product';
       filtered = filtered.filter((s: Service) => s.kind === filterKind);
@@ -117,8 +122,19 @@ export default function InventoryScreen() {
         (s: Service) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)
       );
     }
+    switch (sortBy) {
+      case 'a-z':
+        filtered.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'z-a':
+        filtered.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case 'recent':
+        filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+    }
     return filtered;
-  }, [services, searchQuery, activeFilter]);
+  }, [services, searchQuery, activeFilter, sortBy]);
 
   const renderItem = ({ item }: { item: Service }) => (
     <View style={styles.card}>
@@ -137,7 +153,7 @@ export default function InventoryScreen() {
         }}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.itemName}>{capitalizeWords(item.name)}</Text>
           <View
             style={[
               styles.typeBadge,
@@ -150,7 +166,7 @@ export default function InventoryScreen() {
                 item.kind === 'service' ? styles.serviceBadgeText : styles.productBadgeText,
               ]}
             >
-              {item.kind}
+              {capitalizeWords(item.kind)}
             </Text>
           </View>
         </View>
@@ -206,6 +222,10 @@ export default function InventoryScreen() {
             </Text>
           </TouchableOpacity>
         ))}
+      </View>
+
+      <View style={styles.sortRow}>
+        <SortPills value={sortBy} onChange={setSortBy} />
       </View>
 
       <FlatList
@@ -328,12 +348,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     height: 44,
     gap: 8,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
@@ -343,7 +366,7 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.md,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -358,13 +381,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.background,
   },
   activeFilterChip: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   filterChipText: {
     fontSize: 13,
@@ -372,7 +392,11 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   activeFilterChipText: {
-    color: Colors.primary,
+    color: Colors.surface,
+  },
+  sortRow: {
+    paddingHorizontal: Spacing.card,
+    paddingBottom: Spacing.sm,
   },
   listContent: {
     paddingHorizontal: Spacing.card,
@@ -382,11 +406,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,
@@ -527,23 +554,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   typeButton: {
-    borderWidth: 1,
-    borderColor: Colors.border,
     borderRadius: BorderRadius.md,
     height: 44,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    backgroundColor: Colors.background,
   },
   typeButtonActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   typeButtonText: {
     color: Colors.textSecondary,
     fontWeight: '500',
   },
   typeButtonTextActive: {
-    color: Colors.primary,
+    color: Colors.surface,
     fontWeight: '600',
   }
 });

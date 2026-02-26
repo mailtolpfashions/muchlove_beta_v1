@@ -91,7 +91,11 @@ CREATE TABLE sales (
   discount_percent INTEGER NOT NULL DEFAULT 0,
   discount_amount NUMERIC NOT NULL DEFAULT 0,
   total NUMERIC NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Offline billing audit columns
+  is_offline_sale BOOLEAN NOT NULL DEFAULT false,
+  offline_created_at TIMESTAMPTZ,           -- device clock at time of sale (NULL if online)
+  synced_at TIMESTAMPTZ                      -- when this record reached the server (NULL if online)
 );
 
 -- Sale line items (services/products)
@@ -123,6 +127,35 @@ CREATE TABLE IF NOT EXISTS upi_configs (
   payee_name TEXT NOT NULL
 );
 
--- Optional: enable RLS later (for now allow all for anon key during testing)
+-- SECURITY: Enable RLS for production. The app uses the Supabase anon key
+-- directly (not Supabase Auth), so policies below allow full access for the
+-- anon role. For stricter security, implement Supabase Auth and scope policies.
+--
 -- ALTER TABLE users ENABLE ROW LEVEL SECURITY;
--- etc.
+-- ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE customer_subscriptions ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE offers ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE sale_items ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE subscription_sale_items ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE upi_configs ENABLE ROW LEVEL SECURITY;
+--
+-- CREATE POLICY "Allow all for anon" ON users FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON customers FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON services FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON subscription_plans FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON customer_subscriptions FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON offers FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON sales FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON sale_items FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON subscription_sale_items FOR ALL TO anon USING (true) WITH CHECK (true);
+-- CREATE POLICY "Allow all for anon" ON upi_configs FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MIGRATION: Offline billing support (run if your sales table already exists)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_offline_sale BOOLEAN NOT NULL DEFAULT false;
+-- ALTER TABLE sales ADD COLUMN IF NOT EXISTS offline_created_at TIMESTAMPTZ;
+-- ALTER TABLE sales ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ;

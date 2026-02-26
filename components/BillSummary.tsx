@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Dimensions
+  View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription } from '@/types';
-import { formatCurrency } from '@/utils/format';
+import { formatCurrency, capitalizeWords } from '@/utils/format';
 
 interface BillSummaryProps {
   items: Service[];
@@ -146,12 +146,11 @@ export default function BillSummary({
       <Text style={styles.title}>Bill Summary</Text>
 
       <View style={styles.itemsContainer}>
-        <FlatList
-          data={groupedItems}
-          renderItem={({ item, index }) => (
-            <View style={styles.itemRow}>
+        {groupedItems.length > 0 ? (
+          groupedItems.map((item, index) => (
+            <View style={[styles.itemRow, index === groupedItems.length - 1 && subs.length === 0 && styles.itemRowLast]} key={`${item.service.id}-${index}`}>
               <View style={styles.itemNameContainer}>
-                <Text style={styles.itemName}>{item.service.name}</Text>
+                <Text style={styles.itemName}>{capitalizeWords(item.service.name)}</Text>
 
                 <View style={styles.qtyContainer}>
                   {onSubtractQuantity && (
@@ -161,32 +160,36 @@ export default function BillSummary({
                   )}
                   <Text style={styles.qtyText}>{item.quantity}</Text>
                   {onAddQuantity && (
-                    <TouchableOpacity onPress={() => onAddQuantity(item.service)} style={styles.qtyBtn}>
-                      <Text style={styles.qtyBtnText}>+</Text>
+                    <TouchableOpacity onPress={() => onAddQuantity(item.service)} style={[styles.qtyBtn, styles.qtyBtnAdd]}>
+                      <Text style={[styles.qtyBtnText, styles.qtyBtnTextAdd]}>+</Text>
                     </TouchableOpacity>
                   )}
                 </View>
               </View>
               <Text style={styles.itemPrice}>{formatCurrency(item.service.price * item.quantity)}</Text>
             </View>
-          )}
-          keyExtractor={(item, index) => `${item.service.id}-${index}`}
-          ListEmptyComponent={<Text style={styles.emptyText}>No services or products added</Text>}
-        />
-        <FlatList
-          data={subs}
-          renderItem={({ item, index }) => (
-            <View style={styles.itemRow}>
-              <Text style={styles.itemName}>{item.name} (Subscription)</Text>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No services or products added</Text>
+        )}
+        {subs.length > 0 ? (
+          subs.map((item, index) => (
+            <View style={[styles.itemRow, index === subs.length - 1 && styles.itemRowLast]} key={`sub-${item.id}-${index}`}>
+              <View style={styles.itemNameContainer}>
+                <Text style={styles.itemName}>{capitalizeWords(item.name)}</Text>
+                <View style={styles.subTag}>
+                  <Text style={styles.subTagText}>Subscription</Text>
+                </View>
+              </View>
               <Text style={styles.itemPrice}>{formatCurrency(item.price)}</Text>
-              <TouchableOpacity onPress={() => onRemoveSub(index)}>
-                <Trash2 size={16} color={Colors.danger} />
+              <TouchableOpacity onPress={() => onRemoveSub(index)} style={styles.removeBtn}>
+                <Trash2 size={14} color={Colors.danger} />
               </TouchableOpacity>
             </View>
-          )}
-          keyExtractor={(item, index) => `${item.id}-${index}`}
-          ListEmptyComponent={items.length > 0 ? null : <Text style={styles.emptyText}>No subscriptions added</Text>}
-        />
+          ))
+        ) : (
+          items.length > 0 ? null : <Text style={styles.emptyText}>No subscriptions added</Text>
+        )}
       </View>
 
       <View style={styles.totalsContainer}>
@@ -196,20 +199,26 @@ export default function BillSummary({
         </View>
         {serviceDiscount > 0 && (
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}><Star size={12} color={Colors.info} /> {serviceDiscountLabel}</Text>
-            <Text style={styles.totalValue}>- {formatCurrency(serviceDiscount)}</Text>
+            <View style={styles.discountLabelRow}>
+              <Star size={12} color={Colors.info} />
+              <Text style={styles.discountLabel}>{serviceDiscountLabel}</Text>
+            </View>
+            <Text style={styles.discountValue}>- {formatCurrency(serviceDiscount)}</Text>
           </View>
         )}
         {subsDiscount > 0 && (
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}><Percent size={12} color={Colors.warning} /> {subsDiscountLabel}</Text>
-            <Text style={styles.totalValue}>- {formatCurrency(subsDiscount)}</Text>
+            <View style={styles.discountLabelRow}>
+              <Percent size={12} color={Colors.warning} />
+              <Text style={styles.discountLabel}>{subsDiscountLabel}</Text>
+            </View>
+            <Text style={styles.discountValue}>- {formatCurrency(subsDiscount)}</Text>
           </View>
         )}
         {(serviceDiscount > 0 || subsDiscount > 0) && (
           <Text style={styles.disclaimerText}>* Discounts are applicable only on services.</Text>
         )}
-        <View style={[styles.totalRow, styles.grandTotalRow]}>
+        <View style={styles.grandTotalRow}>
           <Text style={styles.grandTotalLabel}>Total</Text>
           <Text style={styles.grandTotalValue}>{formatCurrency(total)}</Text>
         </View>
@@ -226,51 +235,72 @@ export default function BillSummary({
         </Text>
       </TouchableOpacity>
 
-      <Modal animationType="fade" transparent={true} visible={isPaymentModalVisible} onRequestClose={() => setPaymentModalVisible(false)}>
+      {/* Payment Method Modal */}
+      <Modal animationType="fade" transparent visible={isPaymentModalVisible} onRequestClose={() => setPaymentModalVisible(false)}>
         <View style={styles.paymentModalBackdrop}>
           <View style={styles.paymentModalContent}>
-            <Text style={styles.paymentModalTitle}>Payment Method</Text>
+            <View style={styles.paymentModalHeader}>
+              <Text style={styles.paymentModalTitle}>Payment Method</Text>
+              <TouchableOpacity onPress={() => setPaymentModalVisible(false)} style={styles.paymentCloseBtn}>
+                <X size={18} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.paymentModalSubtitle}>How would you like to pay?</Text>
-            <TouchableOpacity style={styles.paymentOptionBtn} onPress={() => { onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent)); setPaymentModalVisible(false); }}>
-              <Wallet size={20} color={Colors.primary} />
-              <Text style={styles.paymentOptionText}>Cash</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.paymentOptionBtn} onPress={handleShowUpiQr}>
-              <Smartphone size={20} color={Colors.primary} />
-              <Text style={styles.paymentOptionText}>Online / UPI</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.paymentOptionBtn, styles.cancelBtn]} onPress={() => setPaymentModalVisible(false)}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
+
+            <View style={styles.paymentMethodRow}>
+              <TouchableOpacity style={styles.paymentMethodCard} onPress={() => { onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent)); setPaymentModalVisible(false); }}>
+                <View style={[styles.paymentMethodIcon, { backgroundColor: '#D1FAE5' }]}>
+                  <Wallet size={24} color="#10B981" />
+                </View>
+                <Text style={styles.paymentMethodLabel}>Cash</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.paymentMethodCard} onPress={handleShowUpiQr}>
+                <View style={[styles.paymentMethodIcon, { backgroundColor: Colors.primaryLight }]}>
+                  <Smartphone size={24} color={Colors.primary} />
+                </View>
+                <Text style={styles.paymentMethodLabel}>Online / UPI</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
 
-      <Modal animationType="slide" transparent={true} visible={isQrModalVisible} onRequestClose={onQrCodeClose}>
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { width: modalWidth + Spacing.xl * 2 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Scan to Pay</Text>
-              <TouchableOpacity onPress={onQrCodeClose}><X size={24} color={Colors.text} /></TouchableOpacity>
+      {/* QR Code Modal */}
+      <Modal animationType="slide" transparent visible={isQrModalVisible} onRequestClose={onQrCodeClose}>
+        <View style={styles.qrModalBackdrop}>
+          <View style={styles.qrModalContent}>
+            <View style={styles.qrModalHeader}>
+              <Text style={styles.qrModalTitle}>Scan to Pay</Text>
+              <TouchableOpacity onPress={onQrCodeClose} style={styles.paymentCloseBtn}>
+                <X size={18} color={Colors.textTertiary} />
+              </TouchableOpacity>
             </View>
             <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={handleScroll} style={{ width: modalWidth }} contentContainerStyle={{ alignItems: 'center' }}>
               {upiList.map((upi, index) => {
                 const upiUri = `upi://pay?pa=${upi.upiId}&pn=${upi.payeeName}&am=${total}&cu=INR`;
                 return (
                   <View key={index} style={[styles.qrSlide, { width: modalWidth }]}>
-                    <QRCode value={upiUri} size={modalWidth * 0.8} />
-                    <Text style={styles.upiPayeeName}>Paying to {upi.payeeName}</Text>
+                    <View style={styles.qrCardWrapper}>
+                      <QRCode value={upiUri} size={modalWidth * 0.7} />
+                    </View>
+                    <Text style={styles.upiPayeeName}>{upi.payeeName}</Text>
+                    <Text style={styles.upiId}>{upi.upiId}</Text>
                   </View>
                 );
               })}
             </ScrollView>
-            <Text style={styles.amountText}>Amount: {formatCurrency(total)}</Text>
+            <View style={styles.qrAmountBadge}>
+              <Text style={styles.qrAmountLabel}>Amount</Text>
+              <Text style={styles.qrAmountValue}>{formatCurrency(total)}</Text>
+            </View>
             {upiList.length > 1 && (
               <View style={styles.pagination}>
                 {upiList.map((_, i) => <View key={i} style={[styles.dot, activeUpiIndex === i && styles.activeDot]} />)}
               </View>
             )}
-            <TouchableOpacity style={styles.doneBtn} onPress={onQrCodeClose}><Text style={styles.doneBtnText}>Done</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.doneBtn} onPress={onQrCodeClose}>
+              <Text style={styles.doneBtnText}>Payment Received</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -281,74 +311,105 @@ export default function BillSummary({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xxl,
+    padding: Spacing.xl,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
   },
   title: {
-    fontSize: FontSize.title,
-    fontWeight: '600',
+    fontSize: FontSize.heading,
+    fontWeight: '700',
     color: Colors.text,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
   itemsContainer: {
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderLight,
+  },
+  itemRowLast: {
+    borderBottomWidth: 0,
   },
   itemNameContainer: {
     flex: 1,
     flexDirection: 'column',
     alignItems: 'flex-start',
-    gap: Spacing.xs,
+    gap: 4,
   },
   itemName: {
-    fontSize: FontSize.body,
+    fontSize: FontSize.md,
+    fontWeight: '500',
     color: Colors.text,
+  },
+  subTag: {
+    backgroundColor: Colors.infoLight,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  subTagText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.info,
   },
   qtyContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
-    marginTop: 4,
+    gap: 10,
   },
   qtyBtn: {
-    backgroundColor: Colors.borderLight,
+    backgroundColor: Colors.background,
     width: 28,
     height: 28,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  qtyBtnAdd: {
+    backgroundColor: Colors.primaryLight,
+  },
   qtyBtnText: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.title,
     color: Colors.textSecondary,
-    lineHeight: 22,
+    lineHeight: 20,
+  },
+  qtyBtnTextAdd: {
+    color: Colors.primary,
   },
   qtyText: {
-    fontSize: FontSize.body,
-    fontWeight: '600',
+    fontSize: FontSize.md,
+    fontWeight: '700',
     color: Colors.text,
   },
   itemPrice: {
-    fontSize: FontSize.body,
+    fontSize: FontSize.md,
+    fontWeight: '600',
     color: Colors.text,
     textAlign: 'right',
     minWidth: 80,
   },
+  removeBtn: {
+    padding: 6,
+    marginLeft: 6,
+  },
   emptyText: {
-    paddingVertical: Spacing.sm,
-    color: Colors.textSecondary,
+    paddingVertical: Spacing.md,
+    color: Colors.textTertiary,
+    fontSize: FontSize.body,
   },
   totalsContainer: {
-    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
   },
   totalRow: {
     flexDirection: 'row',
@@ -359,29 +420,47 @@ const styles = StyleSheet.create({
   totalLabel: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
+    fontWeight: '500',
   },
   totalValue: {
     fontSize: FontSize.body,
     color: Colors.text,
+    fontWeight: '500',
+  },
+  discountLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  discountLabel: {
+    fontSize: FontSize.body,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  discountValue: {
+    fontSize: FontSize.body,
+    color: Colors.success,
+    fontWeight: '600',
   },
   grandTotalRow: {
-    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.borderLight,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.md,
     marginTop: Spacing.sm,
   },
   grandTotalLabel: {
-    fontSize: FontSize.title,
-    fontWeight: '600',
+    fontSize: FontSize.heading,
+    fontWeight: '700',
     color: Colors.text,
   },
   grandTotalValue: {
-    fontSize: FontSize.title,
-    fontWeight: '600',
-    color: Colors.text,
+    fontSize: FontSize.heading,
+    fontWeight: '700',
+    color: Colors.primary,
   },
   placeOrderBtn: {
     flexDirection: 'row',
@@ -390,144 +469,208 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     padding: Spacing.lg,
     borderRadius: BorderRadius.xl,
-    gap: Spacing.md,
-    marginTop: Spacing.lg,
+    gap: Spacing.sm,
+    marginTop: Spacing.xl,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
   placeOrderBtnText: {
     fontSize: FontSize.md,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.surface,
   },
   placeOrderBtnDisabled: {
     backgroundColor: Colors.border,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   disclaimerText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textTertiary,
     textAlign: 'right',
-    marginTop: Spacing.sm,
+    marginBottom: Spacing.sm,
     fontStyle: 'italic',
   },
-  modalContainer: {
+
+  /* Payment Method Modal */
+  paymentModalBackdrop: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: Colors.overlay,
+    padding: Spacing.screen,
   },
-  modalContent: {
+  paymentModalContent: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
+    borderRadius: BorderRadius.xxl,
     padding: Spacing.xl,
+    width: '100%',
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  paymentModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  paymentModalTitle: {
+    fontSize: FontSize.heading,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  paymentCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  modalHeader: {
+  paymentModalSubtitle: {
+    fontSize: FontSize.body,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xl,
+  },
+  paymentMethodRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  paymentMethodCard: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.xl,
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  paymentMethodIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paymentMethodLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+
+  /* QR Code Modal */
+  qrModalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.overlay,
+    padding: Spacing.screen,
+  },
+  qrModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xxl,
+    padding: Spacing.xl,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  qrModalHeader: {
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.lg,
   },
-  modalTitle: {
+  qrModalTitle: {
     fontSize: FontSize.heading,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.text,
   },
   qrSlide: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.md,
+  },
+  qrCardWrapper: {
+    backgroundColor: Colors.surface,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   upiPayeeName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.text,
+    marginTop: Spacing.md,
+  },
+  upiId: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  qrAmountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.primaryLight,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: 999,
+  },
+  qrAmountLabel: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-    marginTop: Spacing.sm,
   },
-  amountText: {
-    fontSize: FontSize.title,
-    fontWeight: '600',
-    color: Colors.text,
-    marginTop: Spacing.lg,
+  qrAmountValue: {
+    fontSize: FontSize.heading,
+    fontWeight: '700',
+    color: Colors.primary,
   },
   doneBtn: {
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.xxl,
     borderRadius: BorderRadius.xl,
     marginTop: Spacing.lg,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   doneBtnText: {
     fontSize: FontSize.md,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.surface,
-  },
-  paymentModalBackdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  paymentModalContent: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
-    width: '85%',
-    alignItems: 'stretch',
-  },
-  paymentModalTitle: {
-    fontSize: FontSize.heading,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: Spacing.sm,
-    textAlign: 'center',
-  },
-  paymentModalSubtitle: {
-    fontSize: FontSize.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.xl,
-  },
-  paymentOptionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primaryLight,
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    marginBottom: Spacing.md,
-    gap: Spacing.md,
-  },
-  paymentOptionText: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  cancelBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    justifyContent: 'center',
-    marginTop: Spacing.sm,
-  },
-  cancelBtnText: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    textAlign: 'center',
   },
   pagination: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: Spacing.md,
+    gap: 6,
+    marginTop: Spacing.md,
   },
   dot: {
     height: 8,
     width: 8,
     borderRadius: 4,
     backgroundColor: Colors.border,
-    marginHorizontal: 4,
   },
   activeDot: {
     backgroundColor: Colors.primary,
-    width: 12,
+    width: 20,
   },
 });

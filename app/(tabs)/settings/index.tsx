@@ -5,26 +5,34 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   RefreshControl,
   Modal,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  Wrench,
-  CreditCard,
-  Users,
-  LogOut,
   ChevronRight,
-  ShieldCheck,
   Info,
-  UserPlus,
-  Tag,
+  LogOut,
+  Scissors,
+  UsersRound,
+  UserRoundSearch,
+  Crown,
+  UserRoundPlus,
+  Sparkles,
   Wallet,
+  BadgePercent,
+  Phone,
+  MapPin,
+  Store,
+  X,
+  ShieldCheck,
 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
+import { useAlert } from '@/providers/AlertProvider';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
-import { APP_AUTHOR, APP_NAME, APP_VERSION } from '@/constants/app';
+import { APP_AUTHOR, APP_NAME, APP_VERSION, BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { CustomerSubscription } from '@/types';
@@ -32,6 +40,7 @@ import { CustomerSubscription } from '@/types';
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
+  const { showConfirm } = useAlert();
   const { services, subscriptions, offers, users, customers, customerSubscriptions, loadError, reload } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
@@ -47,25 +56,25 @@ export default function SettingsScreen() {
     {
       title: 'Inventory',
       subtitle: `${services.length} items configured`,
-      icon: Wrench,
-      color: Colors.primary,
-      bg: Colors.primaryLight,
+      icon: Scissors,
+      color: '#E91E63',
+      bg: '#FCE4EC',
       route: '/settings/inventory' as const,
     },
     {
       title: 'Staff',
       subtitle: `${users.length} employees`,
-      icon: Users,
-      color: Colors.info,
-      bg: Colors.infoLight,
+      icon: UsersRound,
+      color: '#7C3AED',
+      bg: '#EDE9FE',
       route: '/settings/staff' as const,
     },
     {
       title: 'Customers',
       subtitle: `${customers.length} records`,
-      icon: Users,
-      color: Colors.info,
-      bg: Colors.infoLight,
+      icon: UserRoundSearch,
+      color: '#0EA5E9',
+      bg: '#E0F2FE',
       route: '/settings/customers' as const,
     },
   ];
@@ -76,18 +85,29 @@ export default function SettingsScreen() {
     {
       title: 'Subscription Plans',
       subtitle: `${subscriptions.length} plans available`,
-      icon: CreditCard,
-      color: Colors.accent,
-      bg: Colors.accentLight,
+      icon: Crown,
+      color: '#D4AF37',
+      bg: '#FDF6E3',
       route: '/settings/subscription-plans' as const,
     },
     {
       title: 'Customer Subscriptions',
       subtitle: `${subscribedCount} customers subscribed`,
-      icon: UserPlus,
-      color: Colors.accent,
-      bg: Colors.accentLight,
+      icon: UserRoundPlus,
+      color: '#F59E0B',
+      bg: '#FEF3C7',
       route: '/settings/customer-subscriptions' as const,
+    },
+  ] : [];
+
+  const offersMenuItems = isAdmin ? [
+    {
+      title: 'Offers',
+      subtitle: `${offers.length} visit & promo offers`,
+      icon: BadgePercent,
+      color: '#EC4899',
+      bg: '#FCE7F3',
+      route: '/settings/offers' as const,
     },
   ] : [];
 
@@ -96,28 +116,52 @@ export default function SettingsScreen() {
       title: 'Payments',
       subtitle: 'UPI IDs & payment methods',
       icon: Wallet,
-      color: Colors.success,
-      bg: Colors.successLight,
+      color: '#10B981',
+      bg: '#D1FAE5',
       route: '/settings/payments' as const,
     },
   ];
 
-  const offersMenuItems = isAdmin ? [
-    {
-      title: 'Offers',
-      subtitle: `${offers.length} visit & promo offers`,
-      icon: Tag,
-      color: Colors.accent,
-      bg: Colors.accentLight,
-      route: '/settings/offers' as const,
-    },
-  ] : [];
-
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: logout },
-    ]);
+    showConfirm(
+      'Logout',
+      'Are you sure you want to logout?',
+      logout,
+      'Logout',
+    );
+  };
+
+  const renderSection = (label: string, items: typeof menuItems) => {
+    if (items.length === 0) return null;
+    return (
+      <>
+        <Text style={styles.sectionLabel}>{label}</Text>
+        <View style={styles.menuCard}>
+          {items.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <TouchableOpacity
+                key={item.route}
+                style={[styles.menuItem, index < items.length - 1 && styles.menuItemBorder]}
+                onPress={() => router.push(item.route as any)}
+                activeOpacity={0.6}
+              >
+                <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
+                  <Icon size={20} color={item.color} strokeWidth={2} />
+                </View>
+                <View style={styles.menuContent}>
+                  <Text style={styles.menuTitle}>{item.title}</Text>
+                  <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+                </View>
+                <View style={styles.chevronCircle}>
+                  <ChevronRight size={14} color={Colors.textTertiary} />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </>
+    );
   };
 
   return (
@@ -134,162 +178,68 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* Profile Card */}
       <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <ShieldCheck size={28} color={Colors.primary} />
-        </View>
+        <LinearGradient
+          colors={['#E91E63', '#AD1457']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.avatarGradient}
+        >
+          <Text style={styles.avatarInitial}>{user?.name?.charAt(0)?.toUpperCase() || 'U'}</Text>
+        </LinearGradient>
         <View style={styles.profileInfo}>
           <Text style={styles.profileName}>{user?.name}</Text>
-          <Text style={styles.profileRole}>{isAdmin ? 'Administrator' : 'Employee'}</Text>
+          <View style={styles.roleBadge}>
+            <ShieldCheck size={12} color={isAdmin ? Colors.primary : Colors.info} />
+            <Text style={[styles.roleText, !isAdmin && { color: Colors.info }]}>{isAdmin ? 'Administrator' : 'Employee'}</Text>
+          </View>
         </View>
+        <Sparkles size={20} color={Colors.accent} />
       </View>
 
-      {menuItems.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>MANAGEMENT</Text>
-          <View style={styles.menuCard}>
-            {menuItems.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.menuItem, index < menuItems.length - 1 && styles.menuItemBorder]}
-                  onPress={() => router.push(item.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
-                    <Icon size={20} color={item.color} />
-                  </View>
-                  <View style={styles.menuContent}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-                  </View>
-                  <ChevronRight size={18} color={Colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
-      )}
+      {renderSection('MANAGEMENT', menuItems)}
+      {renderSection('SUBSCRIPTIONS', subscriptionMenuItems)}
+      {renderSection('OFFERS', offersMenuItems)}
+      {isAdmin && renderSection('PAYMENTS', paymentsMenuItems)}
 
-      {subscriptionMenuItems.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>SUBSCRIPTIONS</Text>
-          <View style={styles.menuCard}>
-            {subscriptionMenuItems.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <TouchableOpacity
-                  key={item.route}
-                  style={[
-                    styles.menuItem,
-                    index < subscriptionMenuItems.length - 1 && styles.menuItemBorder,
-                  ]}
-                  onPress={() => router.push(item.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
-                    <Icon size={20} color={item.color} />
-                  </View>
-                  <View style={styles.menuContent}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-                  </View>
-                  <ChevronRight size={18} color={Colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
-      )}
-
-      {offersMenuItems.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>OFFERS</Text>
-          <View style={styles.menuCard}>
-            {offersMenuItems.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.menuItem, index < offersMenuItems.length - 1 && styles.menuItemBorder]}
-                  onPress={() => router.push(item.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
-                    <Icon size={20} color={item.color} />
-                  </View>
-                  <View style={styles.menuContent}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-                  </View>
-                  <ChevronRight size={18} color={Colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
-      )}
-
-      {isAdmin && (
-        <>
-          <Text style={styles.sectionLabel}>PAYMENTS</Text>
-          <View style={styles.menuCard}>
-            {paymentsMenuItems.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[styles.menuItem, index < paymentsMenuItems.length - 1 && styles.menuItemBorder]}
-                  onPress={() => router.push(item.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
-                    <Icon size={20} color={item.color} />
-                  </View>
-                  <View style={styles.menuContent}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-                  </View>
-                  <ChevronRight size={18} color={Colors.textTertiary} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
-      )}
-
+      {/* App Info */}
       <Text style={styles.sectionLabel}>APP INFO</Text>
       <View style={styles.menuCard}>
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => setAboutModalVisible(true)}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
         >
-          <View style={[styles.menuIcon, { backgroundColor: Colors.infoLight }]}>
-            <Info size={20} color={Colors.info} />
+          <View style={[styles.menuIcon, { backgroundColor: '#FFF0F5' }]}>
+            <Store size={20} color={Colors.primary} strokeWidth={2} />
           </View>
           <View style={styles.menuContent}>
             <Text style={styles.menuTitle}>About Us</Text>
-            <Text style={styles.menuSubtitle}>Salon details and contact</Text>
+            <Text style={styles.menuSubtitle}>Salon details & contact</Text>
           </View>
-          <ChevronRight size={18} color={Colors.textTertiary} />
+          <View style={styles.chevronCircle}>
+            <ChevronRight size={14} color={Colors.textTertiary} />
+          </View>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+      {/* Logout */}
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
         <LogOut size={18} color={Colors.danger} />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>
-        {APP_NAME} v{APP_VERSION}
-      </Text>
-      <Text style={styles.version}>Developed By {APP_AUTHOR}</Text>
+      <View style={styles.footerInfo}>
+        <Text style={styles.version}>{APP_NAME} v{APP_VERSION}</Text>
+        <Text style={styles.versionSub}>Developed by {APP_AUTHOR}</Text>
+      </View>
 
+      {/* About Modal */}
       <Modal
         animationType="fade"
-        transparent={true}
+        transparent
         visible={isAboutModalVisible}
         onRequestClose={() => setAboutModalVisible(false)}
       >
@@ -299,13 +249,38 @@ export default function SettingsScreen() {
           onPress={() => setAboutModalVisible(false)}
         >
           <View style={styles.modalContent}>
-            <Text style={styles.aboutTitle}>Much Love Beauty Salon</Text>
-            <Text style={styles.aboutText}>Kundrathur, Chennai - 69</Text>
-            <Text style={[styles.aboutText, { marginBottom: Spacing.xl }]}>Contact : 9092890546</Text>
-
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setAboutModalVisible(false)}>
-              <Text style={styles.closeBtnText}>Close</Text>
+            {/* Close X */}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setAboutModalVisible(false)}>
+              <X size={18} color={Colors.textTertiary} />
             </TouchableOpacity>
+
+            {/* Gradient logo circle */}
+            <LinearGradient
+              colors={['#E91E63', '#AD1457']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.aboutLogo}
+            >
+              <Scissors size={28} color="#fff" />
+            </LinearGradient>
+
+            <Text style={styles.aboutTitle}>{BUSINESS_NAME}</Text>
+
+            <View style={styles.aboutDivider} />
+
+            <View style={styles.aboutRow}>
+              <View style={styles.aboutIconCircle}>
+                <MapPin size={14} color={Colors.primary} />
+              </View>
+              <Text style={styles.aboutValue}>{BUSINESS_ADDRESS}</Text>
+            </View>
+
+            <View style={styles.aboutRow}>
+              <View style={styles.aboutIconCircle}>
+                <Phone size={14} color={Colors.primary} />
+              </View>
+              <Text style={styles.aboutValue}>{BUSINESS_CONTACT}</Text>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -346,76 +321,98 @@ const styles = StyleSheet.create({
   errorBannerBtnText: {
     fontSize: FontSize.sm,
     fontWeight: '600',
-    color: '#fff',
+    color: Colors.surface,
   },
+
+  /* Profile */
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.screen,
+    borderRadius: BorderRadius.xxl,
+    padding: Spacing.lg,
     marginBottom: Spacing.xxl,
     shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.primaryLight,
+  avatarGradient: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  avatarInitial: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: '#fff',
+  },
   profileInfo: {
-    marginLeft: 16,
+    marginLeft: 14,
     flex: 1,
   },
   profileName: {
     fontSize: FontSize.heading,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.text,
+    letterSpacing: 0.2,
   },
-  profileRole: {
-    fontSize: FontSize.body,
-    color: Colors.primary,
-    fontWeight: '500',
-    marginTop: 2,
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    backgroundColor: Colors.primaryLight,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
   },
-  sectionLabel: {
-    fontSize: FontSize.sm,
+  roleText: {
+    fontSize: FontSize.xs,
     fontWeight: '600',
+    color: Colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+
+  /* Section */
+  sectionLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
     color: Colors.textTertiary,
-    letterSpacing: 0.8,
+    letterSpacing: 1.2,
     marginBottom: 10,
     marginLeft: 4,
   },
   menuCard: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     overflow: 'hidden',
-    marginBottom: Spacing.xxl,
+    marginBottom: Spacing.xl,
     shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.card,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
   },
   menuItemBorder: {
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.borderLight,
   },
   menuIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -425,7 +422,7 @@ const styles = StyleSheet.create({
   },
   menuTitle: {
     fontSize: FontSize.md,
-    fontWeight: '500',
+    fontWeight: '600',
     color: Colors.text,
   },
   menuSubtitle: {
@@ -433,66 +430,119 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
+  chevronCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  /* Logout */
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
     backgroundColor: Colors.dangerLight,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.lg,
-    marginBottom: Spacing.card,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.15)',
   },
   logoutText: {
     fontSize: FontSize.md,
     fontWeight: '600',
     color: Colors.danger,
   },
+
+  /* Footer */
+  footerInfo: {
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
   version: {
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
-    textAlign: 'center',
+    fontWeight: '500',
   },
+  versionSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+
+  /* About Modal */
   modalBackdrop: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: Colors.overlay,
   },
   modalContent: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
+    borderRadius: BorderRadius.xxl,
+    paddingTop: 32,
+    paddingBottom: 28,
+    paddingHorizontal: 28,
     width: '85%',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    position: 'relative',
   },
-  aboutTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.text,
-    textAlign: 'center',
-    marginBottom: Spacing.sm,
-  },
-  aboutText: {
-    fontSize: FontSize.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.sm,
-  },
-  closeBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.border,
+  modalClose: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    marginTop: Spacing.lg,
   },
-  closeBtnText: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.textSecondary,
+  aboutLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  aboutTitle: {
+    fontSize: FontSize.heading,
+    fontWeight: '700',
+    color: Colors.text,
     textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  aboutDivider: {
+    height: 1,
+    backgroundColor: Colors.borderLight,
+    width: '80%',
+    marginVertical: 18,
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+    width: '100%',
+  },
+  aboutIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aboutValue: {
+    fontSize: FontSize.body,
+    color: Colors.textSecondary,
+    flex: 1,
+    fontWeight: '500',
   },
 });

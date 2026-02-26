@@ -13,6 +13,7 @@ import { Search, X, CheckCircle, Circle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { SubscriptionPlan } from '@/types';
+import { capitalizeWords } from '@/utils/format';
 import { formatCurrency } from '@/utils/format';
 
 interface SubscriptionPickerProps {
@@ -68,10 +69,11 @@ export default function SubscriptionPicker({
   return (
     <Modal
       animationType="slide"
-      transparent={false}
+      transparent={true}
       visible={visible}
       onRequestClose={handleClose}
     >
+      <View style={styles.overlay}>
       <View style={styles.modalContainer}>
         <View style={styles.header}>
           <Text style={styles.headerText}>Select Subscriptions</Text>
@@ -98,7 +100,7 @@ export default function SubscriptionPicker({
               onPress={() => toggleSubSelection(item)}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.subName}>{item.name}</Text>
+                <Text style={styles.subName}>{capitalizeWords(item.name)}</Text>
                 <Text style={styles.subDuration}>{item.durationMonths} months</Text>
               </View>
               <Text style={styles.subPrice}>{formatCurrency(item.price)}</Text>
@@ -119,16 +121,24 @@ export default function SubscriptionPicker({
           <Text style={styles.addButtonText}>Add ({selectedSubs.length})</Text>
         </TouchableOpacity>
       </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalContainer: {
+  overlay: {
     flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
     backgroundColor: Colors.background,
+    borderTopLeftRadius: BorderRadius.xxl,
+    borderTopRightRadius: BorderRadius.xxl,
     padding: Spacing.lg,
     paddingBottom: Spacing.xl,
+    maxHeight: '80%',
   },
   header: {
     flexDirection: 'row',
@@ -145,12 +155,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     marginBottom: Spacing.lg,
     height: 44,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,

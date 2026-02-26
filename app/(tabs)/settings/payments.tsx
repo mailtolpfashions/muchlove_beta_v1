@@ -6,7 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -17,9 +16,11 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { usePayment } from '@/providers/PaymentProvider';
 import { UpiData } from '@/types';
+import { useAlert } from '@/providers/AlertProvider';
 
 export default function PaymentsScreen() {
   const { upiList, addUpi, updateUpi, removeUpi, reloadUpi, upiLoading } = usePayment();
+  const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -36,7 +37,7 @@ export default function PaymentsScreen() {
 
   const handleAdd = async () => {
     if (!upiId.trim() || !payeeName.trim()) {
-      Alert.alert('Error', 'Both UPI ID and Payee Name are required');
+      showAlert('Error', 'Both UPI ID and Payee Name are required');
       return;
     }
     try {
@@ -48,19 +49,17 @@ export default function PaymentsScreen() {
       setShowAdd(false);
       resetForm();
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to save UPI details');
+      showAlert('Error', e.message || 'Failed to save UPI details');
     }
   };
 
   const handleRemove = (item: UpiData) => {
-    Alert.alert('Delete UPI', `Delete "${item.payeeName}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => removeUpi(item.id),
-      },
-    ]);
+    showConfirm(
+      'Delete UPI',
+      `Delete "${item.payeeName}"?`,
+      () => removeUpi(item.id),
+      'Delete',
+    );
   };
 
   const resetForm = () => {
@@ -179,7 +178,7 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 40,
     height: 40,
-    borderRadius: BorderRadius.md,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -192,11 +191,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,

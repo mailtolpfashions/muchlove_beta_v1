@@ -210,8 +210,8 @@ bun install
 SUPABASE
 -------------------------------------------------------------
 Add Key:
-eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://ddaptndonmardgqyemah.supabase.co"
-eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkYXB0bmRvbm1hcmRncXllbWFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3NDI1MDIsImV4cCI6MjA4NzMxODUwMn0.1cTPWkQhB6nF5OcJIraxl8nbvRQ-JmWvC5q5g1oES30"
+eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "<YOUR_SUPABASE_PROJECT_URL>"
+eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<YOUR_SUPABASE_ANON_KEY>"
 
 
 Delete Key:

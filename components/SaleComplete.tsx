@@ -1,8 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
-import { Check, Download } from 'lucide-react-native';
+import { Check, Download, WifiOff } from 'lucide-react-native';
+import { Sale } from '@/types';
+import { openInvoice } from '@/utils/invoice';
+import { useAlert } from '@/providers/AlertProvider';
+import { capitalizeWords } from '@/utils/format';
 
 interface SaleCompleteProps {
     sale: any;
@@ -10,22 +14,65 @@ interface SaleCompleteProps {
 }
 
 export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
+    const { showAlert } = useAlert();
     if (!sale) return null;
 
-    const handleDownloadPdf = () => {
-        Alert.alert('Coming Soon', 'PDF generation is not yet implemented.');
+    const handleDownloadPdf = async () => {
+        try {
+            const mapped: Sale = {
+                id: sale.id,
+                customerId: sale.customer_id ?? '',
+                customerName: sale.customer_name ?? 'Walk-in Customer',
+                employeeId: sale.employee_id ?? '',
+                employeeName: sale.employee_name ?? '',
+                type: sale.type ?? 'service',
+                paymentMethod: sale.payment_method,
+                subtotal: Number(sale.subtotal),
+                discountPercent: Number(sale.discount_percent ?? 0),
+                discountAmount: Number(sale.discount_amount ?? 0),
+                total: Number(sale.total),
+                createdAt: sale.created_at ?? new Date().toISOString(),
+                items: (sale.items || []).map((i: any) => ({
+                    id: i.id,
+                    itemId: i.itemId ?? i.service_id ?? '',
+                    itemName: i.itemName ?? i.service_name ?? '',
+                    itemCode: i.itemCode ?? i.service_code ?? '',
+                    price: Number(i.price),
+                    quantity: Number(i.quantity ?? 1),
+                    kind: i.kind ?? 'service',
+                })),
+                subscriptionItems: (sale.subscription_items || []).map((s: any) => ({
+                    id: s.id,
+                    planId: s.plan_id ?? '',
+                    planName: s.plan_name ?? '',
+                    price: Number(s.price),
+                    discountedPrice: Number(s.discounted_price ?? s.price),
+                })),
+            };
+            await openInvoice(mapped);
+        } catch (e) {
+            showAlert('Error', 'Failed to generate invoice PDF.');
+        }
     };
 
     return (
-        <Modal visible={!!sale} animationType="slide" transparent={false} onRequestClose={onClose}>
-            <View style={styles.container}>
-                <ScrollView contentContainerStyle={styles.content}>
+        <Modal visible={!!sale} animationType="slide" transparent={true} onRequestClose={onClose}>
+            <View style={styles.overlay}>
+              <View style={styles.container}>
+                <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                     <View style={styles.headerArea}>
                         <View style={styles.successIconContainer}>
-                            <Check size={48} color={Colors.surface} strokeWidth={3} />
+                            <Check size={32} color={Colors.surface} strokeWidth={3} />
                         </View>
                         <Text style={styles.title}>Sale Complete!</Text>
                         <Text style={styles.invoiceText}>Invoice #{sale.id ? sale.id.substring(0, 8).toUpperCase() : 'UNKNOWN'}</Text>
+
+                        {sale._offline && (
+                            <View style={styles.offlineBadge}>
+                                <WifiOff size={12} color="#6B7280" />
+                                <Text style={styles.offlineBadgeText}>Saved offline · will sync when online</Text>
+                            </View>
+                        )}
 
                         <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadPdf}>
                             <Download size={16} color={Colors.primary} />
@@ -36,11 +83,11 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
                     <View style={styles.detailsArea}>
                         <View style={styles.infoRow}>
                             <Text style={styles.infoLabel}>Customer</Text>
-                            <Text style={styles.infoValue}>{sale.customer_name || 'Walk-in Customer'}</Text>
+                            <Text style={styles.infoValue}>{sale.customer_name ? capitalizeWords(sale.customer_name) : 'Walk-in Customer'}</Text>
                         </View>
                         <View style={styles.infoRow}>
                             <Text style={styles.infoLabel}>Billed by</Text>
-                            <Text style={styles.infoValue}>{sale.employee_name}</Text>
+                            <Text style={styles.infoValue}>{capitalizeWords(sale.employee_name)}</Text>
                         </View>
 
                         <View style={styles.divider} />
@@ -48,7 +95,7 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
                         {/* Render Services & Products */}
                         {sale.items?.map((item: any, index: number) => (
                             <View key={`item_${index}`} style={styles.itemRow}>
-                                <Text style={styles.itemName}>{item.itemName || item.name} ×{item.quantity || 1}</Text>
+                                <Text style={styles.itemName}>{capitalizeWords(item.itemName || item.name)} ×{item.quantity || 1}</Text>
                                 <Text style={styles.itemPrice}>₹{Number(item.price).toFixed(2)}</Text>
                             </View>
                         ))}
@@ -56,7 +103,7 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
                         {/* Render Subscriptions */}
                         {sale.subscription_items?.map((item: any, index: number) => (
                             <View key={`sub_${index}`} style={styles.itemRow}>
-                                <Text style={styles.itemName}>{item.plan_name} ×1</Text>
+                                <Text style={styles.itemName}>{capitalizeWords(item.plan_name)} ×1</Text>
                                 <Text style={styles.itemPrice}>₹{Number(item.price).toFixed(2)}</Text>
                             </View>
                         ))}
@@ -89,28 +136,36 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
                         <Text style={styles.doneBtnText}>Done</Text>
                     </TouchableOpacity>
                 </View>
+              </View>
             </View>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
+    overlay: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: Colors.overlay,
+        justifyContent: 'flex-end',
+    },
+    container: {
+        backgroundColor: Colors.surface,
+        borderTopLeftRadius: BorderRadius.xxl,
+        borderTopRightRadius: BorderRadius.xxl,
+        maxHeight: '85%',
     },
     content: {
         padding: Spacing.xl,
-        paddingTop: Platform.OS === 'ios' ? 80 : 60,
+        paddingTop: Spacing.lg,
     },
     headerArea: {
         alignItems: 'center',
-        marginBottom: Spacing.xxl,
+        marginBottom: Spacing.lg,
     },
     successIconContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
         backgroundColor: Colors.success,
         justifyContent: 'center',
         alignItems: 'center',
@@ -148,9 +203,9 @@ const styles = StyleSheet.create({
         fontSize: FontSize.body,
     },
     detailsArea: {
-        backgroundColor: Colors.surface,
-        padding: Spacing.xl,
-        borderRadius: BorderRadius.xl,
+        backgroundColor: Colors.background,
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.lg,
     },
     infoRow: {
         flexDirection: 'row',
@@ -216,19 +271,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     totalLabel: {
-        fontSize: FontSize.lg,
+        fontSize: FontSize.title,
         fontWeight: '700',
         color: Colors.text,
     },
     totalValue: {
-        fontSize: FontSize.lg,
+        fontSize: FontSize.title,
         fontWeight: '700',
         color: Colors.primary,
     },
     footer: {
-        padding: Spacing.xl,
-        paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.xl,
-        backgroundColor: Colors.background,
+        padding: Spacing.lg,
+        paddingBottom: Platform.OS === 'ios' ? 34 : Spacing.lg,
+        borderTopWidth: 1,
+        borderTopColor: Colors.border,
     },
     doneBtn: {
         backgroundColor: Colors.primary,
@@ -241,5 +297,20 @@ const styles = StyleSheet.create({
         color: Colors.surface,
         fontSize: FontSize.md,
         fontWeight: '600',
+    },
+    offlineBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F3F4F6',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        gap: 6,
+        marginBottom: Spacing.lg,
+    },
+    offlineBadgeText: {
+        fontSize: 12,
+        color: '#6B7280',
+        fontWeight: '500',
     },
 });

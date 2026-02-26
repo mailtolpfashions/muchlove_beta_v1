@@ -6,7 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -18,10 +17,12 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { SubscriptionPlan } from '@/types';
-import { formatCurrency } from '@/utils/format';
+import { formatCurrency, capitalizeWords } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
 
 export default function SubscriptionPlansScreen() {
   const { subscriptions, addSubscription, updateSubscription, deleteSubscription, reload } = useData();
+  const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -39,13 +40,13 @@ export default function SubscriptionPlansScreen() {
 
   const handleSavePlan = async () => {
     if (!name.trim() || !duration.trim()) {
-      Alert.alert('Error', 'Name and duration are required');
+      showAlert('Error', 'Name and duration are required');
       return;
     }
     const durationNum = parseInt(duration);
     const priceNum = parseFloat(price || '0');
     if (isNaN(durationNum) || durationNum <= 0) {
-      Alert.alert('Error', 'Please enter a valid duration');
+      showAlert('Error', 'Please enter a valid duration');
       return;
     }
     try {
@@ -71,19 +72,17 @@ export default function SubscriptionPlansScreen() {
       setPrice('');
     } catch (e) {
       console.error(e);
-      Alert.alert('Error', 'Failed to save plan');
+      showAlert('Error', 'Failed to save plan');
     }
   };
 
   const handleDeletePlan = (plan: SubscriptionPlan) => {
-    Alert.alert('Remove Plan', `Delete "${plan.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteSubscription(plan.id),
-      },
-    ]);
+    showConfirm(
+      'Remove Plan',
+      `Delete "${plan.name}"?`,
+      () => deleteSubscription(plan.id),
+      'Delete',
+    );
   };
 
   const renderPlanItem = ({ item }: { item: SubscriptionPlan }) => (
@@ -100,7 +99,7 @@ export default function SubscriptionPlansScreen() {
           setshowPlanForm(true);
         }}
       >
-        <Text style={styles.planName}>{item.name}</Text>
+        <Text style={styles.planName}>{capitalizeWords(item.name)}</Text>
         <View style={styles.planDetails}>
           <View style={styles.durationBadge}>
             <Text style={styles.durationText}>{item.durationMonths} month{item.durationMonths > 1 ? 's' : ''}</Text>
@@ -214,11 +213,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.card,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,

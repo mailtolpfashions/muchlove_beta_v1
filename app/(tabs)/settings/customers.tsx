@@ -6,7 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -20,10 +19,13 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Customer } from '@/types';
-import { capitalizeWords, isValidMobile } from '@/utils/format';
+import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
+import SortPills, { SortOption } from '@/components/SortPills';
 
 export default function CustomersScreen() {
   const { customers, addCustomer, updateCustomer, reload } = useData();
+  const { showAlert } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -35,6 +37,7 @@ export default function CustomersScreen() {
 
   const [showAdd, setShowAdd] = useState<boolean>(false);
   const [search, setSearch] = useState<string>('');
+  const [sortBy, setSortBy] = useState<SortOption>('a-z');
 
   // Form state
   const [name, setName] = useState<string>('');
@@ -53,18 +56,22 @@ export default function CustomersScreen() {
 
   const handleAdd = async () => {
     if (!name.trim() || !mobile.trim()) {
-      Alert.alert('Error', 'Name and mobile are required');
+      showAlert('Error', 'Name and mobile are required');
+      return;
+    }
+    if (!isValidName(name.trim())) {
+      showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
     if (!isValidMobile(mobile.trim())) {
-      Alert.alert('Error', 'Invalid mobile number');
+      showAlert('Error', 'Invalid mobile number');
       return;
     }
     if (
       !isEditing &&
       customers.some(c => c.mobile.trim() === mobile.trim())
     ) {
-      Alert.alert('Error', 'A customer with this mobile already exists');
+      showAlert('Error', 'A customer with this mobile already exists');
       return;
     }
 
@@ -87,19 +94,33 @@ export default function CustomersScreen() {
       setShowAdd(false);
       resetForm();
     } catch (e) {
-      Alert.alert('Error', 'Failed to save customer');
+      showAlert('Error', 'Failed to save customer');
     } finally {
       setLoading(false);
     }
   };
 
   const filteredCustomers = useMemo(() => {
-    if (!search.trim()) return customers;
-    const q = search.toLowerCase();
-    return customers.filter(
-      (c: Customer) => c.name.toLowerCase().includes(q) || c.mobile.toLowerCase().includes(q)
-    );
-  }, [customers, search]);
+    let list = [...customers];
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (c: Customer) => c.name.toLowerCase().includes(q) || c.mobile.toLowerCase().includes(q)
+      );
+    }
+    switch (sortBy) {
+      case 'a-z':
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'z-a':
+        list.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case 'recent':
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+    }
+    return list;
+  }, [customers, search, sortBy]);
 
   const renderItem = ({ item }: { item: Customer }) => (
     <TouchableOpacity
@@ -115,7 +136,7 @@ export default function CustomersScreen() {
       }}
     >
       <View style={styles.cardContent}>
-        <Text style={styles.customerName}>{item.name}</Text>
+        <Text style={styles.customerName}>{capitalizeWords(item.name)}</Text>
         <Text style={styles.customerMobile}>{item.mobile}</Text>
       </View>
       <View style={styles.tags}>
@@ -141,6 +162,10 @@ export default function CustomersScreen() {
         <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAdd(true); }}>
           <Plus size={18} color={Colors.surface} />
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.sortRow}>
+        <SortPills value={sortBy} onChange={setSortBy} />
       </View>
 
       <FlatList
@@ -233,12 +258,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     height: 44,
     gap: 8,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
@@ -248,10 +276,14 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.md,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sortRow: {
+    paddingHorizontal: Spacing.screen,
+    paddingBottom: Spacing.sm,
   },
   listContent: {
     paddingHorizontal: Spacing.card,
@@ -261,11 +293,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,

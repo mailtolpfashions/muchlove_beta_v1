@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   FlatList,
   TextInput,
-  Alert,
   Switch,
 } from 'react-native';
 import { X, Search, User, PlusCircle } from 'lucide-react-native';
@@ -15,7 +14,9 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { Customer } from '@/types';
 import { useData } from '@/providers/DataProvider';
-import { capitalizeWords, isValidMobile } from '@/utils/format';
+import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
+import SortPills, { SortOption } from '@/components/SortPills';
 
 interface CustomerPickerProps {
   visible: boolean;
@@ -37,7 +38,9 @@ export default function CustomerPicker({
   addOnly = false,
 }: CustomerPickerProps) {
   const { addCustomer } = useData();
+  const { showAlert } = useAlert();
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('a-z');
   const [showAddForm, setShowAddForm] = useState(showAddFormInitially || addOnly);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerMobile, setNewCustomerMobile] = useState('');
@@ -56,15 +59,19 @@ export default function CustomerPicker({
 
   const handleAddCustomer = async () => {
     if (!newCustomerName.trim() || !newCustomerMobile.trim()) {
-      Alert.alert('Error', 'Name and mobile are required.');
+      showAlert('Error', 'Name and mobile are required.');
+      return;
+    }
+    if (!isValidName(newCustomerName.trim())) {
+      showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
     if (!isValidMobile(newCustomerMobile.trim())) {
-      Alert.alert('Error', 'Invalid mobile number.');
+      showAlert('Error', 'Invalid mobile number.');
       return;
     }
     if (customers.some(c => c.mobile.trim() === newCustomerMobile.trim())) {
-      Alert.alert('Error', 'A customer with this mobile already exists.');
+      showAlert('Error', 'A customer with this mobile already exists.');
       return;
     }
     try {
@@ -77,17 +84,31 @@ export default function CustomerPicker({
         onSelect(newCustomer);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showAlert('Error', error.message);
     }
   };
 
   const filteredCustomers = useMemo(() => {
-    if (!searchQuery.trim()) return customers;
-    const q = searchQuery.toLowerCase();
-    return customers.filter(
-      c => c.name.toLowerCase().includes(q) || c.mobile.toLowerCase().includes(q)
-    );
-  }, [customers, searchQuery]);
+    let list = [...customers];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        c => c.name.toLowerCase().includes(q) || c.mobile.toLowerCase().includes(q)
+      );
+    }
+    switch (sortBy) {
+      case 'a-z':
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'z-a':
+        list.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case 'recent':
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+    }
+    return list;
+  }, [customers, searchQuery, sortBy]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -101,8 +122,8 @@ export default function CustomerPicker({
           </View>
 
           {showAddForm ? (
-            <View style={{ flex: 1 }}>
-              <View style={{ flex: 1 }}>
+            <View>
+              <View>
                 <Text style={styles.label}>Name *</Text>
                 <TextInput
                   style={styles.input}
@@ -157,6 +178,8 @@ export default function CustomerPicker({
                 />
               </View>
 
+              <SortPills value={sortBy} onChange={setSortBy} />
+
               <FlatList
                 data={filteredCustomers}
                 keyExtractor={item => item.id}
@@ -170,7 +193,7 @@ export default function CustomerPicker({
                   >
                     <User size={18} color={selectedCustomer?.id === item.id ? Colors.primary : Colors.textSecondary} />
                     <View>
-                      <Text style={styles.customerName}>{item.name}</Text>
+                      <Text style={styles.customerName}>{capitalizeWords(item.name)}</Text>
                       <Text style={styles.customerMobile}>{item.mobile}</Text>
                     </View>
                   </TouchableOpacity>
@@ -226,7 +249,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.inputBg,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -287,7 +310,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   addButtonText: {
-    color: '#fff',
+    color: Colors.surface,
     fontSize: FontSize.md,
     fontWeight: '600',
   },

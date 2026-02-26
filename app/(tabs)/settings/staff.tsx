@@ -6,7 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -17,9 +16,12 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { User } from '@/types';
+import { useAlert } from '@/providers/AlertProvider';
+import { capitalizeWords, isValidName } from '@/utils/format';
 
 export default function StaffScreen() {
   const { users, addUser, updateUser, deleteUser, reload } = useData();
+  const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -48,11 +50,15 @@ export default function StaffScreen() {
 
   const handleSaveStaff = async () => {
     if (!name.trim() || !username.trim()) {
-      Alert.alert('Error', 'Name and username are required');
+      showAlert('Error', 'Name and username are required');
+      return;
+    }
+    if (!isValidName(name.trim())) {
+      showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
     if (!isEditing && !password.trim()) {
-      Alert.alert('Error', 'Password is required for new employees');
+      showAlert('Error', 'Password is required for new employees');
       return;
     }
     try {
@@ -81,19 +87,17 @@ export default function StaffScreen() {
       setshowStaffForm(false);
       resetForm();
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to save employee');
+      showAlert('Error', e.message || 'Failed to save employee');
     }
   };
 
   const handleDeleteStaff = (user: User) => {
-    Alert.alert('Remove Employee', `Delete "${user.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteUser(user.id),
-      },
-    ]);
+    showConfirm(
+      'Remove Employee',
+      `Delete "${user.name}"?`,
+      () => deleteUser(user.id),
+      'Delete',
+    );
   };
 
   const filteredStaff = useMemo(() => {
@@ -118,7 +122,7 @@ export default function StaffScreen() {
           setshowStaffForm(true);
         }}
       >
-        <Text style={styles.staffName}>{item.name}</Text>
+        <Text style={styles.staffName}>{capitalizeWords(item.name)}</Text>
         <Text style={styles.staffUsername}>@{item.username}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteStaff(item)}>
@@ -228,12 +232,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     height: 44,
     gap: 8,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
@@ -243,7 +250,7 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.md,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -256,11 +263,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,

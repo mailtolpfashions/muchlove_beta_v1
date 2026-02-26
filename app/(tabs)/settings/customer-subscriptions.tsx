@@ -6,7 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   RefreshControl,
 } from 'react-native';
 import { Users, Search, Play, Pause, Trash2 } from 'lucide-react-native';
@@ -15,9 +14,11 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { CustomerSubscription } from '@/types';
 import { formatDate, capitalizeWords } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
 
 export default function CustomerSubscriptionsScreen() {
   const { customerSubscriptions, updateCustomerSubscription, removeCustomerSubscription, reload } = useData();
+  const { showConfirm } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -43,31 +44,20 @@ export default function CustomerSubscriptionsScreen() {
 
   const handleToggleStatus = (sub: CustomerSubscription) => {
     const newStatus = sub.status === 'active' ? 'paused' : 'active';
-    Alert.alert(
+    showConfirm(
       `Confirm ${capitalizeWords(newStatus)}`,
       `Are you sure you want to change status of "${sub.planName}" for ${sub.customerName} to ${newStatus}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Set to ${newStatus}`,
-          onPress: () => updateCustomerSubscription({ ...sub, status: newStatus }),
-        },
-      ]
+      () => updateCustomerSubscription({ ...sub, status: newStatus }),
+      `Set to ${newStatus}`,
     );
   };
 
   const handleRemove = (sub: CustomerSubscription) => {
-    Alert.alert(
+    showConfirm(
       'Remove Subscription',
       `Are you sure you want to remove "${sub.planName}" from ${sub.customerName}? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => removeCustomerSubscription(sub.id),
-        },
-      ]
+      () => removeCustomerSubscription(sub.id),
+      'Remove',
     );
   };
 
@@ -75,8 +65,8 @@ export default function CustomerSubscriptionsScreen() {
     <View style={styles.card}>
       <View style={styles.cardInfo}>
         <Text style={styles.name}>{capitalizeWords(item.customerName)}</Text>
-        <Text style={styles.meta}>{item.planName}</Text>
-        <Text style={styles.meta}>Start: {formatDate(item.startDate)} • Billed by: {item.assignedByName}</Text>
+        <Text style={styles.meta}>{capitalizeWords(item.planName)}</Text>
+        <Text style={styles.meta}>Start: {formatDate(item.startDate)} • Billed by: {capitalizeWords(item.assignedByName)}</Text>
       </View>
       <View style={styles.statusBadgeContainer}>
         <View style={[styles.statusBadge, item.status === 'active' ? styles.activeBadge : styles.pausedBadge]}>
@@ -167,12 +157,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     height: 44,
     gap: 8,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
@@ -189,13 +182,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.background,
   },
   filterChipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   filterChipText: {
     fontSize: 13,
@@ -203,7 +193,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   filterChipTextActive: {
-    color: Colors.primary,
+    color: Colors.surface,
   },
   listContent: {
     paddingHorizontal: Spacing.card,
@@ -213,11 +203,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardInfo: {
     flex: 1,

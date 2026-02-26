@@ -1,9 +1,7 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Colors } from '@/constants/colors';
-import { Spacing } from '@/constants/spacing';
-import { FontSize } from '@/constants/font-size';
-import { BorderRadius } from '@/constants/border-radius';
+import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 
 interface AlertProps {
   isVisible: boolean;
@@ -45,24 +43,24 @@ export const Alert: React.FC<AlertProps> = ({ isVisible, title, message, cancelT
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: Colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
   container: {
     width: '80%',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xxl,
     padding: Spacing.lg,
   },
   title: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.title,
     fontWeight: 'bold',
     color: Colors.text,
     marginBottom: Spacing.sm,
   },
   message: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.body,
     color: Colors.textSecondary,
     marginBottom: Spacing.lg,
   },
@@ -85,7 +83,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.danger,
   },
   buttonText: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.body,
     fontWeight: '500',
   },
   cancelButtonText: {

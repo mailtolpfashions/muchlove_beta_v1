@@ -4,8 +4,13 @@ import { useOfflineQuery } from '@/hooks/useOfflineQuery';
 import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
 import { CustomerSubscription, Sale } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
+import { sendSaleNotification } from '@/utils/notifications';
+import { enqueueSale } from '@/utils/offlineQueue';
+import { generateId } from '@/utils/hash';
 
 export const [DataProvider, useData] = createContextHook(() => {
+  const { isAdmin } = useAuth();
   const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll);
   const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll);
   const { data: subscriptions = [], isLoading: subscriptionsLoading, error: subscriptionsError, refetch: refetchSubscriptions } = useOfflineQuery(['subscriptions'], supabaseDb.subscriptions.getAll);
@@ -22,7 +27,44 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { mutateAsync: addCustomer } = supabaseDb.customers.useAdd();
   const { mutateAsync: updateCustomer } = supabaseDb.customers.useUpdate();
 
-  const { mutateAsync: addSale } = supabaseDb.sales.useAdd();
+  const { mutateAsync: _addSale } = supabaseDb.sales.useAdd();
+
+  const addSale = async (sale: any) => {
+    try {
+      const result = await _addSale(sale);
+      if (isAdmin) {
+        sendSaleNotification(
+          sale.customer_name || 'Walk-in Customer',
+          sale.total,
+          sale.employee_name || 'Staff',
+        );
+      }
+      return result;
+    } catch (error: any) {
+      // Network/fetch failure → queue offline
+      const isNetworkError =
+        error?.message?.includes('fetch') ||
+        error?.message?.includes('network') ||
+        error?.message?.includes('Network') ||
+        error?.message?.includes('Failed') ||
+        error?.code === 'NETWORK_ERROR' ||
+        !globalThis.navigator?.onLine;
+
+      if (isNetworkError) {
+        const offlineId = generateId();
+        const entry = await enqueueSale(offlineId, sale);
+        // Return a synthetic result so the UI can show the completed sale
+        return {
+          ...sale,
+          id: offlineId,
+          created_at: entry.offlineCreatedAt,
+          _offline: true,
+        };
+      }
+      // Non-network error — rethrow
+      throw error;
+    }
+  };
 
   const { mutateAsync: addService } = supabaseDb.services.useAdd();
   const { mutateAsync: updateService } = supabaseDb.services.useUpdate();

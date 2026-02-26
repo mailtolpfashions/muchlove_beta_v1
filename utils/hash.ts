@@ -1,3 +1,8 @@
+/**
+ * WARNING: This is a custom non-cryptographic hash (MurmurHash-like).
+ * For production, consider migrating to a proper algorithm like bcrypt or argon2.
+ * Changing the algorithm will require re-hashing all existing user passwords.
+ */
 export async function hashPassword(password: string): Promise<string> {
     const salt = 'crm_billing_salt_v1';
     const salted = salt + password + salt;

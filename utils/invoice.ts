@@ -2,6 +2,7 @@ import { Sale } from '@/types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { formatCurrency, formatDate } from './format';
+import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 
 export const buildInvoiceHtml = (sale: Sale): string => {
   const {
@@ -74,9 +75,9 @@ export const buildInvoiceHtml = (sale: Sale): string => {
                 <table>
                   <tr>
                     <td class="title">
-                      Much Love Beauty Salon<br>
-                      <span style="font-size: 16px; line-height: 20px;">Kundrathur, Chennai - 69</span><br>
-                      <span style="font-size: 16px; line-height: 20px;">Contact : 9092890546</span>
+                      ${BUSINESS_NAME}<br>
+                      <span style="font-size: 16px; line-height: 20px;">${BUSINESS_ADDRESS}</span><br>
+                      <span style="font-size: 16px; line-height: 20px;">Contact : ${BUSINESS_CONTACT}</span>
                     </td>
                     <td>
                       Invoice #: ${id.slice(0, 8).toUpperCase()}<br>
@@ -138,11 +139,20 @@ export const buildInvoiceHtml = (sale: Sale): string => {
 export const openInvoice = async (sale: Sale) => {
   const html = buildInvoiceHtml(sale);
   try {
-    const { uri } = await Print.printToFileAsync({ html });
-    console.log('File has been saved to:', uri);
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Print.printAsync({ html });
   } catch (error) {
     console.error('Failed to open invoice:', error);
     throw new Error('Could not open invoice.');
+  }
+};
+
+export const shareInvoice = async (sale: Sale) => {
+  const html = buildInvoiceHtml(sale);
+  try {
+    const { uri } = await Print.printToFileAsync({ html });
+    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+  } catch (error) {
+    console.error('Failed to share invoice:', error);
+    throw new Error('Could not share invoice.');
   }
 };

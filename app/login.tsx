@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,35 +11,98 @@ import {
   Animated,
   ScrollView,
   Keyboard,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
-import { Lock, User, Eye, EyeOff, Zap } from 'lucide-react-native';
-import { Colors } from '@/constants/colors';
-import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Scissors, Lock, User, Eye, EyeOff, Sparkles } from 'lucide-react-native';
 import { APP_NAME } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 
+const { width } = Dimensions.get('window');
+
+// Elegant salon palette
+const Salon = {
+  rose: '#E91E63',
+  roseDeep: '#AD1457',
+  roseDark: '#880E4F',
+  roseSoft: '#F48FB1',
+  roseLight: '#FCE4EC',
+  rosePale: '#FFF0F5',
+  gold: '#D4AF37',
+  goldLight: '#F5E6CC',
+  white: '#FFFFFF',
+  text: '#1A1A2E',
+  textMuted: '#6B7280',
+  textLight: '#9CA3AF',
+  inputBg: '#FFF5F8',
+  inputBorder: '#F3D5DE',
+  shadow: '#880E4F',
+};
+
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [username, setUsername] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const shakeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current; // for vertical shift
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideUpAnim = useRef(new Animated.Value(40)).current;
+  const logoScale = useRef(new Animated.Value(0.8)).current;
+  const sparkle1 = useRef(new Animated.Value(0)).current;
+  const sparkle2 = useRef(new Animated.Value(0)).current;
   const passwordRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideUpAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(logoScale, {
+        toValue: 1,
+        tension: 50,
+        friction: 6,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Sparkle animations
+    const sparkleLoop = (anim: Animated.Value, delay: number) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0.3, duration: 1500, useNativeDriver: true }),
+        ])
+      ).start();
+    };
+    sparkleLoop(sparkle1, 0);
+    sparkleLoop(sparkle2, 750);
+  }, []);
 
   const shake = () => {
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 12, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -12, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
     ]).start();
   };
 
   const handleLogin = async () => {
+    Keyboard.dismiss();
     if (!username.trim() || !password.trim()) {
       setError('Please enter both username and password');
       shake();
@@ -55,261 +118,353 @@ export default function LoginScreen() {
     setLoading(false);
   };
 
-  React.useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
-      setKeyboardVisible(true);
-      Animated.timing(slideAnim, { toValue: -80, duration: 300, useNativeDriver: true }).start();
-    });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardVisible(false);
-      Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-    });
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [slideAnim]);
-
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        onScrollBeginDrag={Keyboard.dismiss}
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={Salon.roseDark} />
+      <LinearGradient
+        colors={[Salon.rose, Salon.roseDeep, Salon.roseDark]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.topSection}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoCircle}>
-              <Zap size={28} color={Colors.surface} strokeWidth={2.5} />
-            </View>
-          </View>
-          <Text style={styles.title}>{APP_NAME}</Text>
-          <Text style={styles.subtitle}>Billing & Management</Text>
-        </View>
-
-        <Animated.View
-          style={[
-            styles.formSection,
-            { transform: [{ translateX: shakeAnim }, { translateY: slideAnim }] },
-            { justifyContent: keyboardVisible ? 'flex-start' : 'center' },
-          ]}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.welcomeText}>Welcome back</Text>
-          <Text style={styles.signInText}>Sign in to continue</Text>
-
-          {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.inputGroup}>
-            <View style={styles.inputContainer}>
-              <User size={18} color={Colors.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Username"
-                placeholderTextColor={Colors.textTertiary}
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                testID="login-username"
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Lock size={18} color={Colors.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                ref={passwordRef}
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor={Colors.textTertiary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-                testID="login-password"
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                {showPassword ? (
-                  <EyeOff size={18} color={Colors.textTertiary} />
-                ) : (
-                  <Eye size={18} color={Colors.textTertiary} />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.8}
-            testID="login-button"
+          {/* ── Hero Section ── */}
+          <Animated.View
+            style={[
+              styles.heroSection,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: logoScale }],
+              },
+            ]}
           >
-            {loading ? (
-              <ActivityIndicator color={Colors.surface} size="small" />
-            ) : (
-              <Text style={styles.loginBtnText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
+            {/* Decorative sparkles */}
+            <Animated.View style={[styles.sparkleTopLeft, { opacity: sparkle1 }]}>
+              <Sparkles size={16} color={Salon.gold} />
+            </Animated.View>
+            <Animated.View style={[styles.sparkleTopRight, { opacity: sparkle2 }]}>
+              <Sparkles size={12} color={Salon.goldLight} />
+            </Animated.View>
 
-          <View style={styles.credentialsHint}>
-            <Text style={styles.hintTitle}>Default Credentials</Text>
-            <Text style={styles.hintText}>Admin: admin / admin123</Text>
-            <Text style={styles.hintText}>Employee: employee / emp123</Text>
-          </View>
-        </Animated.View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            {/* Logo circle */}
+            <View style={styles.logoOuter}>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.08)']}
+                style={styles.logoGradient}
+              >
+                <View style={styles.logoInner}>
+                  <Scissors size={36} color={Salon.white} strokeWidth={1.8} />
+                </View>
+              </LinearGradient>
+            </View>
+
+            {/* Brand name */}
+            <Text style={styles.brandName}>{APP_NAME}</Text>
+            <Text style={styles.brandTagline}>B E A U T Y   S A L O N</Text>
+
+            {/* Decorative line */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <View style={styles.dividerDot} />
+              <View style={styles.dividerLine} />
+            </View>
+          </Animated.View>
+
+          {/* ── Form Card ── */}
+          <Animated.View
+            style={[
+              styles.formCard,
+              {
+                opacity: fadeAnim,
+                transform: [
+                  { translateY: slideUpAnim },
+                  { translateX: shakeAnim },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.welcomeText}>Welcome Back</Text>
+            <Text style={styles.signInText}>Sign in to your account</Text>
+
+            {error ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            {/* Username */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Username</Text>
+              <View style={styles.inputContainer}>
+                <User
+                  size={18}
+                  color={Salon.roseSoft}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your username"
+                  placeholderTextColor={Salon.textLight}
+                  value={username}
+                  onChangeText={setUsername}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  testID="login-username"
+                />
+              </View>
+            </View>
+
+            {/* Password */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.inputContainer}>
+                <Lock
+                  size={18}
+                  color={Salon.roseSoft}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  ref={passwordRef}
+                  style={styles.input}
+                  placeholder="Enter your password"
+                  placeholderTextColor={Salon.textLight}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  testID="login-password"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} color={Salon.textLight} />
+                  ) : (
+                    <Eye size={18} color={Salon.textLight} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Sign In Button */}
+            <TouchableOpacity
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
+              testID="login-button"
+              style={styles.loginBtnWrapper}
+            >
+              <LinearGradient
+                colors={[Salon.rose, Salon.roseDeep]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+              >
+                {loading ? (
+                  <ActivityIndicator color={Salon.white} size="small" />
+                ) : (
+                  <Text style={styles.loginBtnText}>Sign In</Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.primary,
+  },
+  flex: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: Spacing.xxl,
+    paddingBottom: 40,
   },
-  topSection: {
-    justifyContent: 'center',
+
+  /* ── Hero ── */
+  heroSection: {
     alignItems: 'center',
-    paddingTop: 32,
-    paddingBottom: Spacing.xl,
+    paddingTop: Platform.OS === 'ios' ? 70 : 50,
+    paddingBottom: 32,
   },
-  logoContainer: {
-    marginBottom: 12,
+  sparkleTopLeft: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 75 : 55,
+    left: width * 0.15,
   },
-  logoCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  sparkleTopRight: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 85 : 65,
+    right: width * 0.18,
+  },
+  logoOuter: {
+    marginBottom: 20,
+  },
+  logoGradient: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.3)',
   },
-  title: {
-    fontSize: FontSize.hero,
-    fontWeight: '700' as const,
-    color: Colors.surface,
-    letterSpacing: 0.5,
+  logoInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  subtitle: {
-    fontSize: FontSize.body,
+  brandName: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: Salon.white,
+    letterSpacing: 2,
+  },
+  brandTagline: {
+    fontSize: 11,
     color: 'rgba(255,255,255,0.75)',
-    marginTop: 4,
+    marginTop: 6,
+    letterSpacing: 4,
   },
-  formSection: {
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    gap: 8,
+  },
+  dividerLine: {
+    width: 32,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  dividerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: Salon.gold,
+  },
+
+  /* ── Form Card ── */
+  formCard: {
     flex: 1,
-    backgroundColor: Colors.background,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    paddingHorizontal: Spacing.modal,
-    paddingTop: Spacing.modal,
-    paddingBottom: Spacing.modal,
+    backgroundColor: Salon.white,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 28,
+    paddingTop: 32,
+    paddingBottom: 24,
+    shadowColor: Salon.shadow,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 12,
   },
   welcomeText: {
-    fontSize: FontSize.xl,
-    fontWeight: '700' as const,
-    color: Colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    color: Salon.text,
   },
   signInText: {
-    fontSize: FontSize.body,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: Salon.textMuted,
     marginTop: 4,
-    marginBottom: Spacing.xxl,
+    marginBottom: 28,
   },
+
+  /* Error */
   errorBox: {
-    backgroundColor: Colors.dangerLight,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: 16,
+    backgroundColor: '#FFF1F2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
     borderLeftWidth: 3,
-    borderLeftColor: Colors.danger,
+    borderLeftColor: '#EF4444',
   },
   errorText: {
-    color: Colors.danger,
-    fontSize: FontSize.body,
-    fontWeight: '500' as const,
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '500',
   },
+
+  /* Inputs */
   inputGroup: {
-    gap: Spacing.lg,
-    marginBottom: 24,
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Salon.text,
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.lg,
-    height: 48,
+    backgroundColor: Salon.inputBg,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Salon.inputBorder,
+    paddingHorizontal: 16,
+    height: 52,
   },
   inputIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    fontSize: FontSize.md,
-    color: Colors.text,
+    fontSize: 15,
+    color: Salon.text,
   },
   eyeBtn: {
     padding: 4,
   },
+
+  /* Button */
+  loginBtnWrapper: {
+    marginTop: 8,
+    borderRadius: 14,
+    shadowColor: Salon.rose,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+  },
   loginBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.lg,
-    height: 48,
+    height: 52,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   loginBtnDisabled: {
     opacity: 0.7,
   },
   loginBtnText: {
-    color: Colors.surface,
-    fontSize: FontSize.title,
-    fontWeight: '600' as const,
+    color: Salon.white,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
-  credentialsHint: {
-    marginTop: Spacing.xl,
-    padding: Spacing.md,
-    backgroundColor: Colors.primaryLight,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(13, 115, 119, 0.15)',
-  },
-  hintTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '600' as const,
-    color: Colors.primaryDark,
-    marginBottom: 6,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-  },
-  hintText: {
-    fontSize: FontSize.body,
-    color: Colors.primaryDark,
-    lineHeight: 20,
-  },
+
 });

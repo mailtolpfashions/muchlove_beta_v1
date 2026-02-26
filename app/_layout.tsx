@@ -7,22 +7,32 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { DataProvider } from '@/providers/DataProvider';
 import { PaymentProvider } from '@/providers/PaymentProvider';
+import { AlertProvider } from '@/providers/AlertProvider';
+import { OfflineSyncProvider } from '@/providers/OfflineSyncProvider';
 import { Colors } from '@/constants/colors';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useFonts } from 'expo-font';
 import { HeaderRight } from '@/components/HeaderRight';
+import OfflineBanner from '@/components/OfflineBanner';
+import { registerForNotifications } from '@/utils/notifications';
 
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { isAuthenticated, isLoading, isInitialized } = useAuth();
+  const { isAuthenticated, isLoading, isInitialized, isAdmin } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const [fontsLoaded] = useFonts({
     'Billabong': require('../assets/fonts/Billabong.ttf'),
   });
+
+  useEffect(() => {
+    if (isAuthenticated && isAdmin) {
+      registerForNotifications();
+    }
+  }, [isAuthenticated, isAdmin]);
 
   useEffect(() => {
     if (isInitialized && fontsLoaded) {
@@ -34,10 +44,11 @@ function RootLayoutNav() {
     if (!isInitialized || !fontsLoaded) return;
 
     const inTabsGroup = segments[0] === '(tabs)';
+    const onLoginPage = segments[0] === 'login';
 
     if (isAuthenticated && !inTabsGroup) {
       router.replace('/(tabs)/');
-    } else if (!isAuthenticated) {
+    } else if (!isAuthenticated && !onLoginPage) {
       router.replace('/login');
     }
   }, [isAuthenticated, isInitialized, segments, fontsLoaded]);
@@ -51,14 +62,21 @@ function RootLayoutNav() {
   }
 
   return (
+    <>
+    <OfflineBanner />
     <Stack
       screenOptions={{
         headerBackTitle: 'Back',
         headerStyle: {
           backgroundColor: Colors.primary,
         },
-        headerTintColor: '#fff',
+        headerTintColor: Colors.headerText,
         headerTitleAlign: 'left',
+        headerTitleStyle: {
+          fontWeight: '700',
+          fontSize: 18,
+          letterSpacing: 0.3,
+        },
         headerRight: () => <HeaderRight />,
       }}
     >
@@ -66,6 +84,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />
     </Stack>
+    </>
   );
 }
 
@@ -74,13 +93,17 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <DataProvider>
-          <PaymentProvider>
-            <SafeAreaProvider>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <RootLayoutNav />
-              </GestureHandlerRootView>
-            </SafeAreaProvider>
-          </PaymentProvider>
+          <OfflineSyncProvider>
+            <PaymentProvider>
+              <AlertProvider>
+                <SafeAreaProvider>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <RootLayoutNav />
+                  </GestureHandlerRootView>
+                </SafeAreaProvider>
+              </AlertProvider>
+            </PaymentProvider>
+          </OfflineSyncProvider>
         </DataProvider>
       </AuthProvider>
     </QueryClientProvider>

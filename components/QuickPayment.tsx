@@ -1,133 +1,523 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Dimensions,
+  ScrollView,
+} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { UpiData } from '@/types';
-import { Zap } from 'lucide-react-native';
+import { Sparkles, X, Wallet, Smartphone, ArrowLeft, CheckCircle } from 'lucide-react-native';
+import { useAlert } from '@/providers/AlertProvider';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+type Step = 'amount' | 'method' | 'qr';
 
 interface QuickPaymentProps {
+  visible: boolean;
   upiList: UpiData[];
-  onPayment: (amount: number, upiId: string, note: string) => Promise<void>;
+  onPayment: (amount: number, upiId: string, note: string, method: 'cash' | 'gpay') => Promise<void>;
+  onClose: () => void;
 }
 
-export default function QuickPayment({ upiList, onPayment }: QuickPaymentProps) {
+export default function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProps) {
+  const { showAlert } = useAlert();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<Step>('amount');
+  const [activeUpiIndex, setActiveUpiIndex] = useState(0);
 
-  const handlePayment = async () => {
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount.');
+  const parsedAmount = parseFloat(amount);
+  const isValid = !isNaN(parsedAmount) && parsedAmount > 0;
+
+  const reset = () => {
+    setAmount('');
+    setNote('');
+    setStep('amount');
+    setLoading(false);
+    setActiveUpiIndex(0);
+  };
+
+  const handleProceed = () => {
+    if (!isValid) {
+      showAlert('Invalid Amount', 'Please enter a valid amount.');
       return;
     }
-    if (upiList.length === 0) {
-      Alert.alert('No UPI ID configured', 'Please configure a UPI ID in settings.');
-      return;
-    }
+    setStep('method');
+  };
 
+  const handleCash = async () => {
+    setLoading(true);
     try {
-      await onPayment(parsedAmount, upiList[0].id, note.trim());
-      setAmount('');
-      setNote('');
+      await onPayment(parsedAmount, '', note.trim(), 'cash');
+      reset();
     } catch (error) {
       console.error('Payment failed', error);
+    } finally {
+      setLoading(false);
     }
   };
 
+  const handleUpi = () => {
+    if (upiList.length === 0) {
+      showAlert('No UPI ID configured', 'Please configure a UPI ID in settings.');
+      return;
+    }
+    setActiveUpiIndex(0);
+    setStep('qr');
+  };
+
+  const handleQrDone = async () => {
+    setLoading(true);
+    try {
+      await onPayment(parsedAmount, upiList[activeUpiIndex]?.id || '', note.trim(), 'gpay');
+      reset();
+    } catch (error) {
+      console.error('Payment failed', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleBack = () => {
+    if (step === 'qr') setStep('method');
+    else if (step === 'method') setStep('amount');
+    else handleClose();
+  };
+
+  const handleScroll = (event: any) => {
+    const slide = Math.round(event.nativeEvent.contentOffset.x / (SCREEN_WIDTH * 0.65));
+    if (slide !== activeUpiIndex) {
+      setActiveUpiIndex(slide);
+    }
+  };
+
+  const qrSize = SCREEN_WIDTH * 0.55;
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Zap size={20} color={Colors.primary} />
-        <Text style={styles.title}>Quick Payment</Text>
-      </View>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.amountInput}
-          placeholder="Amount (₹)"
-          placeholderTextColor={Colors.textTertiary}
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-        />
-        <TextInput
-          style={styles.noteInput}
-          placeholder="Note (optional)"
-          placeholderTextColor={Colors.textTertiary}
-          value={note}
-          onChangeText={setNote}
-        />
-      </View>
-      <TouchableOpacity
-        style={[styles.payButton, (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) && styles.payButtonDisabled]}
-        onPress={handlePayment}
-        disabled={!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0}
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Text style={styles.payButtonText}>Record Quick Payment</Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleBack} style={styles.closeBtn}>
+              {step === 'amount' ? (
+                <X size={22} color={Colors.text} />
+              ) : (
+                <ArrowLeft size={22} color={Colors.text} />
+              )}
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>
+              {step === 'amount' ? 'Quick Payment' : step === 'method' ? 'Choose Payment' : 'Scan to Pay'}
+            </Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Step 1: Amount Entry */}
+          {step === 'amount' && (
+            <>
+              <View style={styles.amountSection}>
+                <View style={styles.amountRow}>
+                  <Text style={styles.currencySymbol}>₹</Text>
+                  <TextInput
+                    style={styles.amountInput}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textTertiary}
+                    keyboardType="numeric"
+                    value={amount}
+                    onChangeText={setAmount}
+                    autoFocus
+                    selectionColor={Colors.primary}
+                  />
+                </View>
+                <View style={styles.divider} />
+              </View>
+
+              <View style={styles.quickAmounts}>
+                {[100, 200, 500, 1000].map((val) => (
+                  <TouchableOpacity
+                    key={val}
+                    style={styles.quickAmountChip}
+                    onPress={() => setAmount(String(val))}
+                  >
+                    <Text style={styles.quickAmountText}>₹{val}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.noteSection}>
+                <TextInput
+                  style={styles.noteInput}
+                  placeholder="Add a note (optional)"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={note}
+                  onChangeText={setNote}
+                  multiline
+                  maxLength={100}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, !isValid && styles.primaryBtnDisabled]}
+                onPress={handleProceed}
+                disabled={!isValid}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {isValid ? `Proceed  ₹${parsedAmount}` : 'Enter Amount'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Step 2: Payment Method */}
+          {step === 'method' && (
+            <>
+              <View style={styles.methodAmountBadge}>
+                <Text style={styles.methodAmountText}>₹{parsedAmount}</Text>
+                {note.trim() !== '' && <Text style={styles.methodNoteText}>{note}</Text>}
+              </View>
+
+              <View style={styles.methodOptions}>
+                <TouchableOpacity
+                  style={styles.methodCard}
+                  onPress={handleCash}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.methodIcon, { backgroundColor: Colors.successLight }]}>
+                    <Wallet size={28} color={Colors.success} />
+                  </View>
+                  <Text style={styles.methodLabel}>Cash</Text>
+                  <Text style={styles.methodDesc}>Record cash payment</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.methodCard}
+                  onPress={handleUpi}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.methodIcon, { backgroundColor: Colors.primaryLight }]}>
+                    <Smartphone size={28} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.methodLabel}>Online / UPI</Text>
+                  <Text style={styles.methodDesc}>Show QR code to pay</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Step 3: QR Code */}
+          {step === 'qr' && (
+            <>
+              <View style={styles.qrSection}>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={handleScroll}
+                  contentContainerStyle={styles.qrScrollContent}
+                >
+                  {upiList.map((upi, index) => {
+                    const upiUri = `upi://pay?pa=${upi.upiId}&pn=${encodeURIComponent(upi.payeeName)}&am=${parsedAmount}&cu=INR`;
+                    return (
+                      <View key={index} style={styles.qrSlide}>
+                        <View style={styles.qrCard}>
+                          <QRCode value={upiUri} size={qrSize} />
+                        </View>
+                        <Text style={styles.qrPayeeName}>{upi.payeeName}</Text>
+                        <Text style={styles.qrUpiId}>{upi.upiId}</Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                {upiList.length > 1 && (
+                  <View style={styles.pagination}>
+                    {upiList.map((_, i) => (
+                      <View key={i} style={[styles.dot, activeUpiIndex === i && styles.activeDot]} />
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.qrAmountBadge}>
+                  <Text style={styles.qrAmountLabel}>Amount</Text>
+                  <Text style={styles.qrAmountValue}>₹{parsedAmount}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.primaryBtn}
+                onPress={handleQrDone}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <CheckCircle size={20} color={Colors.surface} />
+                <Text style={styles.primaryBtnText}>
+                  {loading ? 'Processing...' : 'Payment Received'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  overlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: Spacing.xl,
+    borderTopLeftRadius: BorderRadius.xxl,
+    borderTopRightRadius: BorderRadius.xxl,
+    paddingBottom: 40,
+    paddingHorizontal: Spacing.lg,
+    minHeight: '55%',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
+    justifyContent: 'space-between',
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
-  title: {
-    fontSize: FontSize.heading,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  amountInput: {
-    flex: 1,
-    backgroundColor: Colors.inputBg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.inputBorder,
-    paddingHorizontal: Spacing.lg,
-    height: 48,
-    fontSize: FontSize.body,
-    color: Colors.text,
-  },
-  noteInput: {
-    flex: 2,
-    backgroundColor: Colors.inputBg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.inputBorder,
-    paddingHorizontal: Spacing.lg,
-    height: 48,
-    fontSize: FontSize.body,
-    color: Colors.text,
-  },
-  payButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.lg,
-    height: 48,
+  closeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  payButtonDisabled: {
+  headerTitle: {
+    fontSize: FontSize.heading,
+    fontWeight: '700' as const,
+    color: Colors.text,
+  },
+  // Step 1 styles
+  amountSection: {
+    alignItems: 'center',
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.lg,
+  },
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencySymbol: {
+    fontSize: 36,
+    fontWeight: '300' as const,
+    color: Colors.textSecondary,
+    marginRight: 4,
+  },
+  amountInput: {
+    fontSize: 48,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    minWidth: 80,
+    textAlign: 'center',
+    padding: 0,
+  },
+  divider: {
+    width: SCREEN_WIDTH * 0.4,
+    height: 2,
+    backgroundColor: Colors.primaryLight,
+    marginTop: Spacing.md,
+    borderRadius: 1,
+  },
+  quickAmounts: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  quickAmountChip: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryLight,
+  },
+  quickAmountText: {
+    fontSize: FontSize.body,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  noteSection: {
+    marginBottom: Spacing.xl,
+  },
+  noteInput: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    minHeight: 56,
+    textAlignVertical: 'top',
+  },
+  primaryBtn: {
+    flexDirection: 'row',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.xl,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  primaryBtnDisabled: {
+    backgroundColor: Colors.border,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  primaryBtnText: {
+    fontSize: FontSize.heading,
+    fontWeight: '700' as const,
+    color: Colors.surface,
+  },
+  // Step 2 styles
+  methodAmountBadge: {
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
+  methodAmountText: {
+    fontSize: 40,
+    fontWeight: '700' as const,
+    color: Colors.primary,
+  },
+  methodNoteText: {
+    fontSize: FontSize.body,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  methodOptions: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
+  methodCard: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    alignItems: 'center',
+  },
+  methodIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  methodLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  methodDesc: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  // Step 3 styles
+  qrSection: {
+    alignItems: 'center',
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  qrScrollContent: {
+    alignItems: 'center',
+  },
+  qrSlide: {
+    width: SCREEN_WIDTH - Spacing.lg * 2,
+    alignItems: 'center',
+  },
+  qrCard: {
+    backgroundColor: Colors.surface,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    elevation: 3,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+  },
+  qrPayeeName: {
+    fontSize: FontSize.md,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginTop: Spacing.md,
+  },
+  qrUpiId: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  qrAmountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.primaryLight,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: 999,
+  },
+  qrAmountLabel: {
+    fontSize: FontSize.body,
+    color: Colors.textSecondary,
+  },
+  qrAmountValue: {
+    fontSize: FontSize.heading,
+    fontWeight: '700' as const,
+    color: Colors.primary,
+  },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: Spacing.md,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: Colors.border,
   },
-  payButtonText: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.surface,
+  activeDot: {
+    backgroundColor: Colors.primary,
+    width: 20,
   },
 });

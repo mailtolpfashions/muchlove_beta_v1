@@ -1,6 +1,5 @@
 import { Stack } from 'expo-router';
 import { Colors } from '@/constants/colors';
-import { HeaderRight } from '@/components/HeaderRight';
 
 export default function SettingsLayout() {
   return (
@@ -8,14 +7,23 @@ export default function SettingsLayout() {
       screenOptions={{
         headerStyle: {
           backgroundColor: Colors.primary,
+          shadowColor: Colors.shadow,
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 6,
         },
-        headerTintColor: '#fff',
+        headerTintColor: Colors.headerText,
         headerTitleAlign: 'left',
+        headerTitleStyle: {
+          fontWeight: '700',
+          fontSize: 18,
+          letterSpacing: 0.3,
+        },
       }}
     >
       <Stack.Screen
         name="index"
-        options={{ title: 'Settings', headerRight: () => <HeaderRight /> }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen name="customers" options={{ title: 'Customers' }} />
       <Stack.Screen

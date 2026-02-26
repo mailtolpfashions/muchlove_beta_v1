@@ -6,21 +6,35 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import { Plus, Trash2, X, Search, Tag } from 'lucide-react-native';
+import { Plus, Trash2, X, Search, Tag, CalendarDays } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Offer } from '@/types';
+import { useAlert } from '@/providers/AlertProvider';
+import { capitalizeWords, formatDateDDMMYYYY, parseDDMMYYYY } from '@/utils/format';
+import DatePickerModal from '@/components/DatePickerModal';
+
+/** Convert any stored date string (YYYY-MM-DD or DD-MM-YYYY) to DD-MM-YYYY */
+function toDisplayDate(str: string): string {
+  if (!str) return '';
+  const parsed = parseDDMMYYYY(str);
+  if (parsed) return str; // already DD-MM-YYYY
+  // Try ISO / YYYY-MM-DD
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return formatDateDDMMYYYY(d);
+  return str;
+}
 
 export default function OffersScreen() {
   const { offers, addOffer, updateOffer, deleteOffer, reload } = useData();
+  const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -43,6 +57,8 @@ export default function OffersScreen() {
   const [endDate, setEndDate] = useState<string>('');
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
 
   const resetForm = () => {
     setName('');
@@ -58,15 +74,15 @@ export default function OffersScreen() {
 
   const handleAdd = async () => {
     if (!name.trim() || !discount.trim()) {
-      Alert.alert('Error', 'Name and discount are required');
+      showAlert('Error', 'Name and discount are required');
       return;
     }
     if (type === 'visit' && !visitThreshold.trim()) {
-      Alert.alert('Error', 'Visit threshold is required for visit-based offers');
+      showAlert('Error', 'Visit threshold is required for visit-based offers');
       return;
     }
     if (type === 'promo' && !promoCode.trim()) {
-      Alert.alert('Error', 'Promo code is required for promo offers');
+      showAlert('Error', 'Promo code is required for promo offers');
       return;
     }
 
@@ -108,19 +124,17 @@ export default function OffersScreen() {
       resetForm();
     } catch (e) {
       console.error(e);
-      Alert.alert('Error', 'Failed to save offer');
+      showAlert('Error', 'Failed to save offer');
     }
   };
 
   const handleRemove = (offer: Offer) => {
-    Alert.alert('Remove Offer', `Delete "${offer.name}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteOffer(offer.id),
-      },
-    ]);
+    showConfirm(
+      'Remove Offer',
+      `Delete "${offer.name}"?`,
+      () => deleteOffer(offer.id),
+      'Delete',
+    );
   };
 
   const filteredOffers = useMemo(() => {
@@ -175,24 +189,25 @@ export default function OffersScreen() {
             } else {
               setType('promo');
               setPromoCode(item.name);
-              setStartDate(item.startDate || '');
-              setEndDate(item.endDate || '');
+              // Convert stored dates to DD-MM-YYYY display format
+              setStartDate(item.startDate ? toDisplayDate(item.startDate) : '');
+              setEndDate(item.endDate ? toDisplayDate(item.endDate) : '');
             }
             setShowAdd(true);
           }}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.offerName}>{item.name}</Text>
+            <Text style={styles.offerName}>{capitalizeWords(item.name)}</Text>
             <View style={[styles.typeBadge, { backgroundColor: typeBg }]}>
               <Text style={[styles.typeBadgeText, { color: typeColor }]}>{typeText}</Text>
             </View>
           </View>
           <Text style={styles.offerDiscount}>{item.percent}% OFF</Text>
           {isVisit && <Text style={styles.offerDetail}>After {item.visitCount} visits</Text>}
-          {isPromo && item.name && <Text style={styles.offerDetail}>Code: {item.name}</Text>}
+          {isPromo && item.name && <Text style={styles.offerDetail}>Code: {capitalizeWords(item.name)}</Text>}
           {(isPromo && (item.startDate || item.endDate)) && (
             <Text style={styles.offerDetail}>
-              Active: {item.startDate || '...'} to {item.endDate || '...'}
+              Active: {item.startDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.startDate) || item.startDate) : '...'} to {item.endDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.endDate) || item.endDate) : '...'}
             </Text>
           )}
         </TouchableOpacity>
@@ -259,6 +274,23 @@ export default function OffersScreen() {
         }
       />
 
+      <DatePickerModal
+        visible={showStartPicker}
+        title="Start Date"
+        value={parseDDMMYYYY(startDate)}
+        minDate={new Date()}
+        onSelect={(d) => setStartDate(d ? formatDateDDMMYYYY(d) : '')}
+        onClose={() => setShowStartPicker(false)}
+      />
+      <DatePickerModal
+        visible={showEndPicker}
+        title="End Date"
+        value={parseDDMMYYYY(endDate)}
+        minDate={parseDDMMYYYY(startDate) || new Date()}
+        onSelect={(d) => setEndDate(d ? formatDateDDMMYYYY(d) : '')}
+        onClose={() => setShowEndPicker(false)}
+      />
+
       <Modal visible={showAdd} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKav}>
@@ -293,9 +325,19 @@ export default function OffersScreen() {
                     <Text style={styles.label}>Promo Code *</Text>
                     <TextInput style={styles.input} placeholder="e.g. DIWALI20" placeholderTextColor={Colors.textTertiary} value={promoCode} onChangeText={setPromoCode} autoCapitalize="characters" />
                     <Text style={styles.label}>Start Date (Optional)</Text>
-                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textTertiary} value={startDate} onChangeText={setStartDate} />
+                    <TouchableOpacity style={styles.dateBtn} onPress={() => setShowStartPicker(true)}>
+                      <CalendarDays size={16} color={startDate ? Colors.primary : Colors.textTertiary} />
+                      <Text style={[styles.dateBtnText, !startDate && styles.dateBtnPlaceholder]}>
+                        {startDate ? formatDateDDMMYYYY(parseDDMMYYYY(startDate) || startDate) : 'DD-MM-YYYY'}
+                      </Text>
+                    </TouchableOpacity>
                     <Text style={styles.label}>End Date (Optional)</Text>
-                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textTertiary} value={endDate} onChangeText={setEndDate} />
+                    <TouchableOpacity style={styles.dateBtn} onPress={() => setShowEndPicker(true)}>
+                      <CalendarDays size={16} color={endDate ? Colors.primary : Colors.textTertiary} />
+                      <Text style={[styles.dateBtnText, !endDate && styles.dateBtnPlaceholder]}>
+                        {endDate ? formatDateDDMMYYYY(parseDDMMYYYY(endDate) || endDate) : 'DD-MM-YYYY'}
+                      </Text>
+                    </TouchableOpacity>
                   </>
                 )}
                 
@@ -339,12 +381,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     height: 44,
     gap: 8,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
@@ -354,7 +399,7 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.md,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -369,13 +414,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.background,
   },
   filterChipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   filterChipText: {
     fontSize: 13,
@@ -383,7 +425,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   filterChipTextActive: {
-    color: Colors.primary,
+    color: Colors.surface,
   },
   listContent: {
     paddingHorizontal: Spacing.card,
@@ -393,11 +435,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.md,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardContent: {
     flex: 1,
@@ -541,5 +586,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '600',
     color: Colors.surface,
+  },
+  dateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.inputBg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    paddingHorizontal: Spacing.lg,
+    height: 44,
+  },
+  dateBtnText: {
+    fontSize: FontSize.body,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  dateBtnPlaceholder: {
+    color: Colors.textTertiary,
+    fontWeight: '400',
   },
 });
