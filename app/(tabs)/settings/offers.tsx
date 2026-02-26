@@ -12,7 +12,7 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import { Plus, Trash2, X, Search, Tag, CalendarDays } from 'lucide-react-native';
+import { Plus, Trash2, X, Search, Tag, CalendarDays, GraduationCap } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
@@ -59,6 +59,8 @@ export default function OffersScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [appliesTo, setAppliesTo] = useState<'services' | 'subscriptions' | 'both'>('both');
+  const [studentOnly, setStudentOnly] = useState<boolean>(false);
 
   const resetForm = () => {
     setName('');
@@ -70,6 +72,8 @@ export default function OffersScreen() {
     setEndDate('');
     setIsEditing(false);
     setEditingId(null);
+    setAppliesTo('both');
+    setStudentOnly(false);
   };
 
   const handleAdd = async () => {
@@ -90,6 +94,8 @@ export default function OffersScreen() {
       let offerData: Partial<Offer> = {
         name: name.trim(),
         percent: parseFloat(discount),
+        appliesTo: type === 'student' ? appliesTo : 'both',
+        studentOnly: type === 'student',
       };
 
       if (type === 'promo') {
@@ -109,6 +115,7 @@ export default function OffersScreen() {
         offerData = {
           ...offerData,
           visitCount: -1, // Using -1 as a flag for student offers
+          studentOnly: true, // Student offers always apply to students only
         };
       }
 
@@ -181,6 +188,8 @@ export default function OffersScreen() {
             setEditingId(item.id);
             setName(item.name);
             setDiscount(String(item.percent));
+            setAppliesTo(item.appliesTo || 'both');
+            setStudentOnly(item.studentOnly || false);
             if (isVisit) {
               setType('visit');
               setVisitThreshold(String(item.visitCount));
@@ -210,6 +219,19 @@ export default function OffersScreen() {
               Active: {item.startDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.startDate) || item.startDate) : '...'} to {item.endDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.endDate) || item.endDate) : '...'}
             </Text>
           )}
+          <View style={styles.offerTagsRow}>
+            <View style={[styles.miniTag, { backgroundColor: Colors.primaryLight }]}>
+              <Text style={[styles.miniTagText, { color: Colors.primary }]}>
+                {item.appliesTo === 'services' ? 'Services Only' : item.appliesTo === 'subscriptions' ? 'Subscriptions Only' : 'Services & Subs'}
+              </Text>
+            </View>
+            {item.studentOnly && (
+              <View style={[styles.miniTag, { backgroundColor: Colors.warningLight }]}>
+                <GraduationCap size={10} color={Colors.warning} />
+                <Text style={[styles.miniTagText, { color: Colors.warning }]}>Students Only</Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.deleteBtn} onPress={() => handleRemove(item)}>
           <Trash2 size={16} color={Colors.danger} />
@@ -350,6 +372,23 @@ export default function OffersScreen() {
                 
                 <Text style={styles.label}>Discount (%) *</Text>
                 <TextInput style={styles.input} placeholder="e.g. 20 for 20%" placeholderTextColor={Colors.textTertiary} value={discount} onChangeText={setDiscount} keyboardType="numeric" />
+
+                {type === 'student' && (
+                  <>
+                    <Text style={styles.label}>Applies To</Text>
+                    <View style={styles.switchContainer}>
+                      <TouchableOpacity style={[styles.switchButton, appliesTo === 'services' && styles.switchButtonActive]} onPress={() => setAppliesTo('services')}>
+                        <Text style={[styles.switchButtonText, appliesTo === 'services' && styles.switchButtonTextActive]}>Services</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.switchButton, appliesTo === 'subscriptions' && styles.switchButtonActive]} onPress={() => setAppliesTo('subscriptions')}>
+                        <Text style={[styles.switchButtonText, appliesTo === 'subscriptions' && styles.switchButtonTextActive]}>Subs</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.switchButton, appliesTo === 'both' && styles.switchButtonActive]} onPress={() => setAppliesTo('both')}>
+                        <Text style={[styles.switchButtonText, appliesTo === 'both' && styles.switchButtonTextActive]}>Both</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
               
               </View>
               <TouchableOpacity style={styles.saveBtn} onPress={handleAdd}>
@@ -479,6 +518,31 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  offerTagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  miniTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  miniTagText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  studentToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
   },
   deleteBtn: {
     marginLeft: 10,

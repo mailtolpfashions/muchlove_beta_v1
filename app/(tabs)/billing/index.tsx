@@ -31,7 +31,7 @@ import {
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
-import { Customer, Sale, Service, SubscriptionPlan, Offer, CustomerSubscription } from '@/types';
+import { Customer, Sale, Service, SubscriptionPlan, Offer, CustomerSubscription, Combo } from '@/types';
 import CustomerPicker from '@/components/CustomerPicker';
 import SubscriptionPicker from '@/components/SubscriptionPicker';
 import BillSummary from '@/components/BillSummary';
@@ -49,7 +49,7 @@ type FilterTab = 'popular' | 'services' | 'products';
 
 export default function BillingScreen() {
   const { user } = useAuth();
-  const { customers, services, subscriptions, offers, customerSubscriptions, sales, addSale, reload, dataLoading, loadError } = useData();
+  const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError } = useData();
   const { upiList } = usePayment();
   const { showAlert, showConfirm } = useAlert();
   const { refreshPendingCount } = useOfflineSync();
@@ -65,6 +65,7 @@ export default function BillingScreen() {
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [showSubscriptionPicker, setShowSubscriptionPicker] = useState(false);
   const [showQuickPayment, setShowQuickPayment] = useState(false);
+  const [showComboPicker, setShowComboPicker] = useState(false);
 
   // Service picker overlay state
   const [showServiceList, setShowServiceList] = useState(false);
@@ -76,12 +77,14 @@ export default function BillingScreen() {
   // Bill state
   const [items, setItems] = useState<Service[]>([]);
   const [subs, setSubs] = useState<SubscriptionPlan[]>([]);
+  const [addedCombos, setAddedCombos] = useState<Combo[]>([]);
   const [completedSale, setCompletedSale] = useState<any>(null);
 
   const resetBill = () => {
     setSelectedCustomer(null);
     setItems([]);
     setSubs([]);
+    setAddedCombos([]);
   };
 
   const confirmClearAll = () => {
@@ -120,12 +123,36 @@ export default function BillingScreen() {
     });
   };
 
+  const handleAddCombo = (combo: Combo) => {
+    setAddedCombos(prev => [...prev, combo]);
+  };
+
+  const handleRemoveCombo = (index: number) => {
+    setAddedCombos(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handlePlaceOrder = async (total: number, discountAmt: number, discountPercent: number, upiId?: string) => {
     if (!user || !selectedCustomer) {
       showAlert('Error', 'Something went wrong');
       return;
     }
-    const subtotal = items.reduce((acc, i: Service) => acc + i.price, 0) + subs.reduce((acc, s: SubscriptionPlan) => acc + s.price, 0);
+    const comboTotal = addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
+    const subtotal = items.reduce((acc, i: Service) => acc + i.price, 0) + subs.reduce((acc, s: SubscriptionPlan) => acc + s.price, 0) + comboTotal;
+
+    // Build combo items with proportionally adjusted prices
+    const comboSaleItems = addedCombos.flatMap(combo => {
+      const origTotal = combo.items.reduce((s, ci) => s + ci.originalPrice, 0);
+      return combo.items.map(ci => ({
+        id: randomUUID(),
+        itemId: ci.serviceId,
+        itemName: `${ci.serviceName} (${combo.name})`,
+        itemCode: 'COMBO',
+        price: origTotal > 0 ? Math.round((ci.originalPrice / origTotal) * combo.comboPrice) : combo.comboPrice,
+        originalPrice: ci.originalPrice,
+        quantity: 1,
+        kind: ci.serviceKind,
+      }));
+    });
 
     const sale = {
       customer_id: selectedCustomer.id,
@@ -136,15 +163,18 @@ export default function BillingScreen() {
       subtotal,
       discount_amount: discountAmt,
       discount_percent: discountPercent,
-      items: items.map(i => ({
-        id: randomUUID(),
-        itemId: i.id,
-        itemName: i.name,
-        itemCode: i.code,
-        price: i.price,
-        quantity: 1,
-        kind: i.kind,
-      })),
+      items: [
+        ...items.map(i => ({
+          id: randomUUID(),
+          itemId: i.id,
+          itemName: i.name,
+          itemCode: i.code,
+          price: i.price,
+          quantity: 1,
+          kind: i.kind,
+        })),
+        ...comboSaleItems,
+      ],
       subscription_items: subs.map(s => ({
         id: randomUUID(),
         plan_id: s.id,
@@ -275,11 +305,12 @@ export default function BillingScreen() {
     return base;
   }, [activeTab, searchQuery, popularServices, services, serviceSort]);
 
-  const totalItems = items.length + subs.length;
+  const comboItemCount = addedCombos.reduce((acc, c) => acc + c.items.length, 0);
+  const totalItems = items.length + subs.length + comboItemCount;
 
   const runningTotal = useMemo(() => {
-    return items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0);
-  }, [items, subs]);
+    return items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0) + addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
+  }, [items, subs, addedCombos]);
 
   const listRef = useRef<FlatList>(null);
 
@@ -426,6 +457,17 @@ export default function BillingScreen() {
             <ShoppingCart size={20} color={Colors.surface} />
             <Text style={styles.addServiceBtnText}>Add Services / Products</Text>
           </TouchableOpacity>
+          {combos.length > 0 && (
+            <TouchableOpacity style={styles.addComboBtn} onPress={() => setShowComboPicker(true)}>
+              <Package size={18} color={Colors.info} />
+              <Text style={styles.addComboBtnText}>Add Combo</Text>
+              {addedCombos.length > 0 && (
+                <View style={styles.comboBadge}>
+                  <Text style={styles.comboBadgeText}>{addedCombos.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Cart items */}
@@ -483,6 +525,37 @@ export default function BillingScreen() {
                   </TouchableOpacity>
                 </View>
               ))}
+              {addedCombos.map((combo, idx) => {
+                const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
+                const savings = origTotal - combo.comboPrice;
+                return (
+                <View
+                  key={`combo-${idx}`}
+                  style={[styles.cartRow, styles.cartRowBorder]}
+                >
+                  <View style={styles.cartRowInfo}>
+                    <View style={styles.itemNameRow}>
+                      <Text style={styles.cartRowName} numberOfLines={1}>{capitalizeWords(combo.name)}</Text>
+                      <View style={styles.comboBadgeSmall}>
+                        <Text style={styles.comboBadgeSmallText}>combo</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <Text style={styles.cartRowPrice}>{formatCurrency(combo.comboPrice)}</Text>
+                      {origTotal > combo.comboPrice && (
+                        <Text style={styles.cartRowOrigPrice}>{formatCurrency(origTotal)}</Text>
+                      )}
+                    </View>
+                    {savings > 0 && (
+                      <Text style={styles.cartRowSavings}>You save {formatCurrency(savings)}</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={() => handleRemoveCombo(idx)}>
+                    <X size={16} color={Colors.danger} />
+                  </TouchableOpacity>
+                </View>
+                );
+              })}
             </View>
           </View>
         )}
@@ -493,6 +566,7 @@ export default function BillingScreen() {
             <BillSummary
               items={items}
               subs={subs}
+              addedCombos={addedCombos}
               customer={selectedCustomer}
               offers={offers || []}
               customerSubscriptions={selectedCustomerSubscriptions}
@@ -500,6 +574,7 @@ export default function BillingScreen() {
               onSubtractQuantity={handleSubtractQuantity}
               onRemoveItem={(index: number) => setItems(items.filter((_, i) => i !== index))}
               onRemoveSub={(index: number) => setSubs(subs.filter((_, i) => i !== index))}
+              onRemoveCombo={handleRemoveCombo}
               onPlaceOrder={handlePlaceOrder}
               upiList={upiList}
             />
@@ -688,6 +763,61 @@ export default function BillingScreen() {
         onPayment={handleQuickPayment}
         onClose={() => setShowQuickPayment(false)}
       />
+
+      {/* Combo Picker Modal */}
+      <Modal visible={showComboPicker} animationType="slide" transparent onRequestClose={() => setShowComboPicker(false)}>
+        <View style={styles.comboModalOverlay}>
+          <View style={styles.comboModalContent}>
+            <View style={styles.comboModalHeader}>
+              <Text style={styles.comboModalTitle}>Select Combo</Text>
+              <TouchableOpacity onPress={() => setShowComboPicker(false)}>
+                <X size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={combos}
+              keyExtractor={item => item.id}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item: combo }) => {
+                const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
+                const savedPercent = origTotal > 0 ? Math.round(((origTotal - combo.comboPrice) / origTotal) * 100) : 0;
+                return (
+                  <TouchableOpacity
+                    style={styles.comboPickerRow}
+                    onPress={() => { handleAddCombo(combo); setShowComboPicker(false); }}
+                    activeOpacity={0.6}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={styles.comboPickerName}>{capitalizeWords(combo.name)}</Text>
+                        {savedPercent > 0 && (
+                          <View style={styles.comboPickerBadge}>
+                            <Text style={styles.comboPickerBadgeText}>{savedPercent}% OFF</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.comboPickerItems}>{combo.items.map(i => capitalizeWords(i.serviceName)).join(' + ')}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                        <Text style={styles.comboPickerPrice}>{formatCurrency(combo.comboPrice)}</Text>
+                        {origTotal > combo.comboPrice && (
+                          <Text style={styles.comboPickerOrigPrice}>{formatCurrency(origTotal)}</Text>
+                        )}
+                      </View>
+                    </View>
+                    <Plus size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={{ alignItems: 'center', paddingTop: 40 }}>
+                  <Package size={40} color={Colors.textTertiary} />
+                  <Text style={{ color: Colors.textSecondary, marginTop: 8 }}>No combos available</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -925,7 +1055,17 @@ const styles = StyleSheet.create({
   cartRowPrice: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
-    marginTop: 2,
+  },
+  cartRowOrigPrice: {
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    textDecorationLine: 'line-through',
+  },
+  cartRowSavings: {
+    fontSize: FontSize.xs,
+    color: Colors.success,
+    fontWeight: '600',
+    marginTop: 1,
   },
   cartRowActions: {
     flexDirection: 'row',
@@ -1209,5 +1349,110 @@ const styles = StyleSheet.create({
     color: Colors.text,
     minWidth: 18,
     textAlign: 'center',
+  },
+  // Combo styles
+  addComboBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.info,
+  },
+  addComboBtnText: {
+    fontSize: FontSize.body,
+    fontWeight: '600',
+    color: Colors.info,
+  },
+  comboBadge: {
+    backgroundColor: Colors.info,
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  comboBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.surface,
+  },
+  comboBadgeSmall: {
+    backgroundColor: Colors.infoLight,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  comboBadgeSmallText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.info,
+    textTransform: 'uppercase',
+  },
+  comboModalOverlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  comboModalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xxl,
+    borderTopRightRadius: BorderRadius.xxl,
+    padding: Spacing.modal,
+    paddingBottom: Spacing.modalBottom,
+    maxHeight: '70%',
+  },
+  comboModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  comboModalTitle: {
+    fontSize: FontSize.heading,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  comboPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+    gap: 12,
+  },
+  comboPickerName: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  comboPickerBadge: {
+    backgroundColor: Colors.successLight,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  comboPickerBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.success,
+  },
+  comboPickerItems: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  comboPickerPrice: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  comboPickerOrigPrice: {
+    fontSize: FontSize.sm,
+    color: Colors.textTertiary,
+    textDecorationLine: 'line-through',
   },
 });

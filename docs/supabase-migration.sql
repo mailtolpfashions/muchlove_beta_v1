@@ -129,7 +129,26 @@ CREATE TABLE IF NOT EXISTS offers (
   visit_count INTEGER,
   start_date TEXT,
   end_date TEXT,
+  applies_to TEXT NOT NULL DEFAULT 'both' CHECK (applies_to IN ('services', 'subscriptions', 'both')),
+  student_only BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Combos
+CREATE TABLE IF NOT EXISTS combos (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  combo_price NUMERIC NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS combo_items (
+  id TEXT PRIMARY KEY,
+  combo_id TEXT NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
+  service_id TEXT NOT NULL,
+  service_name TEXT NOT NULL,
+  service_kind TEXT NOT NULL CHECK (service_kind IN ('service', 'product')),
+  original_price NUMERIC NOT NULL
 );
 
 -- Sales (header) – drop first if table existed with wrong id type (e.g. bigint)

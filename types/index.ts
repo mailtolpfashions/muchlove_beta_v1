@@ -49,6 +49,7 @@ export interface SaleItem {
   itemName: string;
   itemCode: string;
   price: number;
+  originalPrice?: number;
   quantity: number;
   kind: ServiceKind;
 }
@@ -115,6 +116,8 @@ export interface Offer {
   visitCount?: number;
   startDate?: string;
   endDate?: string;
+  appliesTo: 'services' | 'subscriptions' | 'both';
+  studentOnly: boolean;
   createdAt: string;
 }
 
@@ -122,4 +125,20 @@ export interface UpiData {
   id: string;
   upiId: string;
   payeeName: string;
+}
+
+export interface ComboItem {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  serviceKind: ServiceKind;
+  originalPrice: number;
+}
+
+export interface Combo {
+  id: string;
+  name: string;
+  comboPrice: number;
+  items: ComboItem[];
+  createdAt: string;
 }

@@ -23,6 +23,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: users = [], isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useOfflineQuery(['users'], supabaseDb.users.getAll);
   const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll);
   const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll);
+  const { data: combos = [], isLoading: combosLoading, error: combosError, refetch: refetchCombos } = useOfflineQuery(['combos'], supabaseDb.combos.getAll);
 
   const { mutateAsync: updateUser } = supabaseDb.users.useUpdate();
   const { mutateAsync: deleteUser } = supabaseDb.users.useRemove();
@@ -77,6 +78,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { mutateAsync: updateOffer } = supabaseDb.offers.useUpdate();
   const { mutateAsync: deleteOffer } = supabaseDb.offers.useRemove();
 
+  const { mutateAsync: addCombo } = supabaseDb.combos.useAdd();
+  const { mutateAsync: updateCombo } = supabaseDb.combos.useUpdate();
+  const { mutateAsync: deleteCombo } = supabaseDb.combos.useRemove();
+
   const { mutateAsync: addCustomerSubscription } = supabaseDb.customerSubscriptions.useAdd();
   const { mutateAsync: updateCustomerSubscription } = supabaseDb.customerSubscriptions.useUpdate();
   const { mutateAsync: removeCustomerSubscription } = supabaseDb.customerSubscriptions.useRemove();
@@ -93,8 +98,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     };
   }, [sales, customers, customerSubscriptions]);
 
-  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading;
-  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError;
+  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading;
+  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError;
 
   const reload = async () => {
     await Promise.all([
@@ -105,6 +110,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       refetchUsers(),
       refetchCS(),
       refetchOffers(),
+      refetchCombos(),
     ]);
   };
 
@@ -147,6 +153,12 @@ export const [DataProvider, useData] = createContextHook(() => {
     addOffer,
     updateOffer,
     deleteOffer,
+    combos,
+    combosLoading,
+    combosError,
+    addCombo,
+    updateCombo,
+    deleteCombo,
     stats,
     dataLoading,
     loadError,

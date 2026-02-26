@@ -14,6 +14,8 @@ const TABLE_QUERY_MAP: Record<string, string[]> = {
   subscription_plans: ['subscriptions'],
   customer_subscriptions: ['customerSubscriptions'],
   offers: ['offers'],
+  combos: ['combos'],
+  combo_items: ['combos'],
   sales: ['sales'],
   sale_items: ['sales'],
   subscription_sale_items: ['sales'],

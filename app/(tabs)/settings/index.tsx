@@ -22,6 +22,7 @@ import {
   Sparkles,
   Wallet,
   BadgePercent,
+  Package,
   Phone,
   MapPin,
   Store,
@@ -41,7 +42,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
   const { showConfirm } = useAlert();
-  const { services, subscriptions, offers, users, customers, customerSubscriptions, loadError, reload } = useData();
+  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, loadError, reload } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
@@ -108,6 +109,14 @@ export default function SettingsScreen() {
       color: '#EC4899',
       bg: '#FCE7F3',
       route: '/settings/offers' as const,
+    },
+    {
+      title: 'Combos',
+      subtitle: `${combos.length} combo deals`,
+      icon: Package,
+      color: '#8B5CF6',
+      bg: '#EDE9FE',
+      route: '/settings/combos' as const,
     },
   ] : [];
 

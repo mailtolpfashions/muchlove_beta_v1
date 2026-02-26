@@ -143,7 +143,28 @@ CREATE TABLE IF NOT EXISTS offers (
   visit_count INTEGER,
   start_date TEXT,
   end_date TEXT,
+  applies_to TEXT NOT NULL DEFAULT 'both' CHECK (applies_to IN ('services', 'subscriptions', 'both')),
+  student_only BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 6b. Combos
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS combos (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  combo_price NUMERIC NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS combo_items (
+  id TEXT PRIMARY KEY,
+  combo_id TEXT NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
+  service_id TEXT NOT NULL,
+  service_name TEXT NOT NULL,
+  service_kind TEXT NOT NULL CHECK (service_kind IN ('service', 'product')),
+  original_price NUMERIC NOT NULL
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -179,6 +200,7 @@ CREATE TABLE sale_items (
   service_name TEXT NOT NULL,
   service_code TEXT NOT NULL,
   price NUMERIC NOT NULL,
+  original_price NUMERIC,
   quantity INTEGER NOT NULL,
   kind TEXT NOT NULL DEFAULT 'service' CHECK (kind IN ('service', 'product'))
 );
@@ -259,16 +281,36 @@ DROP POLICY IF EXISTS "Authenticated full access on upi_configs" ON upi_configs;
 CREATE POLICY "Authenticated full access on upi_configs"
   ON upi_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+-- Combos
+ALTER TABLE combos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on combos" ON combos;
+CREATE POLICY "Authenticated full access on combos"
+  ON combos FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Combo Items
+ALTER TABLE combo_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on combo_items" ON combo_items;
+CREATE POLICY "Authenticated full access on combo_items"
+  ON combo_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- 10. Enable Supabase Realtime for all tables (live updates without refresh)
+--     (safe: drops then re-adds each table to avoid "already member" errors)
 -- ═══════════════════════════════════════════════════════════════════════════════
-ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
-ALTER PUBLICATION supabase_realtime ADD TABLE customers;
-ALTER PUBLICATION supabase_realtime ADD TABLE services;
-ALTER PUBLICATION supabase_realtime ADD TABLE subscription_plans;
-ALTER PUBLICATION supabase_realtime ADD TABLE customer_subscriptions;
-ALTER PUBLICATION supabase_realtime ADD TABLE offers;
-ALTER PUBLICATION supabase_realtime ADD TABLE sales;
-ALTER PUBLICATION supabase_realtime ADD TABLE sale_items;
-ALTER PUBLICATION supabase_realtime ADD TABLE subscription_sale_items;
-ALTER PUBLICATION supabase_realtime ADD TABLE upi_configs;
+DO $$
+DECLARE
+  tbl TEXT;
+  tables TEXT[] := ARRAY[
+    'profiles','customers','services','subscription_plans',
+    'customer_subscriptions','offers','sales','sale_items',
+    'subscription_sale_items','upi_configs','combos','combo_items'
+  ];
+BEGIN
+  FOREACH tbl IN ARRAY tables LOOP
+    BEGIN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', tbl);
+    EXCEPTION WHEN duplicate_object THEN
+      -- already a member, skip
+    END;
+  END LOOP;
+END $$;

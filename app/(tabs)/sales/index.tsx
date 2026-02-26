@@ -9,7 +9,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
-import { BarChart3, Search, Download, Share2, X, SlidersHorizontal, Calendar, Wallet, Package, Clock } from 'lucide-react-native';
+import { BarChart3, Search, Download, Share2, X, SlidersHorizontal, Calendar, Wallet, Package, Clock, FileDown } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
@@ -26,8 +26,9 @@ import {
   isSameDay,
   capitalizeWords,
 } from '@/utils/format';
-import { openInvoice, shareInvoice } from '@/utils/invoice';
+import { openInvoice, shareInvoice, shareSalesReport } from '@/utils/invoice';
 import { useAuth } from '@/providers/AuthProvider';
+import { useAlert } from '@/providers/AlertProvider';
 import DatePickerModal from '@/components/DatePickerModal';
 
 const ALL = 'all';
@@ -47,8 +48,10 @@ const OTHER = 'other';
 export default function SalesScreen() {
   const { user, isAdmin } = useAuth();
   const { sales, reload, dataLoading, loadError } = useData();
+  const { showAlert } = useAlert();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const [isFilterModalVisible, setFilterModalVisible] = useState(false);
   const [dateFilter, setDateFilter] = useState(TODAY);
@@ -139,6 +142,27 @@ export default function SalesScreen() {
       await shareInvoice(sale);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (filteredSales.length === 0) {
+      showAlert('No Data', 'No sales to export with current filters.');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const dateLabel = dateFilter === PICK_DATE && pickedDate
+        ? formatDateDDMMYYYY(pickedDate)
+        : dateFilters.find(f => f.value === dateFilter)?.label || 'All';
+      const paymentLabel = paymentFilters.find(f => f.value === paymentFilter)?.label || 'All';
+      const typeLabel = typeFilters.find(f => f.value === typeFilter)?.label || 'All';
+      await shareSalesReport(filteredSales, { dateLabel, paymentLabel, typeLabel });
+    } catch (e) {
+      console.error(e);
+      showAlert('Error', 'Failed to generate sales report PDF.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -257,7 +281,20 @@ export default function SalesScreen() {
       {/* Results count */}
       <View style={styles.resultsRow}>
         <Text style={styles.resultsCount}>{filteredSales.length} sale{filteredSales.length !== 1 ? 's' : ''}</Text>
-        <Text style={styles.resultsTotal}>{formatCurrency(filteredSales.reduce((s, sale) => s + sale.total, 0))}</Text>
+        <View style={styles.resultsRight}>
+          <Text style={styles.resultsTotal}>{formatCurrency(filteredSales.reduce((s, sale) => s + sale.total, 0))}</Text>
+          {isAdmin && filteredSales.length > 0 && (
+            <TouchableOpacity
+              style={[styles.reportDownloadBtn, downloading && styles.reportDownloadBtnDisabled]}
+              onPress={handleDownloadReport}
+              disabled={downloading}
+              activeOpacity={0.7}
+            >
+              <FileDown size={13} color={Colors.surface} />
+              <Text style={styles.reportDownloadText}>{downloading ? 'Generating...' : 'PDF'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Filter modal */}
@@ -490,6 +527,28 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '700',
     color: Colors.primary,
+  },
+  resultsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reportDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  reportDownloadBtnDisabled: {
+    opacity: 0.6,
+  },
+  reportDownloadText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.surface,
   },
 
   listContent: {

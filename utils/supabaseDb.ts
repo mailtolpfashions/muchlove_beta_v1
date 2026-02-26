@@ -12,6 +12,8 @@ import type {
   Offer,
   UpiData,
   CartItem,
+  Combo,
+  ComboItem,
 } from '@/types';
 import { generateId } from '@/utils/hash';
 
@@ -22,11 +24,12 @@ function mapCustomer(r: Record<string, unknown>): Customer { return { id: r.id a
 function mapService(r: Record<string, unknown>): Service { return { id: r.id as string, name: r.name as string, code: r.code as string, price: Number(r.price), kind: ((r.kind as string) ?? 'service') as Service['kind'], mrp: r.mrp != null ? Number(r.mrp) : undefined, offerPrice: r.offer_price != null ? Number(r.offer_price) : undefined, createdAt: (r.created_at as string) ?? new Date().toISOString(), paymentMethod: r.payment_method as Service['paymentMethod'] }; }
 function mapSubscriptionPlan(r: Record<string, unknown>): SubscriptionPlan { return { id: r.id as string, name: r.name as string, durationMonths: Number(r.duration_months), price: Number(r.price), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapCustomerSubscription(r: Record<string, unknown>): CustomerSubscription { return { id: r.id as string, customerId: r.customer_id as string, customerName: r.customer_name as string, planId: r.plan_id as string, planName: r.plan_name as string, planDurationMonths: Number(r.plan_duration_months), planPrice: Number(r.plan_price), status: r.status as CustomerSubscription['status'], startDate: r.start_date as string, assignedByUserId: r.assigned_by_user_id as string, assignedByName: r.assigned_by_name as string, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
-function mapOffer(r: Record<string, unknown>): Offer { return { id: r.id as string, name: r.name as string, percent: Number(r.percent), visitCount: r.visit_count != null ? Number(r.visit_count) : undefined, startDate: r.start_date as string | undefined, endDate: r.end_date as string | undefined, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
+function mapOffer(r: Record<string, unknown>): Offer { return { id: r.id as string, name: r.name as string, percent: Number(r.percent), visitCount: r.visit_count != null ? Number(r.visit_count) : undefined, startDate: r.start_date as string | undefined, endDate: r.end_date as string | undefined, appliesTo: (r.applies_to as Offer['appliesTo']) || 'both', studentOnly: !!r.student_only, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapUpiData(r: Record<string, unknown>): UpiData { return { id: r.id as string, upiId: r.upi_id as string, payeeName: r.payee_name as string }; }
+function mapComboItem(r: Record<string, unknown>): ComboItem { return { id: r.id as string, serviceId: r.service_id as string, serviceName: r.service_name as string, serviceKind: (r.service_kind as ComboItem['serviceKind']) ?? 'service', originalPrice: Number(r.original_price) }; }
 function mapSaleRow(r: Record<string, unknown>): Omit<Sale, 'items' | 'subscriptionItems'> { return { id: r.id as string, customerId: r.customer_id as string, customerName: r.customer_name as string, employeeId: r.employee_id as string, employeeName: r.employee_name as string, type: r.type as Sale['type'], paymentMethod: r.payment_method as Sale['paymentMethod'], subtotal: Number(r.subtotal), discountPercent: Number(r.discount_percent) ?? 0, discountAmount: Number(r.discount_amount) ?? 0, total: Number(r.total), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapSaleItem(r: Record<string, unknown>): SaleItem {
-  const item = {
+  const item: SaleItem = {
     id: r.id as string,
     itemId: r.service_id as string,
     itemName: r.service_name as string,
@@ -35,6 +38,7 @@ function mapSaleItem(r: Record<string, unknown>): SaleItem {
     quantity: Number(r.quantity),
     kind: ((r.kind as string) ?? 'service') as SaleItem['kind'],
   };
+  if (r.original_price != null) item.originalPrice = Number(r.original_price);
   (item as any).serviceName = item.itemName;
   return item;
 }
@@ -288,6 +292,7 @@ export const sales = {
             service_name: item.itemName,
             service_code: item.itemCode,
             price: item.price,
+            original_price: item.originalPrice ?? null,
             quantity: item.quantity,
             kind: item.kind,
           }));
@@ -415,7 +420,9 @@ export const offers = {
           percent: offer.percent,
           visit_count: offer.visitCount,
           start_date: offer.startDate,
-          end_date: offer.endDate
+          end_date: offer.endDate,
+          applies_to: offer.appliesTo || 'both',
+          student_only: offer.studentOnly || false,
         };
         const { data, error } = await supabase.from('offers').insert(newOffer).select().single();
         if (error) throw error;
@@ -428,7 +435,7 @@ export const offers = {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (offer: Offer) => {
-        const { error } = await supabase.from('offers').update({ name: offer.name, percent: offer.percent, visit_count: offer.visitCount, start_date: offer.startDate, end_date: offer.endDate }).eq('id', offer.id);
+        const { error } = await supabase.from('offers').update({ name: offer.name, percent: offer.percent, visit_count: offer.visitCount, start_date: offer.startDate, end_date: offer.endDate, applies_to: offer.appliesTo || 'both', student_only: offer.studentOnly || false }).eq('id', offer.id);
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['offers'] }); if (onSuccess) await onSuccess(); }
@@ -485,6 +492,68 @@ export const upiConfigs = {
   },
 };
 
+
+export const combos = {
+  getAll: async (): Promise<Combo[]> => {
+    const { data: comboRows, error: comboError } = await supabase.from('combos').select('*').order('created_at', { ascending: true });
+    if (comboError) throw comboError;
+    if (!comboRows || comboRows.length === 0) return [];
+    const comboIds = comboRows.map(c => c.id);
+    const { data: itemRows, error: itemError } = await supabase.from('combo_items').select('*').in('combo_id', comboIds);
+    if (itemError) throw itemError;
+    const itemsByCombo = (itemRows ?? []).reduce<Record<string, ComboItem[]>>((acc, row) => {
+      const cid = row.combo_id as string;
+      if (!acc[cid]) acc[cid] = [];
+      acc[cid].push(mapComboItem(row));
+      return acc;
+    }, {});
+    return comboRows.map(r => ({ id: r.id as string, name: r.name as string, comboPrice: Number(r.combo_price), items: itemsByCombo[r.id] ?? [], createdAt: (r.created_at as string) ?? new Date().toISOString() }));
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (combo: Omit<Combo, 'id' | 'createdAt'>) => {
+        const comboId = generateId();
+        const { error: comboErr } = await supabase.from('combos').insert({ id: comboId, name: combo.name, combo_price: combo.comboPrice, created_at: new Date().toISOString() });
+        if (comboErr) throw comboErr;
+        if (combo.items.length > 0) {
+          const rows = combo.items.map(item => ({ id: generateId(), combo_id: comboId, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
+          const { error: itemErr } = await supabase.from('combo_items').insert(rows);
+          if (itemErr) throw itemErr;
+        }
+        return { id: comboId, name: combo.name, comboPrice: combo.comboPrice, items: combo.items, createdAt: new Date().toISOString() } as Combo;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['combos'] }); if (onSuccess) await onSuccess(); }
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (combo: Combo) => {
+        const { error: comboErr } = await supabase.from('combos').update({ name: combo.name, combo_price: combo.comboPrice }).eq('id', combo.id);
+        if (comboErr) throw comboErr;
+        // Delete existing items and re-insert
+        await supabase.from('combo_items').delete().eq('combo_id', combo.id);
+        if (combo.items.length > 0) {
+          const rows = combo.items.map(item => ({ id: item.id || generateId(), combo_id: combo.id, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
+          const { error: itemErr } = await supabase.from('combo_items').insert(rows);
+          if (itemErr) throw itemErr;
+        }
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['combos'] }); if (onSuccess) await onSuccess(); }
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('combos').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['combos'] }); if (onSuccess) await onSuccess(); }
+    });
+  },
+};
 
 export async function seedSupabaseIfNeeded(): Promise<void> {
   // Users are now created via Supabase Auth sign-up (profiles table auto-populated by trigger).

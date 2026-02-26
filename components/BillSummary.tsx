@@ -6,17 +6,19 @@ import QRCode from 'react-native-qrcode-svg';
 import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
-import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription } from '@/types';
+import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription, Combo } from '@/types';
 import { formatCurrency, capitalizeWords } from '@/utils/format';
 
 interface BillSummaryProps {
   items: Service[];
   subs: SubscriptionPlan[];
+  addedCombos?: Combo[];
   customer: Customer | null;
   offers: Offer[];
   customerSubscriptions: CustomerSubscription[];
   onRemoveItem: (index: number) => void;
   onRemoveSub: (index: number) => void;
+  onRemoveCombo?: (index: number) => void;
   onAddQuantity?: (service: Service) => void;
   onSubtractQuantity?: (service: Service) => void;
   onPlaceOrder: (total: number, discountAmount: number, discountPercent: number, upiId?: string) => void;
@@ -28,11 +30,13 @@ const modalWidth = Dimensions.get('window').width * 0.8;
 export default function BillSummary({
   items,
   subs,
+  addedCombos = [],
   customer,
   offers,
   customerSubscriptions,
   onRemoveItem,
   onRemoveSub,
+  onRemoveCombo,
   onAddQuantity,
   onSubtractQuantity,
   onPlaceOrder,
@@ -45,6 +49,7 @@ export default function BillSummary({
   const { serviceDiscount, serviceDiscountPercent, serviceDiscountLabel, subsDiscount, subsDiscountPercent, subsDiscountLabel, total, totalDiscount } = useMemo(() => {
     const subtotalServices = items.reduce((acc, i) => acc + i.price, 0);
     const subtotalSubs = subs.reduce((acc, s) => acc + s.price, 0);
+    const subtotalCombos = addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
 
     const subtotalActualServices = items
       .filter(i => i.kind === 'service')
@@ -61,6 +66,7 @@ export default function BillSummary({
     const hasActiveSubscription = customerSubscriptions.some((sub: CustomerSubscription) => sub.status === 'active');
 
     if (customer) {
+      // ── Service discounts ──
       if (items.length > 0) {
         if (hasActiveSubscription) {
           const studentDiscount = customer.isStudent ? 30 : 0;
@@ -69,35 +75,58 @@ export default function BillSummary({
           serviceDiscount = subtotalActualServices * (serviceDiscountPercent / 100);
           serviceDiscountLabel = `Subscription Discount (${serviceDiscountPercent}%)`;
         } else {
-          const bestVisitOffer = offers
-            .filter(o => o.visitCount != null && o.visitCount >= 0 &&
-              (o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount))
-            .sort((a, b) => b.percent - a.percent)[0];
+          // Find best visit-based or student offer that applies to services
+          const serviceOffers = offers.filter(o => {
+            const appliesToServices = !o.appliesTo || o.appliesTo === 'services' || o.appliesTo === 'both';
+            if (!appliesToServices) return false;
+            if (o.studentOnly && !customer.isStudent) return false;
+            if (o.visitCount != null && o.visitCount >= 0) {
+              return o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount;
+            }
+            if (o.visitCount === -1) {
+              return customer.isStudent;
+            }
+            return false;
+          });
 
-          if (bestVisitOffer) {
-            serviceDiscountPercent = bestVisitOffer.percent;
+          const bestServiceOffer = serviceOffers.sort((a, b) => b.percent - a.percent)[0];
+          if (bestServiceOffer) {
+            serviceDiscountPercent = bestServiceOffer.percent;
             serviceDiscount = subtotalActualServices * (serviceDiscountPercent / 100);
-            serviceDiscountLabel = `${bestVisitOffer.name} (${serviceDiscountPercent}%)`;
+            serviceDiscountLabel = `${bestServiceOffer.name} (${serviceDiscountPercent}%)`;
           }
         }
       }
 
-      if (isPurchasingSubscription && customer.isStudent) {
-        const studentOffer = offers.find(o => o.visitCount === -1); // student offer flag
-        if (studentOffer) {
-          subsDiscountPercent = studentOffer.percent;
+      // ── Subscription discounts ──
+      if (isPurchasingSubscription) {
+        const subsOffers = offers.filter(o => {
+          const appliesToSubs = o.appliesTo === 'subscriptions' || o.appliesTo === 'both';
+          if (!appliesToSubs) return false;
+          if (o.studentOnly && !customer.isStudent) return false;
+          // Student offer flag or any offer targeting subs
+          if (o.visitCount === -1) return customer.isStudent;
+          if (o.visitCount != null && o.visitCount >= 0) {
+            return o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount;
+          }
+          return false;
+        });
+
+        const bestSubsOffer = subsOffers.sort((a, b) => b.percent - a.percent)[0];
+        if (bestSubsOffer) {
+          subsDiscountPercent = bestSubsOffer.percent;
           subsDiscount = subtotalSubs * (subsDiscountPercent / 100);
-          subsDiscountLabel = `${studentOffer.name} (${subsDiscountPercent}%)`;
+          subsDiscountLabel = `${bestSubsOffer.name} (${subsDiscountPercent}%)`;
         }
       }
     }
 
     const totalDiscount = serviceDiscount + subsDiscount;
-    const total = subtotalServices - serviceDiscount + subtotalSubs - subsDiscount;
+    const total = subtotalServices - serviceDiscount + subtotalCombos + subtotalSubs - subsDiscount;
     return { serviceDiscount, serviceDiscountPercent, serviceDiscountLabel, subsDiscount, subsDiscountPercent, subsDiscountLabel, total, totalDiscount };
-  }, [items, subs, customer, offers]);
+  }, [items, subs, addedCombos, customer, offers]);
 
-  const subtotal = items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0);
+  const subtotal = items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0) + addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
 
   // Group items by ID for the view 
   const groupedItems = useMemo(() => {
@@ -209,6 +238,34 @@ export default function BillSummary({
         ) : (
           items.length > 0 ? null : <Text style={styles.emptyText}>No subscriptions added</Text>
         )}
+        {addedCombos.length > 0 && addedCombos.map((combo, index) => {
+          const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
+          const savings = origTotal - combo.comboPrice;
+          return (
+          <View style={[styles.itemRow, index === addedCombos.length - 1 && styles.itemRowLast]} key={`combo-${combo.id}-${index}`}>
+            <View style={styles.itemNameContainer}>
+              <Text style={styles.itemName}>{capitalizeWords(combo.name)}</Text>
+              <View style={styles.comboTag}>
+                <Text style={styles.comboTagText}>Combo · {combo.items.length} items</Text>
+              </View>
+              {savings > 0 && (
+                <Text style={styles.comboSavingsText}>Save {formatCurrency(savings)}</Text>
+              )}
+            </View>
+            <View style={styles.comboPriceContainer}>
+              <Text style={styles.itemPrice}>{formatCurrency(combo.comboPrice)}</Text>
+              {origTotal > combo.comboPrice && (
+                <Text style={styles.comboOrigPrice}>{formatCurrency(origTotal)}</Text>
+              )}
+            </View>
+            {onRemoveCombo && (
+              <TouchableOpacity onPress={() => onRemoveCombo(index)} style={styles.removeBtn}>
+                <Trash2 size={14} color={Colors.danger} />
+              </TouchableOpacity>
+            )}
+          </View>
+          );
+        })}
       </View>
 
       <View style={styles.totalsContainer}>
@@ -235,7 +292,7 @@ export default function BillSummary({
           </View>
         )}
         {(serviceDiscount > 0 || subsDiscount > 0) && (
-          <Text style={styles.disclaimerText}>* Discounts are applicable only on services.</Text>
+          <Text style={styles.disclaimerText}>* Discounts on services only{addedCombos.length > 0 ? '. Combos at fixed price, no extra discounts.' : '.'}</Text>
         )}
         <View style={styles.grandTotalRow}>
           <Text style={styles.grandTotalLabel}>Total</Text>
@@ -395,6 +452,32 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: '600',
     color: Colors.info,
+  },
+  comboTag: {
+    backgroundColor: Colors.successLight,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  comboTagText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  comboPriceContainer: {
+    alignItems: 'flex-end',
+  },
+  comboOrigPrice: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    textDecorationLine: 'line-through',
+    textAlign: 'right',
+  },
+  comboSavingsText: {
+    fontSize: FontSize.xs,
+    color: Colors.success,
+    fontWeight: '600',
+    marginTop: 2,
   },
   qtyContainer: {
     flexDirection: 'row',
