@@ -19,6 +19,8 @@ export interface Customer {
   isStudent: boolean;
   visitCount: number;
   createdAt: string;
+  /** true when created/updated offline and not yet synced */
+  _offline?: boolean;
 }
 
 export type ServiceKind = 'service' | 'product';
@@ -33,6 +35,7 @@ export interface Service {
   offerPrice?: number;
   createdAt: string;
   paymentMethod?: 'cash' | 'gpay';
+  _offline?: boolean;
 }
 
 export interface SubscriptionPlan {
@@ -41,6 +44,7 @@ export interface SubscriptionPlan {
   durationMonths: number;
   price: number;
   createdAt: string;
+  _offline?: boolean;
 }
 
 export interface SaleItem {
@@ -79,6 +83,7 @@ export interface Sale {
   discountAmount: number;
   total: number;
   createdAt: string;
+  _offline?: boolean;
 }
 
 export type CustomerSubscriptionStatus = 'active' | 'paused';
@@ -96,6 +101,7 @@ export interface CustomerSubscription {
   assignedByUserId: string;
   assignedByName: string;
   createdAt: string;
+  _offline?: boolean;
 }
 
 export interface Offer {
@@ -108,6 +114,7 @@ export interface Offer {
   appliesTo: 'services' | 'subscriptions' | 'both';
   studentOnly: boolean;
   createdAt: string;
+  _offline?: boolean;
 }
 
 export interface UpiData {
@@ -130,4 +137,5 @@ export interface Combo {
   comboPrice: number;
   items: ComboItem[];
   createdAt: string;
+  _offline?: boolean;
 }

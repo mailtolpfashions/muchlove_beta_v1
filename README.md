@@ -144,7 +144,8 @@ components/
   CustomerPicker.tsx              # Customer selection/creation modal
   DatePickerModal.tsx             # Custom calendar date picker
   HeaderRight.tsx                 # Header branding ("Much Love" in Billabong font)
-  OfflineBanner.tsx               # Persistent offline/sync status banner
+  OfflineBanner.tsx               # Persistent offline/sync status banner (sales + mutations)
+  OfflineBadge.tsx                 # Per-entity offline indicator badge (add/update/delete)
   QuickPayment.tsx                # Walk-in quick payment modal (3-step)
   SaleComplete.tsx                # Sale confirmation modal with offline badge
   SortPills.tsx                   # Reusable horizontal pill selector
@@ -190,6 +191,7 @@ utils/
   invoice.ts                      # HTML invoice + sales report generation, PDF print/share, standardized file naming
   notifications.ts                # Push notification setup, local notifications, push token registration/unregistration
   offlineQueue.ts                 # Tamper-proof offline sale queue (blockchain-style hashing)
+  offlineMutationQueue.ts          # Generic offline mutation queue for all entity CRUD
   supabaseDb.ts                   # Complete CRUD for all entities (row mappers + mutations)
 
 supabase/
@@ -578,7 +580,12 @@ QueryClientProvider
 
 **Key features**:
 - `useRealtimeSync` for live updates + admin sale notifications
+- **Offline-aware CRUD** — all entity add/update/delete operations catch network errors, enqueue via `offlineMutationQueue`, and apply optimistic cache updates
 - `addSale` wraps mutation with offline fallback — on network error, enqueues via `enqueueSale()`, returns synthetic result with `_offline: true`
+- `createOfflineMutation` — generic wrapper that handles network error → enqueue → optimistic update for any entity
+- `isPendingSync(entity, entityId)` — checks if an entity has a pending offline mutation
+- `isOffline` — network connectivity state from NetInfo
+- `pendingOps` — Map of all pending mutation operations for UI indicators
 - `stats` (memoized): `totalSalesAmount`, `totalSalesCount`, `todaySalesTotal`, `todaySalesCount`, `totalCustomers`, `activeSubscriptions`
 - `reload()` — refetches all 8 queries in parallel
 
@@ -594,7 +601,7 @@ Custom modal-based alert system (replaces native Alert). Supports types: `error`
 
 ### OfflineSyncProvider (`providers/OfflineSyncProvider.tsx`)
 
-Watches network via NetInfo. See [Offline Sync Architecture](#13-offline-sync-architecture).
+Watches network via NetInfo. Syncs both offline sales (tamper-proof queue) and generic entity mutations (offlineMutationQueue). See [Offline Sync Architecture](#13-offline-sync-architecture).
 
 ---
 
@@ -606,8 +613,11 @@ Offline-first query pattern wrapping TanStack `useQuery`:
 
 1. **Hydrates** from AsyncStorage on mount (cache key: `@oq:${JSON.stringify(queryKey)}`)
 2. **Network-aware** query execution (enabled when online)
-3. **Persists** fresh data to AsyncStorage on success
-4. **Falls back** to cache when offline
+3. **Persists** fresh data to AsyncStorage on success with cache-age metadata (`@oq_meta:` prefix)
+4. **Falls back** to cache when offline (up to 7-day cache retention)
+5. **Cache age tracking** — `cacheAge` field returns human-readable age (e.g. '2h ago', '3d ago')
+6. **`isFromCache`** flag — indicates when data is served from offline cache
+7. **Auto-cleanup** — expired cache entries (>7 days) are purged on hydration
 
 ### `useRealtimeSync` (`hooks/useRealtimeSync.ts`)
 
@@ -716,7 +726,7 @@ Pink header (`#E91E63`), white tab bar, safe area insets. Settings header condit
 
 ### Root Layout (`app/_layout.tsx`)
 
-- QueryClient config: `staleTime: 2min`, `gcTime: 10min`, `retries: 2`, no `refetchOnWindowFocus`
+- QueryClient config: `staleTime: 5min`, `gcTime: 30min`, `retries: 2`, no `refetchOnWindowFocus`
 - Navigation guard: redirects to `/(tabs)/` if authenticated, `/login` if not
 - Loads **Billabong** custom font
 - Shows `OfflineBanner` above Stack navigator
@@ -897,11 +907,24 @@ Simple branding: displays "Much Love" in Billabong font (size 32), white, right-
 ### OfflineBanner (`components/OfflineBanner.tsx`)
 
 Persistent top banner with 3 states:
-1. **Syncing** (blue) — ActivityIndicator + "Syncing N offline sales…"
-2. **Offline** (gray) — WifiOff icon + "You're offline" + pending count
-3. **Pending** (yellow, tappable) — CloudUpload icon + "N offline sales pending" + "Tap to sync now"
+1. **Syncing** (blue) — ActivityIndicator + "Syncing N sales · M changes…"
+2. **Offline** (gray) — WifiOff icon + "You're offline" + combined pending count (sales + mutations)
+3. **Pending** (yellow, tappable) — CloudUpload icon + combined pending label + "Tap to sync now" + conflict resolution summary
+
+Shows both sale count and entity mutation count. Displays conflict resolution outcomes when server-wins conflicts occur.
 
 Returns `null` when online + no pending + not syncing.
+
+### OfflineBadge (`components/OfflineBadge.tsx`)
+
+Per-entity offline indicator badge. Shows operation-specific icons and colors:
+- **Add** (blue Upload icon) — "Pending upload"
+- **Update** (amber Pencil icon) — "Pending update"
+- **Delete** (red Trash2 icon) — "Pending delete"
+
+Supports `compact` mode (icon-only, 16px circle) and full mode (pill badge with label).
+
+Usage: `<OfflineBadge entity="customers" entityId={customer.id} />`
 
 ### QuickPayment (`components/QuickPayment.tsx` — 558 lines)
 
@@ -973,20 +996,20 @@ Modal for subscription plan selection. Search by name, FlatList with CheckCircle
 
 ```
 QueryClient (TanStack React Query v5)
-  ├── staleTime: 2 min
-  ├── gcTime: 10 min
+  ├── staleTime: 5 min
+  ├── gcTime: 30 min
   ├── retries: 2
   ├── refetchOnWindowFocus: false
   └── Queries:
-       ├── ['customers']             → useOfflineQuery → AsyncStorage cache
-       ├── ['services']              → useOfflineQuery → AsyncStorage cache
-       ├── ['subscriptions']         → useOfflineQuery → AsyncStorage cache
-       ├── ['sales']                 → useOfflineQuery → AsyncStorage cache
-       ├── ['users']                 → useOfflineQuery → AsyncStorage cache
-       ├── ['customerSubscriptions'] → useOfflineQuery → AsyncStorage cache
-       ├── ['offers']                → useOfflineQuery → AsyncStorage cache
-       ├── ['combos']                → useOfflineQuery → AsyncStorage cache
-       └── ['upiConfigs']            → useOfflineQuery → AsyncStorage cache
+       ├── ['customers']             → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['services']              → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['subscriptions']         → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['sales']                 → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['users']                 → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['customerSubscriptions'] → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['offers']                → useOfflineQuery → AsyncStorage cache (7-day retention)
+       ├── ['combos']                → useOfflineQuery → AsyncStorage cache (7-day retention)
+       └── ['upiConfigs']            → useOfflineQuery → AsyncStorage cache (7-day retention)
 
 Realtime Channel (Supabase postgres_changes on all tables)
   → INSERT/UPDATE/DELETE detected
@@ -1000,18 +1023,25 @@ Background Push Notifications (Server-side)
   → sends via Expo Push API → FCM/APNs delivery
   → works even when app is closed/backgrounded
 
-Offline Queue (AsyncStorage key: '@offline_sales')
+Offline Sale Queue (AsyncStorage key: '@offline_sales')
   → blockchain-hashed append-only entries
   → syncs on reconnect (2s debounce) or app foreground
   → integrity verification before sync
   → purges synced entries older than 30 days
+
+Offline Mutation Queue (AsyncStorage key: '@offline_mutation_queue')
+  → generic CRUD queue for all entity types
+  → smart optimization: merges updates into pending adds, cancels add+delete pairs
+  → conflict resolution: server-wins when record modified after offline mutation
+  → syncs on reconnect alongside sales
+  → optimistic UI updates via TanStack Query cache
 ```
 
 ---
 
 ## 13. Offline Sync Architecture
 
-### Queue Design (`utils/offlineQueue.ts`)
+### Sale Queue Design (`utils/offlineQueue.ts`)
 
 **Anti-fraud, tamper-proof, append-only** queue stored in AsyncStorage with blockchain-style integrity hashing (MurmurHash via expo-crypto).
 
@@ -1041,19 +1071,67 @@ interface OfflineSale {
 
 **No delete/edit API** — by design, employees cannot tamper with offline sales.
 
+### Generic Mutation Queue (`utils/offlineMutationQueue.ts`)
+
+**Flexible CRUD queue** for all entity types (customers, services, subscriptions, offers, combos, customerSubscriptions).
+
+```typescript
+interface OfflineMutation {
+  id: string;
+  entity: MutationEntity;      // 'customers' | 'services' | ...
+  entityId: string;
+  operation: MutationOperation; // 'add' | 'update' | 'delete'
+  payload: Record<string, any>;
+  createdAt: string;
+  synced: boolean;
+  syncedAt?: string;
+  retryCount: number;
+  lastError?: string;
+  conflictResolution: 'none' | 'resolved-server' | 'resolved-local';
+}
+```
+
+**Smart queue optimization**:
+- **Update merging**: If an entity already has a pending `add`, subsequent `update` merges payload into the `add` entry
+- **Add+delete cancellation**: If an entity has a pending `add` and a `delete` is queued, both are removed (entity never existed server-side)
+- **Sequential sync**: Mutations processed in order to maintain consistency
+
+**Operations**:
+| Function | Description |
+|---|---|
+| `enqueueMutation(entity, entityId, operation, payload)` | Smart-enqueue with optimization |
+| `getPendingMutations()` | Returns all unsynced mutations |
+| `getPendingMutationCount()` | Count of pending mutations |
+| `markMutationSynced(id)` | Marks mutation as synced |
+| `markMutationFailed(id, error)` | Stores error + increments retry |
+| `getPendingEntityIds(entity)` | IDs of pending entities for a type |
+| `getPendingOperations(entity)` | Map of entityId → operation for UI indicators |
+| `purgeSyncedMutations()` | Cleanup all synced mutation entries |
+
+### Conflict Resolution
+
+Server-wins strategy at sync time:
+1. For **updates**: fetch server record's `updated_at`, compare with mutation's `createdAt`
+2. If server record was modified **after** the offline mutation → **server wins** (skip offline change)
+3. If server record was modified **before** → **local wins** (apply offline change)
+4. For **deletes**: if record doesn't exist on server → treat as already deleted
+5. For **adds**: check for duplicates before inserting (idempotent)
+
 ### Sync Engine (`providers/OfflineSyncProvider.tsx`)
 
 | Feature | Behavior |
 |---|---|
 | Auto-sync trigger | Network reconnect (2s debounce) + app foreground |
-| Upload process | `uploadSale(entry)` → inserts sale + sale_items + subscription_sale_items + customer_subscriptions + increments visit_count |
+| Sale upload | `uploadSale(entry)` → inserts sale + sale_items + subscription_sale_items + customer_subscriptions + increments visit_count |
+| Mutation upload | `syncMutation(mutation)` → handles add/update/delete per entity table with conflict resolution |
 | Concurrency | Sync lock prevents concurrent syncs |
-| Integrity | Verifies integrity chain before upload |
+| Integrity | Verifies integrity chain for sales before upload |
+| Conflict resolution | Server-wins for updates when server record is newer |
 | Error handling | Duplicate key errors treated as already-synced |
-| Cleanup | Purges synced entries >30 days after successful sync |
-| Query refresh | Invalidates all queries after sync completion |
+| Cleanup | Purges synced sales >30 days + all synced mutations after sync |
+| Query refresh | Invalidates affected entity queries after sync |
 
-**Exposed**: `isOffline`, `pendingCount`, `isSyncing`, `lastSyncResult`, `syncNow()`, `refreshPendingCount()`
+**Exposed**: `isOffline`, `pendingCount`, `pendingMutationCount`, `totalPendingCount`, `isSyncing`, `lastSyncResult`, `syncNow()`, `refreshPendingCount()`
 
 ---
 
@@ -1195,8 +1273,8 @@ Generates `icon.png`, `adaptive-icon.png`, `favicon.png`, `splash-icon.png` in `
 - ✅ Background push notifications (works when app is closed)
 - ✅ Standardized PDF file naming (invoices + sales reports)
 - ✅ Employee role restrictions
+- ✅ Enhanced offline support (offline CRUD for all entities, conflict resolution, 7-day cache, per-entity indicators)
 
 ### Planned
-- 🔮 Enhanced offline support
 - 🔮 OTP validation via WhatsApp
 - 🔮 WhatsApp API integration for invoices/confirmations

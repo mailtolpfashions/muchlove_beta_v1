@@ -21,8 +21,8 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 2 * 60 * 1000,        // 2 min — avoid redundant refetches
-      gcTime: 10 * 60 * 1000,           // 10 min — keep cache longer
+      staleTime: 5 * 60 * 1000,        // 5 min — avoid redundant refetches
+      gcTime: 30 * 60 * 1000,           // 30 min — keep cache longer for offline
       retry: 2,                          // retry failed fetches twice
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
       refetchOnWindowFocus: false,       // realtime sync handles updates

@@ -1,6 +1,6 @@
 /**
  * OfflineBanner — persistent top banner when device is offline,
- * plus a syncing indicator and pending-sales count.
+ * plus a syncing indicator and pending-sales/mutation count.
  */
 
 import React from 'react';
@@ -9,18 +9,38 @@ import { WifiOff, CloudUpload, AlertTriangle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 
+/** Format total pending items (sales + entity mutations) */
+function pendingLabel(saleCount: number, mutCount: number): string {
+  const parts: string[] = [];
+  if (saleCount > 0) parts.push(`${saleCount} sale${saleCount !== 1 ? 's' : ''}`);
+  if (mutCount > 0) parts.push(`${mutCount} change${mutCount !== 1 ? 's' : ''}`);
+  return parts.join(' · ') || '';
+}
+
 export default function OfflineBanner() {
-  const { isOffline, pendingCount, isSyncing, syncNow, lastSyncResult } = useOfflineSync();
+  const {
+    isOffline,
+    pendingCount,
+    pendingMutationCount,
+    totalPendingCount,
+    isSyncing,
+    syncNow,
+    lastSyncResult,
+  } = useOfflineSync();
 
   // Nothing to show
-  if (!isOffline && pendingCount === 0 && !isSyncing) return null;
+  if (!isOffline && totalPendingCount === 0 && !isSyncing) return null;
+
+  const label = pendingLabel(pendingCount, pendingMutationCount);
 
   // Currently syncing
   if (isSyncing) {
     return (
       <View style={[styles.banner, styles.syncingBanner]}>
         <ActivityIndicator size="small" color="#FFFFFF" />
-        <Text style={styles.bannerText}>Syncing {pendingCount} offline sale{pendingCount !== 1 ? 's' : ''}…</Text>
+        <Text style={styles.bannerText}>
+          Syncing{label ? ` ${label}` : ''}…
+        </Text>
       </View>
     );
   }
@@ -31,17 +51,17 @@ export default function OfflineBanner() {
       <View style={[styles.banner, styles.offlineBanner]}>
         <WifiOff size={16} color="#FFFFFF" />
         <Text style={styles.bannerText}>
-          You're offline{pendingCount > 0 ? ` · ${pendingCount} sale${pendingCount !== 1 ? 's' : ''} pending` : ''}
+          You're offline{label ? ` · ${label} pending` : ''}
         </Text>
-        {pendingCount > 0 && (
-          <Text style={styles.subText}>Sales will sync automatically when online</Text>
+        {totalPendingCount > 0 && (
+          <Text style={styles.subText}>Changes will sync automatically when online</Text>
         )}
       </View>
     );
   }
 
-  // Online but has pending sales (sync failed earlier)
-  if (pendingCount > 0) {
+  // Online but has pending items (sync failed earlier)
+  if (totalPendingCount > 0) {
     return (
       <TouchableOpacity
         style={[styles.banner, styles.pendingBanner]}
@@ -50,13 +70,23 @@ export default function OfflineBanner() {
       >
         <CloudUpload size={16} color="#FFFFFF" />
         <Text style={styles.bannerText}>
-          {pendingCount} offline sale{pendingCount !== 1 ? 's' : ''} pending
+          {label} pending
         </Text>
         <Text style={styles.tapText}>Tap to sync now</Text>
-        {lastSyncResult && lastSyncResult.failed > 0 && (
+        {lastSyncResult && (lastSyncResult.failed > 0 || lastSyncResult.mutationsFailed > 0) && (
           <View style={styles.errorRow}>
             <AlertTriangle size={12} color="#FEF3C7" />
-            <Text style={styles.errorText}>{lastSyncResult.failed} failed — will retry</Text>
+            <Text style={styles.errorText}>
+              {lastSyncResult.failed + lastSyncResult.mutationsFailed} failed — will retry
+            </Text>
+          </View>
+        )}
+        {lastSyncResult && lastSyncResult.conflicts > 0 && (
+          <View style={styles.errorRow}>
+            <AlertTriangle size={12} color="#FDE68A" />
+            <Text style={styles.errorText}>
+              {lastSyncResult.conflicts} conflict{lastSyncResult.conflicts !== 1 ? 's' : ''} resolved (server wins)
+            </Text>
           </View>
         )}
       </TouchableOpacity>

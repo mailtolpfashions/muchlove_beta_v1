@@ -1,9 +1,11 @@
 /**
  * OfflineSyncProvider — watches network state and automatically syncs queued
- * offline sales to Supabase when connectivity returns.
+ * offline sales AND generic entity mutations to Supabase when connectivity returns.
  *
  * Features:
  * - Auto-sync on reconnect (with debounce to avoid hammering)
+ * - Syncs both sale queue (offlineQueue) and entity mutations (offlineMutationQueue)
+ * - Conflict resolution: server-wins when record was modified after offline mutation
  * - Exposes `pendingCount`, `isSyncing`, `lastSyncResult` to the UI
  * - `isOffline` flag for showing offline banners
  * - Manual `syncNow()` for pull-to-refresh-style triggers
@@ -27,6 +29,36 @@ import {
   purgeSyncedOlderThan,
   OfflineSale,
 } from '@/utils/offlineQueue';
+import {
+  getPendingMutations,
+  getPendingMutationCount,
+  markMutationSynced,
+  markMutationFailed,
+  purgeSyncedMutations,
+  OfflineMutation,
+  MutationEntity,
+} from '@/utils/offlineMutationQueue';
+
+// ── Entity → Table mapping ────────────────────────────────────────────────────
+
+const ENTITY_TABLE: Record<MutationEntity, string> = {
+  customers: 'customers',
+  services: 'services',
+  subscriptions: 'subscription_plans',
+  offers: 'offers',
+  combos: 'combos',
+  customerSubscriptions: 'customer_subscriptions',
+};
+
+// Query keys to invalidate per entity
+const ENTITY_QUERY_KEYS: Record<MutationEntity, string[]> = {
+  customers: ['customers'],
+  services: ['services'],
+  subscriptions: ['subscriptions'],
+  offers: ['offers'],
+  combos: ['combos'],
+  customerSubscriptions: ['customerSubscriptions'],
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +68,9 @@ interface SyncResult {
   errors: string[];
   corruptedIds: string[];
   timestamp: string;
+  mutationsSynced: number;
+  mutationsFailed: number;
+  conflicts: number;
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -45,6 +80,7 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
   const queryClient = useQueryClient();
 
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingMutationCount, setPendingMutationCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const syncLock = useRef(false);
@@ -53,8 +89,12 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
 
   // ── Refresh pending count ─────────────────────────────────────────────────
   const refreshPendingCount = useCallback(async () => {
-    const count = await getPendingCount();
-    setPendingCount(count);
+    const [saleCount, mutCount] = await Promise.all([
+      getPendingCount(),
+      getPendingMutationCount(),
+    ]);
+    setPendingCount(saleCount);
+    setPendingMutationCount(mutCount);
   }, []);
 
   // ── Upload a single offline sale to Supabase ─────────────────────────────
@@ -152,6 +192,85 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
     }
   };
 
+  // ── Sync a single generic mutation with conflict resolution ───────────────
+  const syncMutation = async (
+    mutation: OfflineMutation,
+  ): Promise<'synced' | 'conflict' | 'error'> => {
+    const table = ENTITY_TABLE[mutation.entity];
+
+    if (mutation.operation === 'add') {
+      // For adds, check if the entity already exists (idempotency)
+      const { data: existing } = await supabase
+        .from(table)
+        .select('id')
+        .eq('id', mutation.entityId)
+        .maybeSingle();
+
+      if (existing) {
+        // Already exists — mark as synced
+        return 'synced';
+      }
+
+      const { error } = await supabase.from(table).insert(mutation.payload);
+      if (error) {
+        if (error.message.includes('duplicate') || error.message.includes('already exists')) {
+          return 'synced'; // was already synced
+        }
+        throw new Error(`Insert ${table}: ${error.message}`);
+      }
+      return 'synced';
+    }
+
+    if (mutation.operation === 'update') {
+      // Conflict resolution: check if server record was updated AFTER our mutation
+      const { data: serverRecord, error: fetchErr } = await supabase
+        .from(table)
+        .select('id, updated_at')
+        .eq('id', mutation.entityId)
+        .maybeSingle();
+
+      if (fetchErr) throw new Error(`Fetch ${table}: ${fetchErr.message}`);
+
+      if (!serverRecord) {
+        // Record was deleted on server — conflict, skip our update
+        return 'conflict';
+      }
+
+      // If server has updated_at and it's newer than our mutation → server wins
+      if (serverRecord.updated_at) {
+        const serverTime = new Date(serverRecord.updated_at).getTime();
+        const mutationTime = new Date(mutation.createdAt).getTime();
+        if (serverTime > mutationTime) {
+          return 'conflict'; // server-wins
+        }
+      }
+
+      const { error } = await supabase
+        .from(table)
+        .update(mutation.payload)
+        .eq('id', mutation.entityId);
+      if (error) throw new Error(`Update ${table}: ${error.message}`);
+      return 'synced';
+    }
+
+    if (mutation.operation === 'delete') {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('id', mutation.entityId);
+      if (error) {
+        // If record doesn't exist, it's already deleted
+        if (error.code === 'PGRST116' || error.message.includes('not found')) {
+          return 'synced';
+        }
+        throw new Error(`Delete ${table}: ${error.message}`);
+      }
+      return 'synced';
+    }
+
+    return 'error';
+  };
+
   // ── Main sync loop ────────────────────────────────────────────────────────
   const syncNow = useCallback(async (): Promise<SyncResult | null> => {
     // Prevent concurrent syncs
@@ -165,6 +284,9 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
       errors: [],
       corruptedIds: [],
       timestamp: new Date().toISOString(),
+      mutationsSynced: 0,
+      mutationsFailed: 0,
+      conflicts: 0,
     };
 
     try {
@@ -204,8 +326,44 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
         await queryClient.invalidateQueries({ queryKey: ['customerSubscriptions'] });
       }
 
-      // 5. Purge old synced entries (keep 30 days for audit)
+      // 5. Sync generic entity mutations
+      const pendingMutations = await getPendingMutations();
+      const entitiesToInvalidate = new Set<string>();
+
+      for (const mutation of pendingMutations) {
+        try {
+          const outcome = await syncMutation(mutation);
+          if (outcome === 'synced') {
+            await markMutationSynced(mutation.id);
+            result.mutationsSynced++;
+            entitiesToInvalidate.add(mutation.entity);
+          } else if (outcome === 'conflict') {
+            // Server wins — mark as synced with conflict note
+            await markMutationSynced(mutation.id);
+            result.conflicts++;
+            entitiesToInvalidate.add(mutation.entity);
+          }
+        } catch (err: any) {
+          const msg = err?.message || 'Unknown mutation error';
+          await markMutationFailed(mutation.id, msg);
+          result.mutationsFailed++;
+          result.errors.push(`mutation:${mutation.entity}:${mutation.entityId}: ${msg}`);
+        }
+      }
+
+      // 6. Invalidate queries for synced entity types
+      for (const entity of entitiesToInvalidate) {
+        const keys = ENTITY_QUERY_KEYS[entity as MutationEntity];
+        if (keys) {
+          for (const key of keys) {
+            await queryClient.invalidateQueries({ queryKey: [key] });
+          }
+        }
+      }
+
+      // 7. Purge old synced entries (keep 30 days for audit)
       await purgeSyncedOlderThan(30);
+      await purgeSyncedMutations();
     } catch (err: any) {
       result.errors.push(err?.message || 'Sync loop error');
     } finally {
@@ -255,6 +413,10 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
     isOffline,
     /** Number of sales waiting to be synced */
     pendingCount,
+    /** Number of entity mutations waiting to be synced */
+    pendingMutationCount,
+    /** Total pending (sales + mutations) */
+    totalPendingCount: pendingCount + pendingMutationCount,
     /** true during active sync */
     isSyncing,
     /** Result of most recent sync attempt */
