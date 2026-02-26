@@ -6,15 +6,15 @@ import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
 import { CustomerSubscription, Sale } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
-import { sendSaleNotification } from '@/utils/notifications';
 import { enqueueSale } from '@/utils/offlineQueue';
 import { generateId } from '@/utils/hash';
 
 export const [DataProvider, useData] = createContextHook(() => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
 
-  // Live-sync: auto-refetch queries when any table changes in Supabase
-  useRealtimeSync();
+  // Live-sync: auto-refetch queries when any table changes in Supabase.
+  // Also sends local push notifications to admin devices when other users record sales.
+  useRealtimeSync({ currentUserId: user?.id, isAdmin });
 
   const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll);
   const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll);
@@ -36,13 +36,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const addSale = async (sale: any) => {
     try {
       const result = await _addSale(sale);
-      if (isAdmin) {
-        sendSaleNotification(
-          sale.customer_name || 'Walk-in Customer',
-          sale.total,
-          sale.employee_name || 'Staff',
-        );
-      }
+      // Notification is now handled via Supabase Realtime in useRealtimeSync
+      // so all admin devices get notified, not just the one making the sale.
       return result;
     } catch (error: any) {
       // Network/fetch failure → queue offline

@@ -69,7 +69,8 @@ export default function BillSummary({
           serviceDiscountLabel = `Subscription Discount (${serviceDiscountPercent}%)`;
         } else {
           const bestVisitOffer = offers
-            .filter(o => o.visitCount != null && o.visitCount >= 0 && customer.visitCount >= o.visitCount)
+            .filter(o => o.visitCount != null && o.visitCount >= 0 &&
+              (o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount))
             .sort((a, b) => b.percent - a.percent)[0];
 
           if (bestVisitOffer) {

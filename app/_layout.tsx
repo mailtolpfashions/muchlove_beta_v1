@@ -29,10 +29,10 @@ function RootLayoutNav() {
   });
 
   useEffect(() => {
-    if (isAuthenticated && isAdmin) {
+    if (isAuthenticated) {
       registerForNotifications();
     }
-  }, [isAuthenticated, isAdmin]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isInitialized && fontsLoaded) {
