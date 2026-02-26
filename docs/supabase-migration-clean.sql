@@ -237,3 +237,17 @@ ALTER TABLE upi_configs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated full access on upi_configs" ON upi_configs;
 CREATE POLICY "Authenticated full access on upi_configs"
   ON upi_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 10. Enable Supabase Realtime for all tables (live updates without refresh)
+-- ═══════════════════════════════════════════════════════════════════════════════
+ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE customers;
+ALTER PUBLICATION supabase_realtime ADD TABLE services;
+ALTER PUBLICATION supabase_realtime ADD TABLE subscription_plans;
+ALTER PUBLICATION supabase_realtime ADD TABLE customer_subscriptions;
+ALTER PUBLICATION supabase_realtime ADD TABLE offers;
+ALTER PUBLICATION supabase_realtime ADD TABLE sales;
+ALTER PUBLICATION supabase_realtime ADD TABLE sale_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE subscription_sale_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE upi_configs;

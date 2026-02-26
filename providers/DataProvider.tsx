@@ -1,6 +1,7 @@
 import { PropsWithChildren, useMemo } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { useOfflineQuery } from '@/hooks/useOfflineQuery';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
 import { CustomerSubscription, Sale } from '@/types';
@@ -11,6 +12,10 @@ import { generateId } from '@/utils/hash';
 
 export const [DataProvider, useData] = createContextHook(() => {
   const { isAdmin } = useAuth();
+
+  // Live-sync: auto-refetch queries when any table changes in Supabase
+  useRealtimeSync();
+
   const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll);
   const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll);
   const { data: subscriptions = [], isLoading: subscriptionsLoading, error: subscriptionsError, refetch: refetchSubscriptions } = useOfflineQuery(['subscriptions'], supabaseDb.subscriptions.getAll);
