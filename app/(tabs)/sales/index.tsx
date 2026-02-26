@@ -169,20 +169,23 @@ export default function SalesScreen() {
           </View>
         </View>
         <View style={styles.cardFooter}>
-          <View style={styles.metaRow}>
-            <Clock size={10} color={Colors.textTertiary} />
-            <Text style={styles.metaText}>{formatDateTime(item.createdAt)} • {capitalizeWords(item.employeeName)}</Text>
+          <View style={styles.footerTop}>
+            <View style={styles.metaRow}>
+              <Clock size={10} color={Colors.textTertiary} />
+              <Text style={styles.metaText}>{formatDateTime(item.createdAt)}</Text>
+            </View>
+            <View style={styles.actionBtnGroup}>
+              <TouchableOpacity style={styles.downloadBtn} onPress={() => handleDownload(item)}>
+                <Download size={12} color={Colors.primary} />
+                <Text style={styles.downloadText}>Invoice</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareBtn} onPress={() => handleShare(item)}>
+                <Share2 size={12} color={Colors.surface} />
+                <Text style={styles.shareText}>Share</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={styles.actionBtnGroup}>
-            <TouchableOpacity style={styles.downloadBtn} onPress={() => handleDownload(item)}>
-              <Download size={12} color={Colors.primary} />
-              <Text style={styles.downloadText}>Invoice</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.shareBtn} onPress={() => handleShare(item)}>
-              <Share2 size={12} color={Colors.surface} />
-              <Text style={styles.shareText}>Share</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.billedByText}>Billed by: {capitalizeWords(item.employeeName)}</Text>
         </View>
       </View>
     );
@@ -601,12 +604,16 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.borderLight,
+    gap: 4,
+  },
+  footerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   metaRow: {
     flexDirection: 'row',
@@ -615,6 +622,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   metaText: {
+    fontSize: 9,
+    color: Colors.textTertiary,
+    fontWeight: '500',
+  },
+  billedByText: {
     fontSize: 9,
     color: Colors.textTertiary,
     fontWeight: '500',
