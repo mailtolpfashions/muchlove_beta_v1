@@ -88,7 +88,8 @@ export default function SalesScreen() {
     else if (dateFilter === LAST_WEEK) filtered = filtered.filter(s => isLastWeek(s.createdAt));
     else if (dateFilter === THIS_MONTH) filtered = filtered.filter(s => isThisMonth(s.createdAt));
     else if (dateFilter === PICK_DATE && pickedDate) filtered = filtered.filter(s => isSameDay(s.createdAt, pickedDate));
-    // ALL filter requires no further reduction
+    else if (dateFilter === ALL && !isAdmin) filtered = filtered.filter(s => isToday(s.createdAt) || isYesterday(s.createdAt));
+    // Admin ALL filter requires no further reduction
 
     if (paymentFilter !== ALL) filtered = filtered.filter(s => s.paymentMethod === paymentFilter);
 
@@ -217,7 +218,7 @@ export default function SalesScreen() {
 
   const dateFilters = isAdmin
     ? [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }, { label: 'Last Week', value: LAST_WEEK }, { label: 'This Month', value: THIS_MONTH }, { label: 'Pick Date', value: PICK_DATE }]
-    : [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }, { label: 'Pick Date', value: PICK_DATE }];
+    : [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }];
 
   const paymentFilters = [{ label: 'All', value: ALL }, { label: 'Cash', value: CASH }, { label: 'Online/UPI', value: ONLINE }];
   const typeFilters = [{ label: 'All', value: ALL }, { label: 'Service', value: SERVICE }, { label: 'Product', value: PRODUCT }, { label: 'Others', value: OTHER }];

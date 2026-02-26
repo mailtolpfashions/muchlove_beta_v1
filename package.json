@@ -19,6 +19,7 @@
     "date-fns": "^4.1.0",
     "expo": "~54.0.27",
     "expo-crypto": "^15.0.8",
+    "expo-file-system": "~19.0.21",
     "expo-linear-gradient": "^15.0.8",
     "expo-linking": "~8.0.10",
     "expo-notifications": "~0.32.16",

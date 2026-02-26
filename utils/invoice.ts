@@ -1,8 +1,12 @@
 import { Sale } from '@/types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { formatCurrency, formatDate, formatDateTime } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
+
+const sanitizeFileName = (name: string): string =>
+  name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
 
 export const buildInvoiceHtml = (sale: Sale): string => {
   const {
@@ -313,7 +317,12 @@ export const shareInvoice = async (sale: Sale) => {
   const html = buildInvoiceHtml(sale);
   try {
     const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    const customerPart = sanitizeFileName(sale.customerName);
+    const invoicePart = sale.id.slice(0, 8).toUpperCase();
+    const fileName = `${customerPart}_${invoicePart}.pdf`;
+    const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.moveAsync({ from: uri, to: newUri });
+    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch (error) {
     console.error('Failed to share invoice:', error);
     throw new Error('Could not share invoice.');
@@ -503,19 +512,15 @@ export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilter
   const html = buildSalesReportHtml(sales, filters);
   try {
     const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const fileName = `SalesReport_${timestamp}.pdf`;
+    const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.moveAsync({ from: uri, to: newUri });
+    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch (error) {
     console.error('Failed to share sales report:', error);
     throw new Error('Could not share sales report.');
-  }
-};
-
-export const openSalesReport = async (sales: Sale[], filters: SalesReportFilters) => {
-  const html = buildSalesReportHtml(sales, filters);
-  try {
-    await Print.printAsync({ html });
-  } catch (error) {
-    console.error('Failed to open sales report:', error);
-    throw new Error('Could not open sales report.');
   }
 };

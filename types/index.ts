@@ -81,17 +81,6 @@ export interface Sale {
   createdAt: string;
 }
 
-export interface CartItem {
-  service: Service;
-  quantity: number;
-}
-
-export interface VisitRecord {
-  customerId: string;
-  saleId: string;
-  date: string;
-}
-
 export type CustomerSubscriptionStatus = 'active' | 'paused';
 
 export interface CustomerSubscription {

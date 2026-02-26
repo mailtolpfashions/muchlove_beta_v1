@@ -242,14 +242,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     color: Colors.text,
   },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   listContent: {
     paddingHorizontal: Spacing.card,
     paddingBottom: 100,

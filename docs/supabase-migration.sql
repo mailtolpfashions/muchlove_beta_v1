@@ -1,27 +1,29 @@
--- BillPro CRM – Supabase tables (run in SQL Editor in Supabase Dashboard)
+-- BillPro CRM – Supabase Migration (run ALL in SQL Editor in Supabase Dashboard)
+-- Copy this entire file → paste into SQL Editor → click Run
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Profiles (linked to Supabase Auth users)
--- Each auth.users row gets a matching profile with name + role.
+-- 1. Profiles (linked to Supabase Auth users)
 -- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
   name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'employee' CHECK (role IN ('admin', 'employee')),
+  approved BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Auto-create a profile when a new user signs up via Supabase Auth
+-- Auto-create a profile when a new user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, name, role)
+  INSERT INTO public.profiles (id, email, name, role, approved)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data ->> 'name', split_part(NEW.email, '@', 1)),
-    'employee'
+    'employee',
+    false
   );
   RETURN NEW;
 END;
@@ -32,23 +34,22 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- Enable RLS on profiles
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to read all profiles
+DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON profiles;
 CREATE POLICY "Profiles are viewable by authenticated users"
   ON profiles FOR SELECT
   TO authenticated
   USING (true);
 
--- Allow users to update their own profile (name only)
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   TO authenticated
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
--- Allow admins to update any profile (e.g. change role)
+DROP POLICY IF EXISTS "Admins can update any profile" ON profiles;
 CREATE POLICY "Admins can update any profile"
   ON profiles FOR UPDATE
   TO authenticated
@@ -59,7 +60,13 @@ CREATE POLICY "Admins can update any profile"
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
--- Allow admins to delete any profile
+DROP POLICY IF EXISTS "Users can delete own profile" ON profiles;
+CREATE POLICY "Users can delete own profile"
+  ON profiles FOR DELETE
+  TO authenticated
+  USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admins can delete any profile" ON profiles;
 CREATE POLICY "Admins can delete any profile"
   ON profiles FOR DELETE
   TO authenticated
@@ -67,10 +74,9 @@ CREATE POLICY "Admins can delete any profile"
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
--- Legacy users table (kept for backward compatibility, can be dropped later)
--- DROP TABLE IF EXISTS users;
-
--- Customers
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 2. Customers
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -83,7 +89,9 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Services
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 3. Services
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS services (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -96,7 +104,9 @@ CREATE TABLE IF NOT EXISTS services (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Subscription plans
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 4. Subscription Plans
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS subscription_plans (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -105,7 +115,9 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Customer subscriptions
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 5. Customer Subscriptions
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS customer_subscriptions (
   id TEXT PRIMARY KEY,
   customer_id TEXT NOT NULL,
@@ -121,7 +133,9 @@ CREATE TABLE IF NOT EXISTS customer_subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Offers
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 6. Offers
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS offers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -134,7 +148,9 @@ CREATE TABLE IF NOT EXISTS offers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Combos
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 6b. Combos
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS combos (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -151,7 +167,10 @@ CREATE TABLE IF NOT EXISTS combo_items (
   original_price NUMERIC NOT NULL
 );
 
--- Sales (header) – drop first if table existed with wrong id type (e.g. bigint)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 7. Sales + Line Items
+--    (drops and recreates to ensure correct schema)
+-- ═══════════════════════════════════════════════════════════════════════════════
 DROP TABLE IF EXISTS subscription_sale_items;
 DROP TABLE IF EXISTS sale_items;
 DROP TABLE IF EXISTS sales;
@@ -169,13 +188,11 @@ CREATE TABLE sales (
   discount_amount NUMERIC NOT NULL DEFAULT 0,
   total NUMERIC NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- Offline billing audit columns
   is_offline_sale BOOLEAN NOT NULL DEFAULT false,
-  offline_created_at TIMESTAMPTZ,           -- device clock at time of sale (NULL if online)
-  synced_at TIMESTAMPTZ                      -- when this record reached the server (NULL if online)
+  offline_created_at TIMESTAMPTZ,
+  synced_at TIMESTAMPTZ
 );
 
--- Sale line items (services/products)
 CREATE TABLE sale_items (
   id TEXT PRIMARY KEY,
   sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
@@ -183,11 +200,11 @@ CREATE TABLE sale_items (
   service_name TEXT NOT NULL,
   service_code TEXT NOT NULL,
   price NUMERIC NOT NULL,
+  original_price NUMERIC,
   quantity INTEGER NOT NULL,
   kind TEXT NOT NULL DEFAULT 'service' CHECK (kind IN ('service', 'product'))
 );
 
--- Sale line items (subscription plans)
 CREATE TABLE subscription_sale_items (
   id TEXT PRIMARY KEY,
   sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
@@ -197,42 +214,103 @@ CREATE TABLE subscription_sale_items (
   discounted_price NUMERIC NOT NULL
 );
 
--- UPI configs (Settings → Payments)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 8. UPI Configs
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS upi_configs (
   id TEXT PRIMARY KEY,
   upi_id TEXT NOT NULL,
   payee_name TEXT NOT NULL
 );
 
--- SECURITY: Enable RLS for production. The app uses the Supabase anon key
--- directly (not Supabase Auth), so policies below allow full access for the
--- anon role. For stricter security, implement Supabase Auth and scope policies.
---
--- ALTER TABLE users ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE services ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE customer_subscriptions ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE offers ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE sale_items ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE subscription_sale_items ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE upi_configs ENABLE ROW LEVEL SECURITY;
---
--- CREATE POLICY "Allow all for anon" ON users FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON customers FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON services FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON subscription_plans FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON customer_subscriptions FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON offers FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON sales FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON sale_items FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON subscription_sale_items FOR ALL TO anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all for anon" ON upi_configs FOR ALL TO anon USING (true) WITH CHECK (true);
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 9. RLS Policies for all tables (authenticated users get full access)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Customers
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on customers" ON customers;
+CREATE POLICY "Authenticated full access on customers"
+  ON customers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Services
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on services" ON services;
+CREATE POLICY "Authenticated full access on services"
+  ON services FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Subscription Plans
+ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on subscription_plans" ON subscription_plans;
+CREATE POLICY "Authenticated full access on subscription_plans"
+  ON subscription_plans FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Customer Subscriptions
+ALTER TABLE customer_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on customer_subscriptions" ON customer_subscriptions;
+CREATE POLICY "Authenticated full access on customer_subscriptions"
+  ON customer_subscriptions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Offers
+ALTER TABLE offers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on offers" ON offers;
+CREATE POLICY "Authenticated full access on offers"
+  ON offers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Sales
+ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on sales" ON sales;
+CREATE POLICY "Authenticated full access on sales"
+  ON sales FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Sale Items
+ALTER TABLE sale_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on sale_items" ON sale_items;
+CREATE POLICY "Authenticated full access on sale_items"
+  ON sale_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Subscription Sale Items
+ALTER TABLE subscription_sale_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on subscription_sale_items" ON subscription_sale_items;
+CREATE POLICY "Authenticated full access on subscription_sale_items"
+  ON subscription_sale_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- UPI Configs
+ALTER TABLE upi_configs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on upi_configs" ON upi_configs;
+CREATE POLICY "Authenticated full access on upi_configs"
+  ON upi_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Combos
+ALTER TABLE combos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on combos" ON combos;
+CREATE POLICY "Authenticated full access on combos"
+  ON combos FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Combo Items
+ALTER TABLE combo_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on combo_items" ON combo_items;
+CREATE POLICY "Authenticated full access on combo_items"
+  ON combo_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- MIGRATION: Offline billing support (run if your sales table already exists)
+-- 10. Enable Supabase Realtime for all tables (live updates without refresh)
+--     (safe: drops then re-adds each table to avoid "already member" errors)
 -- ═══════════════════════════════════════════════════════════════════════════════
--- ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_offline_sale BOOLEAN NOT NULL DEFAULT false;
--- ALTER TABLE sales ADD COLUMN IF NOT EXISTS offline_created_at TIMESTAMPTZ;
--- ALTER TABLE sales ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ;
+DO $$
+DECLARE
+  tbl TEXT;
+  tables TEXT[] := ARRAY[
+    'profiles','customers','services','subscription_plans',
+    'customer_subscriptions','offers','sales','sale_items',
+    'subscription_sale_items','upi_configs','combos','combo_items'
+  ];
+BEGIN
+  FOREACH tbl IN ARRAY tables LOOP
+    BEGIN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', tbl);
+    EXCEPTION WHEN duplicate_object THEN
+      -- already a member, skip
+    END;
+  END LOOP;
+END $$;

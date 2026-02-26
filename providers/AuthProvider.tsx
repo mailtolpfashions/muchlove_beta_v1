@@ -3,6 +3,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
 import { initializeDatabase, withTimeout } from '@/utils/database';
+import { unregisterPushToken } from '@/utils/notifications';
 import type { Session } from '@supabase/supabase-js';
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
@@ -33,14 +34,50 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Listen for auth state changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        // Handle invalid refresh token during token refresh
+        if (event === 'TOKEN_REFRESHED' && !newSession) {
+          console.log('Token refresh failed, signing out');
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          return;
+        }
+
+        // Skip profile fetch for SIGNED_IN — login() already handles it.
+        // This avoids a double-fetch that blocks signInWithPassword return.
+        if (event === 'SIGNED_IN') {
+          return;
+        }
+
+        if (newSession?.user) {
+          const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
+          if (profile && profile.approved) {
+            setSession(newSession);
+            setUser(profile);
+          } else {
+            setSession(null);
+            setUser(null);
+          }
+        } else {
+          setSession(null);
+          setUser(null);
+        }
+      }
+    );
+
     const init = async () => {
       try {
-        await initializeDatabase();
+        // Run seeding in background — don't block auth init
+        initializeDatabase().catch(() => {});
 
-        // Check for existing Supabase Auth session (with timeout to prevent hang)
+        // Check for existing Supabase Auth session (with shorter timeout)
         const { data: { session: existingSession }, error: sessionError } = await withTimeout(
           supabase.auth.getSession(),
-          8000,
+          5000,
           'Session retrieval',
         );
 
@@ -56,7 +93,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (existingSession?.user) {
           const profile = await withTimeout(
             fetchProfile(existingSession.user.id, existingSession.user.email ?? ''),
-            5000,
+            4000,
             'Profile fetch',
           );
           if (cancelled) return;
@@ -81,37 +118,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     };
     init();
 
-    return () => { cancelled = true; };
-
-    // Listen for auth state changes (sign in, sign out, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        // Handle invalid refresh token during token refresh
-        if (event === 'TOKEN_REFRESHED' && !newSession) {
-          console.log('Token refresh failed, signing out');
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          return;
-        }
-
-        if (newSession?.user) {
-          const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
-          if (profile && profile.approved) {
-            setSession(newSession);
-            setUser(profile);
-          } else {
-            setSession(null);
-            setUser(null);
-          }
-        } else {
-          setSession(null);
-          setUser(null);
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [fetchProfile]);
 
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string; pendingApproval?: boolean }> => {
@@ -125,7 +135,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return { success: false, error: error.message };
       }
 
-      if (data.user) {
+      if (data.user && data.session) {
         const profile = await fetchProfile(data.user.id, data.user.email ?? '');
         if (!profile) {
           await supabase.auth.signOut();
@@ -135,6 +145,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           await supabase.auth.signOut();
           return { success: false, pendingApproval: true, error: 'Your account is pending approval. Please wait for the admin to approve your account.' };
         }
+        setSession(data.session);
         setUser(profile);
         return { success: true };
       }
@@ -172,14 +183,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, []);
 
   const logout = useCallback(async () => {
+    // Unregister push token so this device stops receiving notifications
+    const uid = user?.id;
+    // Clear local state first so the UI navigates to login immediately
+    setUser(null);
+    setSession(null);
     try {
+      if (uid) await unregisterPushToken(uid);
       await supabase.auth.signOut();
-      setUser(null);
-      setSession(null);
     } catch (e) {
       console.log('Logout error:', e);
     }
-  }, []);
+  }, [user?.id]);
 
   /** Refresh profile from DB (call after role changes, etc.) */
   const refreshProfile = useCallback(async () => {

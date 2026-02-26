@@ -1,6 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import { supabase } from '@/lib/supabase';
+import { generateId } from '@/utils/hash';
 
 // expo-notifications remote features are unavailable in Expo Go (SDK 53+).
 // Detect Expo Go so we can silently skip notification calls.
@@ -51,6 +53,55 @@ export async function registerForNotifications(): Promise<boolean> {
   } catch (error) {
     console.error('Failed to register for notifications:', error);
     return false;
+  }
+}
+
+/**
+ * Get the Expo push token for this device and save it to Supabase.
+ * Call this after login when the user is authenticated.
+ * The Edge Function uses these tokens to send background push notifications.
+ */
+export async function registerPushToken(userId: string): Promise<void> {
+  if (isExpoGo) return;
+  try {
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) {
+      console.warn('No EAS projectId found, skipping push token registration');
+      return;
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = tokenData.data; // e.g. "ExponentPushToken[xxxx]"
+
+    // Upsert: insert or update if this user+token combo already exists
+    const { error } = await supabase
+      .from('push_tokens')
+      .upsert(
+        { id: generateId(), user_id: userId, token },
+        { onConflict: 'user_id,token' }
+      );
+
+    if (error) {
+      console.error('Failed to save push token:', error.message);
+    }
+  } catch (error) {
+    console.error('Failed to register push token:', error);
+  }
+}
+
+/**
+ * Remove all push tokens for this user from Supabase.
+ * Call this on logout so the device stops receiving push notifications.
+ */
+export async function unregisterPushToken(userId: string): Promise<void> {
+  if (isExpoGo) return;
+  try {
+    await supabase
+      .from('push_tokens')
+      .delete()
+      .eq('user_id', userId);
+  } catch (error) {
+    console.error('Failed to remove push token:', error);
   }
 }
 

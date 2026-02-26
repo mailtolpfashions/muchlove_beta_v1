@@ -21,6 +21,7 @@ interface SubscriptionPickerProps {
   subscriptions: SubscriptionPlan[];
   onClose: () => void;
   onAdd: (subscriptions: SubscriptionPlan[]) => void;
+  maxSelection?: number;
 }
 
 export default function SubscriptionPicker({
@@ -28,6 +29,7 @@ export default function SubscriptionPicker({
   subscriptions,
   onClose,
   onAdd,
+  maxSelection,
 }: SubscriptionPickerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubs, setSelectedSubs] = useState<SubscriptionPlan[]>([]);
@@ -46,6 +48,9 @@ export default function SubscriptionPicker({
       if (prev.find((s) => s.id === sub.id)) {
         return prev.filter((s) => s.id !== sub.id);
       } else {
+        if (maxSelection && prev.length >= maxSelection) {
+          return [sub]; // Replace previous selection
+        }
         return [...prev, sub];
       }
     });

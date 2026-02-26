@@ -60,7 +60,6 @@ export default function OffersScreen() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [appliesTo, setAppliesTo] = useState<'services' | 'subscriptions' | 'both'>('both');
-  const [studentOnly, setStudentOnly] = useState<boolean>(false);
 
   const resetForm = () => {
     setName('');
@@ -73,7 +72,6 @@ export default function OffersScreen() {
     setIsEditing(false);
     setEditingId(null);
     setAppliesTo('both');
-    setStudentOnly(false);
   };
 
   const handleAdd = async () => {
@@ -189,7 +187,6 @@ export default function OffersScreen() {
             setName(item.name);
             setDiscount(String(item.percent));
             setAppliesTo(item.appliesTo || 'both');
-            setStudentOnly(item.studentOnly || false);
             if (isVisit) {
               setType('visit');
               setVisitThreshold(String(item.visitCount));
@@ -536,13 +533,6 @@ const styles = StyleSheet.create({
   miniTagText: {
     fontSize: 10,
     fontWeight: '600',
-  },
-  studentToggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 8,
   },
   deleteBtn: {
     marginLeft: 10,

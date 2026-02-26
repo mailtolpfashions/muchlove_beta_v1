@@ -24,9 +24,9 @@ import {
   Minus,
   Package,
   Scissors,
-  Star,
   ShoppingBag,
   ShoppingCart,
+  RefreshCw,
 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
@@ -45,7 +45,22 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
 
-type FilterTab = 'popular' | 'services' | 'products';
+type FilterTab = 'services' | 'products' | 'combos' | null;
+type ListItem = { type: 'service'; data: Service } | { type: 'combo'; data: Combo };
+
+// ── Subscription date helpers ──
+const getSubscriptionEndDate = (sub: CustomerSubscription): Date => {
+  const start = new Date(sub.startDate);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + sub.planDurationMonths);
+  return end;
+};
+
+const getDaysUntilExpiry = (sub: CustomerSubscription): number => {
+  const end = getSubscriptionEndDate(sub);
+  const now = new Date();
+  return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+};
 
 export default function BillingScreen() {
   const { user } = useAuth();
@@ -65,13 +80,12 @@ export default function BillingScreen() {
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [showSubscriptionPicker, setShowSubscriptionPicker] = useState(false);
   const [showQuickPayment, setShowQuickPayment] = useState(false);
-  const [showComboPicker, setShowComboPicker] = useState(false);
 
   // Service picker overlay state
   const [showServiceList, setShowServiceList] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<FilterTab>('popular');
-  const [serviceSort, setServiceSort] = useState<SortOption>('a-z');
+  const [activeTab, setActiveTab] = useState<FilterTab>(null);
+  const [serviceSort, setServiceSort] = useState<SortOption>('recent');
   const searchRef = useRef<TextInput>(null);
 
   // Bill state
@@ -98,7 +112,7 @@ export default function BillingScreen() {
 
   const openServiceList = () => {
     setSearchQuery('');
-    setActiveTab('popular');
+    setActiveTab(null);
     setShowServiceList(true);
   };
 
@@ -239,71 +253,80 @@ export default function BillingScreen() {
     }
   };
 
-  // Popular services ranked by sales frequency
-  const popularServices = useMemo(() => {
-    const serviceCounts: Record<string, number> = {};
+  // Service popularity map — ranked by how often they appear in past sales
+  const popularityMap = useMemo(() => {
+    const counts: Record<string, number> = {};
     sales.forEach((s: Sale) => {
       s.items?.forEach((item: any) => {
         if (item.itemId && (item.kind === 'service' || item.kind === 'product')) {
-          serviceCounts[item.itemId] = (serviceCounts[item.itemId] || 0) + item.quantity;
+          counts[item.itemId] = (counts[item.itemId] || 0) + item.quantity;
         }
       });
     });
+    return counts;
+  }, [sales]);
 
-    const sorted = Object.keys(serviceCounts).sort((a, b) => serviceCounts[b] - serviceCounts[a]);
-    const top = sorted
-      .map(id => services.find(s => s.id === id))
-      .filter((s): s is Service => s !== undefined);
+  // Unified filtered list (services + combos mixed together)
+  const filteredList = useMemo((): ListItem[] => {
+    let baseServices: Service[];
+    let baseCombos: Combo[];
 
-    // Fill remaining with newest services
-    if (top.length < services.length) {
-      const remaining = services.filter(s => !top.some(t => t.id === s.id));
-      top.push(...remaining);
-    }
-    return top;
-  }, [sales, services]);
-
-  // Filtered list based on tab + search + sort
-  const filteredList = useMemo(() => {
-    let base: Service[];
     switch (activeTab) {
-      case 'popular':
-        base = popularServices;
-        break;
       case 'services':
-        base = services.filter(s => s.kind === 'service');
+        baseServices = services.filter(s => s.kind === 'service');
+        baseCombos = [];
         break;
       case 'products':
-        base = services.filter(s => s.kind === 'product');
+        baseServices = services.filter(s => s.kind === 'product');
+        baseCombos = [];
+        break;
+      case 'combos':
+        baseServices = [];
+        baseCombos = [...combos];
+        break;
+      default:
+        // No tab selected — show everything
+        baseServices = [...services];
+        baseCombos = [...combos];
         break;
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      base = base.filter(
+      baseServices = baseServices.filter(
         s => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q),
+      );
+      baseCombos = baseCombos.filter(
+        c => c.name.toLowerCase().includes(q) || c.items.some(i => i.serviceName.toLowerCase().includes(q)),
       );
     }
 
-    // Sort (skip for popular tab if no explicit sort)
-    if (activeTab !== 'popular' || serviceSort !== 'a-z') {
-      const sorted = [...base];
-      switch (serviceSort) {
-        case 'a-z':
-          sorted.sort((a, b) => a.name.localeCompare(b.name));
-          break;
-        case 'z-a':
-          sorted.sort((a, b) => b.name.localeCompare(a.name));
-          break;
-        case 'recent':
-          sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          break;
-      }
-      return sorted;
+    // Build unified list
+    let serviceItems: ListItem[] = baseServices.map(s => ({ type: 'service' as const, data: s }));
+    let comboItems: ListItem[] = baseCombos.map(c => ({ type: 'combo' as const, data: c }));
+    const all = [...serviceItems, ...comboItems];
+
+    // Sort
+    switch (serviceSort) {
+      case 'a-z':
+        all.sort((a, b) => a.data.name.localeCompare(b.data.name));
+        break;
+      case 'z-a':
+        all.sort((a, b) => b.data.name.localeCompare(a.data.name));
+        break;
+      case 'recent':
+        // "Recent" = most sold first (popularity), unsold items at the bottom
+        all.sort((a, b) => {
+          const countA = a.type === 'service' ? (popularityMap[a.data.id] || 0) : 0;
+          const countB = b.type === 'service' ? (popularityMap[b.data.id] || 0) : 0;
+          if (countA !== countB) return countB - countA;
+          return a.data.name.localeCompare(b.data.name);
+        });
+        break;
     }
 
-    return base;
-  }, [activeTab, searchQuery, popularServices, services, serviceSort]);
+    return all;
+  }, [activeTab, searchQuery, services, combos, serviceSort, popularityMap]);
 
   const comboItemCount = addedCombos.reduce((acc, c) => acc + c.items.length, 0);
   const totalItems = items.length + subs.length + comboItemCount;
@@ -312,19 +335,50 @@ export default function BillingScreen() {
     return items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0) + addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
   }, [items, subs, addedCombos]);
 
-  const listRef = useRef<FlatList>(null);
+  const selectedCustomerSubscriptions = useMemo(() => {
+    if (!selectedCustomer || !customerSubscriptions) return [];
+    return customerSubscriptions.filter(cs => cs.customerId === selectedCustomer.id);
+  }, [selectedCustomer, customerSubscriptions]);
 
-  const selectedCustomerSubscriptions = selectedCustomer && customerSubscriptions
-    ? customerSubscriptions.filter(cs => cs.customerId === selectedCustomer.id)
-    : [];
+  // Active subscriptions (not expired)
+  const activeCustomerSubs = useMemo(() => {
+    return selectedCustomerSubscriptions.filter(cs => {
+      const endDate = getSubscriptionEndDate(cs);
+      return endDate >= new Date() && cs.status === 'active';
+    });
+  }, [selectedCustomerSubscriptions]);
+
+  // Subscriptions in renewal window (within 15 days of expiry)
+  const renewableSubs = useMemo(() => {
+    return activeCustomerSubs.filter(cs => {
+      const days = getDaysUntilExpiry(cs);
+      return days <= 15 && days >= 0;
+    });
+  }, [activeCustomerSubs]);
+
+  // Can add a subscription to this bill?
+  const canAddSub = useMemo(() => {
+    if (!selectedCustomer) return false;
+    if (subs.length >= 1) return false; // max 1 per bill
+    if (activeCustomerSubs.length >= 2) return false; // already has max 2
+    if (activeCustomerSubs.length >= 1 && renewableSubs.length === 0) return false; // not in renewal window
+    return true;
+  }, [selectedCustomer, subs.length, activeCustomerSubs.length, renewableSubs.length]);
+
+  const isRenewal = activeCustomerSubs.length > 0 && renewableSubs.length > 0;
 
   const getQty = useCallback((serviceId: string) => items.filter(i => i.id === serviceId).length, [items]);
 
   const tabs: { key: FilterTab; label: string; icon: React.ReactNode }[] = [
-    { key: 'popular', label: 'Popular', icon: <Star size={14} /> },
     { key: 'services', label: 'Services', icon: <Scissors size={14} /> },
     { key: 'products', label: 'Products', icon: <Package size={14} /> },
+    ...(combos.length > 0 ? [{ key: 'combos' as FilterTab, label: 'Combos', icon: <ShoppingBag size={14} /> }] : []),
   ];
+
+  const handleTabPress = (key: FilterTab) => {
+    // Tapping the active tab deselects it (back to showing all)
+    setActiveTab(prev => prev === key ? null : key);
+  };
 
   // Group items in cart by id for display
   const cartGrouped = useMemo(() => {
@@ -336,7 +390,71 @@ export default function BillingScreen() {
     return Object.values(map);
   }, [items]);
 
-  const renderServiceRow = useCallback(({ item: service }: { item: Service }) => {
+  const renderListItem = useCallback(({ item }: { item: ListItem }) => {
+    if (item.type === 'combo') {
+      const combo = item.data;
+      const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
+      const savedPercent = origTotal > 0 ? Math.round(((origTotal - combo.comboPrice) / origTotal) * 100) : 0;
+      const alreadyAdded = addedCombos.filter(c => c.id === combo.id).length;
+      return (
+        <View style={styles.itemRow}>
+          <View style={styles.itemInfo}>
+            <View style={styles.itemNameRow}>
+              <Text style={styles.itemName} numberOfLines={1}>{capitalizeWords(combo.name)}</Text>
+              <View style={styles.comboBadgeSmall}>
+                <Text style={styles.comboBadgeSmallText}>Combo</Text>
+              </View>
+              {savedPercent > 0 && (
+                <View style={styles.comboPickerBadge}>
+                  <Text style={styles.comboPickerBadgeText}>{savedPercent}% OFF</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.comboPickerItems} numberOfLines={1}>
+              {combo.items.map(i => capitalizeWords(i.serviceName)).join(' + ')}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+              <Text style={styles.comboPickerPrice}>{formatCurrency(combo.comboPrice)}</Text>
+              {origTotal > combo.comboPrice && (
+                <Text style={styles.comboPickerOrigPrice}>{formatCurrency(origTotal)}</Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.itemActions}>
+            {alreadyAdded > 0 ? (
+              <>
+                <TouchableOpacity
+                  style={styles.qtyBtn}
+                  onPress={() => {
+                    const idx = addedCombos.findIndex(c => c.id === combo.id);
+                    if (idx > -1) handleRemoveCombo(idx);
+                  }}
+                >
+                  <Minus size={14} color={Colors.danger} />
+                </TouchableOpacity>
+                <Text style={styles.qtyText}>{alreadyAdded}</Text>
+                <TouchableOpacity
+                  style={[styles.qtyBtn, styles.qtyBtnAdd]}
+                  onPress={() => handleAddCombo(combo)}
+                >
+                  <Plus size={14} color={Colors.primary} />
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.qtyBtn, styles.qtyBtnAdd]}
+                onPress={() => handleAddCombo(combo)}
+              >
+                <Plus size={16} color={Colors.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      );
+    }
+
+    // Service row
+    const service = item.data;
     const qty = getQty(service.id);
     return (
       <View style={styles.itemRow}>
@@ -379,7 +497,7 @@ export default function BillingScreen() {
         </View>
       </View>
     );
-  }, [getQty, items]);
+  }, [getQty, items, addedCombos]);
 
   return (
     <View style={styles.container}>
@@ -407,29 +525,88 @@ export default function BillingScreen() {
         <View style={styles.customerSection}>
           {selectedCustomer ? (
             <View style={styles.customerCard}>
-              <View style={styles.customerInfo}>
-                <UserCheck size={18} color={Colors.primary} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.customerNameRow}>
-                    <Text style={styles.customerName}>{capitalizeWords(selectedCustomer.name)}</Text>
-                    {selectedCustomer.isStudent && (
-                      <View style={styles.studentBadge}>
-                        <Text style={styles.studentBadgeText}>Student</Text>
-                      </View>
-                    )}
-                    {selectedCustomerSubscriptions.length > 0 && (
-                      <View style={styles.subscriptionBadge}>
-                        <CreditCard size={10} color={Colors.info} />
-                        <Text style={styles.subscriptionBadgeText}>Subscribed</Text>
-                      </View>
-                    )}
+              {/* Top row: info + close */}
+              <View style={styles.customerCardTop}>
+                <View style={styles.customerInfo}>
+                  <UserCheck size={18} color={Colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.customerNameRow}>
+                      <Text style={styles.customerName}>{capitalizeWords(selectedCustomer.name)}</Text>
+                      {selectedCustomer.isStudent && (
+                        <View style={styles.studentBadge}>
+                          <Text style={styles.studentBadgeText}>Student</Text>
+                        </View>
+                      )}
+                      {activeCustomerSubs.length > 0 && (
+                        <View style={styles.subscriptionBadge}>
+                          <CreditCard size={10} color={Colors.info} />
+                          <Text style={styles.subscriptionBadgeText}>Subscribed</Text>
+                        </View>
+                      )}
+                      {renewableSubs.length > 0 && (
+                        <View style={styles.renewIconBadge}>
+                          <RefreshCw size={10} color={Colors.warning} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.customerMeta}>{selectedCustomer.mobile}</Text>
                   </View>
-                  <Text style={styles.customerMeta}>{selectedCustomer.mobile}</Text>
                 </View>
+                <TouchableOpacity onPress={() => setSelectedCustomer(null)}>
+                  <X size={18} color={Colors.textSecondary} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity onPress={() => setSelectedCustomer(null)}>
-                <X size={18} color={Colors.textSecondary} />
-              </TouchableOpacity>
+
+              {/* Renewal notice */}
+              {renewableSubs.length > 0 && (
+                <View style={styles.renewalNotice}>
+                  {renewableSubs.map(rs => {
+                    const daysLeft = getDaysUntilExpiry(rs);
+                    return (
+                      <View key={rs.id} style={styles.renewalNoticeRow}>
+                        <RefreshCw size={12} color={Colors.warning} />
+                        <Text style={styles.renewalNoticeText}>
+                          {capitalizeWords(rs.planName)} {daysLeft > 0 ? `expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}` : 'has expired'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Subscription added to cart */}
+              {subs.length > 0 && (
+                <View style={styles.cardSubSection}>
+                  {subs.map((sub, idx) => (
+                    <View key={`card-sub-${idx}`} style={styles.cardSubRow}>
+                      <CreditCard size={12} color={Colors.info} />
+                      <Text style={styles.cardSubName} numberOfLines={1}>{capitalizeWords(sub.name)}</Text>
+                      <Text style={styles.cardSubPrice}>{formatCurrency(sub.price)}</Text>
+                      <TouchableOpacity onPress={() => setSubs(subs.filter((_, i) => i !== idx))}>
+                        <X size={14} color={Colors.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Add / Renew subscription button */}
+              {canAddSub && (
+                <TouchableOpacity
+                  style={styles.addSubInCardBtn}
+                  onPress={() => setShowSubscriptionPicker(true)}
+                >
+                  {isRenewal ? (
+                    <RefreshCw size={14} color={Colors.info} />
+                  ) : (
+                    <CreditCard size={14} color={Colors.info} />
+                  )}
+                  <Text style={styles.addSubInCardText}>
+                    {isRenewal ? 'Renew Subscription' : 'Add Subscription'}
+                  </Text>
+                  <ChevronRight size={14} color={Colors.info} />
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <TouchableOpacity style={styles.actionBtn} onPress={() => setShowCustomerPicker(true)}>
@@ -438,17 +615,6 @@ export default function BillingScreen() {
               <ChevronRight size={16} color={Colors.primary} />
             </TouchableOpacity>
           )}
-
-          <TouchableOpacity style={styles.subscriptionBtn} onPress={() => setShowSubscriptionPicker(true)}>
-            <CreditCard size={16} color={Colors.info} />
-            <Text style={styles.subscriptionBtnText}>Add Subscription</Text>
-            {subs.length > 0 && (
-              <View style={styles.subCountBadge}>
-                <Text style={styles.subCountBadgeText}>{subs.length}</Text>
-              </View>
-            )}
-            <ChevronRight size={14} color={Colors.info} />
-          </TouchableOpacity>
         </View>
 
         {/* Add items button */}
@@ -457,17 +623,6 @@ export default function BillingScreen() {
             <ShoppingCart size={20} color={Colors.surface} />
             <Text style={styles.addServiceBtnText}>Add Services / Products</Text>
           </TouchableOpacity>
-          {combos.length > 0 && (
-            <TouchableOpacity style={styles.addComboBtn} onPress={() => setShowComboPicker(true)}>
-              <Package size={18} color={Colors.info} />
-              <Text style={styles.addComboBtnText}>Add Combo</Text>
-              {addedCombos.length > 0 && (
-                <View style={styles.comboBadge}>
-                  <Text style={styles.comboBadgeText}>{addedCombos.length}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* Cart items */}
@@ -664,6 +819,11 @@ export default function BillingScreen() {
                 )}
               </View>
 
+              {/* Sort pills */}
+              <View style={styles.sortRow}>
+                <SortPills value={serviceSort} onChange={setServiceSort} />
+              </View>
+
               {/* Category tabs */}
               <View style={styles.tabSection}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
@@ -673,7 +833,7 @@ export default function BillingScreen() {
                       <TouchableOpacity
                         key={tab.key}
                         style={[styles.tabChip, active && styles.tabChipActive]}
-                        onPress={() => setActiveTab(tab.key)}
+                        onPress={() => handleTabPress(tab.key)}
                       >
                         {React.cloneElement(tab.icon as React.ReactElement<any>, {
                           color: active ? Colors.surface : Colors.textSecondary,
@@ -687,16 +847,11 @@ export default function BillingScreen() {
                 </ScrollView>
               </View>
 
-              {/* Sort pills */}
-              <View style={styles.sortRow}>
-                <SortPills value={serviceSort} onChange={setServiceSort} />
-              </View>
-
               {/* Filtered list */}
               <FlatList
                 data={filteredList}
-                keyExtractor={(item) => item.id}
-                renderItem={renderServiceRow}
+                keyExtractor={(item) => `${item.type}-${item.data.id}`}
+                renderItem={renderListItem}
                 ListEmptyComponent={
                   <View style={styles.emptyState}>
                     <Search size={40} color={Colors.textTertiary} />
@@ -750,6 +905,7 @@ export default function BillingScreen() {
           setSubs([...subs, ...newSubs]);
           setShowSubscriptionPicker(false);
         }}
+        maxSelection={1}
       />
 
       <SaleComplete
@@ -764,60 +920,6 @@ export default function BillingScreen() {
         onClose={() => setShowQuickPayment(false)}
       />
 
-      {/* Combo Picker Modal */}
-      <Modal visible={showComboPicker} animationType="slide" transparent onRequestClose={() => setShowComboPicker(false)}>
-        <View style={styles.comboModalOverlay}>
-          <View style={styles.comboModalContent}>
-            <View style={styles.comboModalHeader}>
-              <Text style={styles.comboModalTitle}>Select Combo</Text>
-              <TouchableOpacity onPress={() => setShowComboPicker(false)}>
-                <X size={22} color={Colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={combos}
-              keyExtractor={item => item.id}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              renderItem={({ item: combo }) => {
-                const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
-                const savedPercent = origTotal > 0 ? Math.round(((origTotal - combo.comboPrice) / origTotal) * 100) : 0;
-                return (
-                  <TouchableOpacity
-                    style={styles.comboPickerRow}
-                    onPress={() => { handleAddCombo(combo); setShowComboPicker(false); }}
-                    activeOpacity={0.6}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={styles.comboPickerName}>{capitalizeWords(combo.name)}</Text>
-                        {savedPercent > 0 && (
-                          <View style={styles.comboPickerBadge}>
-                            <Text style={styles.comboPickerBadgeText}>{savedPercent}% OFF</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={styles.comboPickerItems}>{combo.items.map(i => capitalizeWords(i.serviceName)).join(' + ')}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                        <Text style={styles.comboPickerPrice}>{formatCurrency(combo.comboPrice)}</Text>
-                        {origTotal > combo.comboPrice && (
-                          <Text style={styles.comboPickerOrigPrice}>{formatCurrency(origTotal)}</Text>
-                        )}
-                      </View>
-                    </View>
-                    <Plus size={20} color={Colors.primary} />
-                  </TouchableOpacity>
-                );
-              }}
-              ListEmptyComponent={
-                <View style={{ alignItems: 'center', paddingTop: 40 }}>
-                  <Package size={40} color={Colors.textTertiary} />
-                  <Text style={{ color: Colors.textSecondary, marginTop: 8 }}>No combos available</Text>
-                </View>
-              }
-            />
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -884,9 +986,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   customerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: Colors.surface,
     paddingVertical: 12,
     paddingHorizontal: Spacing.lg,
@@ -896,6 +995,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 1,
+  },
+  customerCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   customerInfo: {
     flexDirection: 'row',
@@ -939,39 +1043,73 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.info,
   },
-  subscriptionBtn: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    backgroundColor: Colors.infoLight,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  subscriptionBtnText: {
-    flex: 1,
-    fontSize: FontSize.body,
-    fontWeight: '600' as const,
-    color: Colors.info,
-  },
-  subCountBadge: {
-    backgroundColor: Colors.info,
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    borderRadius: 10,
-    minWidth: 20,
-    alignItems: 'center' as const,
-  },
-  subCountBadgeText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700' as const,
-    color: Colors.surface,
-  },
   customerMeta: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     marginTop: 1,
+  },
+  renewIconBadge: {
+    backgroundColor: Colors.warningLight,
+    padding: 3,
+    borderRadius: 10,
+  },
+  renewalNotice: {
+    marginTop: 8,
+    gap: 4,
+  },
+  renewalNoticeRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    backgroundColor: Colors.warningLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  renewalNoticeText: {
+    fontSize: FontSize.xs,
+    color: Colors.warning,
+    fontWeight: '500' as const,
+    flex: 1,
+  },
+  cardSubSection: {
+    marginTop: 8,
+    gap: 4,
+  },
+  cardSubRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    backgroundColor: Colors.infoLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  cardSubName: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    fontWeight: '500' as const,
+    color: Colors.info,
+  },
+  cardSubPrice: {
+    fontSize: FontSize.sm,
+    fontWeight: '600' as const,
+    color: Colors.info,
+  },
+  addSubInCardBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
+  },
+  addSubInCardText: {
+    flex: 1,
+    fontSize: FontSize.body,
+    fontWeight: '600' as const,
+    color: Colors.info,
   },
 
   /* Add items */
@@ -1351,35 +1489,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // Combo styles
-  addComboBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: Colors.info,
-  },
-  addComboBtnText: {
-    fontSize: FontSize.body,
-    fontWeight: '600',
-    color: Colors.info,
-  },
-  comboBadge: {
-    backgroundColor: Colors.info,
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  comboBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.surface,
-  },
   comboBadgeSmall: {
     backgroundColor: Colors.infoLight,
     paddingHorizontal: 6,
@@ -1391,43 +1500,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.info,
     textTransform: 'uppercase',
-  },
-  comboModalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  comboModalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
-    maxHeight: '70%',
-  },
-  comboModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  comboModalTitle: {
-    fontSize: FontSize.heading,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  comboPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-    gap: 12,
-  },
-  comboPickerName: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.text,
   },
   comboPickerBadge: {
     backgroundColor: Colors.successLight,

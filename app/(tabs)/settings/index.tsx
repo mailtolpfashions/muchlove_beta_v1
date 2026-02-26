@@ -7,12 +7,10 @@ import {
   TouchableOpacity,
   RefreshControl,
   Modal,
-  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   ChevronRight,
-  Info,
   LogOut,
   Scissors,
   UsersRound,

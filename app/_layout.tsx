@@ -14,7 +14,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useFonts } from 'expo-font';
 import { HeaderRight } from '@/components/HeaderRight';
 import OfflineBanner from '@/components/OfflineBanner';
-import { registerForNotifications } from '@/utils/notifications';
+import { registerForNotifications, registerPushToken } from '@/utils/notifications';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,7 +32,7 @@ const queryClient = new QueryClient({
 });
 
 function RootLayoutNav() {
-  const { isAuthenticated, isLoading, isInitialized, isAdmin } = useAuth();
+  const { isAuthenticated, isLoading, isInitialized, user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const [fontsLoaded] = useFonts({
@@ -40,10 +40,12 @@ function RootLayoutNav() {
   });
 
   useEffect(() => {
-    if (isAuthenticated) {
-      registerForNotifications();
+    if (isAuthenticated && user?.id) {
+      registerForNotifications().then((granted) => {
+        if (granted) registerPushToken(user.id);
+      });
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.id]);
 
   // Hide splash when ready, OR after 6s safety timeout so the app never
   // gets stuck on the splash screen even if init hangs.

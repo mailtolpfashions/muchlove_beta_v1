@@ -12,7 +12,7 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import { Plus, Trash2, X, Search, Package, Scissors, ShoppingBag, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Plus, Trash2, X, Search, Package, Scissors, ShoppingBag } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';

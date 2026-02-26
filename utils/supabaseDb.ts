@@ -11,7 +11,6 @@ import type {
   CustomerSubscription,
   Offer,
   UpiData,
-  CartItem,
   Combo,
   ComboItem,
 } from '@/types';

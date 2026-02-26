@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { ArrowDownAZ, ArrowUpZA, Clock, TrendingUp, TrendingDown } from 'lucide-react-native';
+import { ArrowDownAZ, ArrowUpZA, Clock, TrendingUp, TrendingDown, Flame } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 
@@ -20,9 +20,9 @@ interface SortPillsProps {
 }
 
 const defaultOptions: SortPillOption[] = [
+  { key: 'recent', label: 'Recent', Icon: Flame },
   { key: 'a-z', label: 'A–Z', Icon: ArrowDownAZ },
   { key: 'z-a', label: 'Z–A', Icon: ArrowUpZA },
-  { key: 'recent', label: 'Recent', Icon: Clock },
 ];
 
 export const visitSortOptions: SortPillOption[] = [
