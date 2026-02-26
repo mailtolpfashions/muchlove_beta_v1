@@ -18,7 +18,18 @@ import { registerForNotifications } from '@/utils/notifications';
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,        // 2 min — avoid redundant refetches
+      gcTime: 10 * 60 * 1000,           // 10 min — keep cache longer
+      retry: 2,                          // retry failed fetches twice
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+      refetchOnWindowFocus: false,       // realtime sync handles updates
+      refetchOnReconnect: true,          // refetch when network comes back
+    },
+  },
+});
 
 function RootLayoutNav() {
   const { isAuthenticated, isLoading, isInitialized, isAdmin } = useAuth();
@@ -34,11 +45,20 @@ function RootLayoutNav() {
     }
   }, [isAuthenticated]);
 
+  // Hide splash when ready, OR after 6s safety timeout so the app never
+  // gets stuck on the splash screen even if init hangs.
   useEffect(() => {
     if (isInitialized && fontsLoaded) {
       SplashScreen.hideAsync();
     }
   }, [isInitialized, fontsLoaded]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync();
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!isInitialized || !fontsLoaded) return;

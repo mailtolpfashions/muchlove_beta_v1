@@ -116,7 +116,10 @@ export default function DashboardScreen() {
     ];
   }, [isAdmin, stats, employeeStats, sales]);
 
-  if (dataLoading && !refreshing) {
+  // Only show full-screen spinner on very first load when no cached data exists.
+  // Once cache is hydrated (or data arrives), render the dashboard immediately.
+  const hasData = sales.length > 0 || stats.totalCustomers > 0;
+  if (dataLoading && !refreshing && !hasData) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
         <ActivityIndicator size="large" color={Colors.primary} />

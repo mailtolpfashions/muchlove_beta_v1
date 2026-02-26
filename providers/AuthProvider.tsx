@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
-import { initializeDatabase } from '@/utils/database';
+import { initializeDatabase, withTimeout } from '@/utils/database';
 import type { Session } from '@supabase/supabase-js';
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
@@ -32,12 +32,19 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
       try {
         await initializeDatabase();
 
-        // Check for existing Supabase Auth session
-        const { data: { session: existingSession }, error: sessionError } = await supabase.auth.getSession();
+        // Check for existing Supabase Auth session (with timeout to prevent hang)
+        const { data: { session: existingSession }, error: sessionError } = await withTimeout(
+          supabase.auth.getSession(),
+          8000,
+          'Session retrieval',
+        );
+
+        if (cancelled) return;
 
         // If the stored refresh token is invalid/expired, sign out and clear stale session
         if (sessionError) {
@@ -47,7 +54,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         }
 
         if (existingSession?.user) {
-          const profile = await fetchProfile(existingSession.user.id, existingSession.user.email ?? '');
+          const profile = await withTimeout(
+            fetchProfile(existingSession.user.id, existingSession.user.email ?? ''),
+            5000,
+            'Profile fetch',
+          );
+          if (cancelled) return;
           if (profile && profile.approved) {
             setSession(existingSession);
             setUser(profile);
@@ -61,11 +73,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // Clear any corrupted session so the user can login fresh
         try { await supabase.auth.signOut(); } catch (_) {}
       } finally {
-        setIsLoading(false);
-        setIsInitialized(true);
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsInitialized(true);
+        }
       }
     };
     init();
+
+    return () => { cancelled = true; };
 
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
