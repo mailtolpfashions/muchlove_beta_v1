@@ -47,6 +47,12 @@ CREATE POLICY "Users can update own profile"
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can delete own profile" ON profiles;
+CREATE POLICY "Users can delete own profile"
+  ON profiles FOR DELETE
+  TO authenticated
+  USING (auth.uid() = id);
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- 2. Customers
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -173,3 +179,61 @@ CREATE TABLE IF NOT EXISTS upi_configs (
   upi_id TEXT NOT NULL,
   payee_name TEXT NOT NULL
 );
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 9. RLS Policies for all tables (authenticated users get full access)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Customers
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on customers" ON customers;
+CREATE POLICY "Authenticated full access on customers"
+  ON customers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Services
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on services" ON services;
+CREATE POLICY "Authenticated full access on services"
+  ON services FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Subscription Plans
+ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on subscription_plans" ON subscription_plans;
+CREATE POLICY "Authenticated full access on subscription_plans"
+  ON subscription_plans FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Customer Subscriptions
+ALTER TABLE customer_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on customer_subscriptions" ON customer_subscriptions;
+CREATE POLICY "Authenticated full access on customer_subscriptions"
+  ON customer_subscriptions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Offers
+ALTER TABLE offers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on offers" ON offers;
+CREATE POLICY "Authenticated full access on offers"
+  ON offers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Sales
+ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on sales" ON sales;
+CREATE POLICY "Authenticated full access on sales"
+  ON sales FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Sale Items
+ALTER TABLE sale_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on sale_items" ON sale_items;
+CREATE POLICY "Authenticated full access on sale_items"
+  ON sale_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- Subscription Sale Items
+ALTER TABLE subscription_sale_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on subscription_sale_items" ON subscription_sale_items;
+CREATE POLICY "Authenticated full access on subscription_sale_items"
+  ON subscription_sale_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- UPI Configs
+ALTER TABLE upi_configs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated full access on upi_configs" ON upi_configs;
+CREATE POLICY "Authenticated full access on upi_configs"
+  ON upi_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
