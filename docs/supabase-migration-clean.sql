@@ -49,11 +49,30 @@ CREATE POLICY "Users can update own profile"
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Admins can update any profile" ON profiles;
+CREATE POLICY "Admins can update any profile"
+  ON profiles FOR UPDATE
+  TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
 DROP POLICY IF EXISTS "Users can delete own profile" ON profiles;
 CREATE POLICY "Users can delete own profile"
   ON profiles FOR DELETE
   TO authenticated
   USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admins can delete any profile" ON profiles;
+CREATE POLICY "Admins can delete any profile"
+  ON profiles FOR DELETE
+  TO authenticated
+  USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- 2. Customers
