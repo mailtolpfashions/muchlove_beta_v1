@@ -36,6 +36,7 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<Step>('amount');
   const [activeUpiIndex, setActiveUpiIndex] = useState(0);
+  const [selectedMethod, setSelectedMethod] = useState<'cash' | 'upi'>('upi');
 
   const parsedAmount = parseFloat(amount);
   const isValid = !isNaN(parsedAmount) && parsedAmount > 0;
@@ -46,6 +47,7 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
     setStep('amount');
     setLoading(false);
     setActiveUpiIndex(0);
+    setSelectedMethod('upi');
   };
 
   const handleProceed = () => {
@@ -53,6 +55,7 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
       showAlert('Invalid Amount', 'Please enter a valid amount.');
       return;
     }
+    setSelectedMethod('upi');
     setStep('method');
   };
 
@@ -75,6 +78,14 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
     }
     setActiveUpiIndex(0);
     setStep('qr');
+  };
+
+  const handleMethodConfirm = () => {
+    if (selectedMethod === 'cash') {
+      handleCash();
+    } else {
+      handleUpi();
+    }
   };
 
   const handleQrDone = async () => {
@@ -198,8 +209,8 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
 
               <View style={styles.methodOptions}>
                 <TouchableOpacity
-                  style={styles.methodCard}
-                  onPress={handleCash}
+                  style={[styles.methodCard, selectedMethod === 'cash' && styles.methodCardSelected]}
+                  onPress={() => setSelectedMethod('cash')}
                   disabled={loading}
                   activeOpacity={0.8}
                 >
@@ -208,11 +219,14 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
                   </View>
                   <Text style={styles.methodLabel}>Cash</Text>
                   <Text style={styles.methodDesc}>Record cash payment</Text>
+                  {selectedMethod === 'cash' && (
+                    <CheckCircle size={18} color={Colors.primary} style={{ position: 'absolute', top: 8, right: 8 }} />
+                  )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.methodCard}
-                  onPress={handleUpi}
+                  style={[styles.methodCard, selectedMethod === 'upi' && styles.methodCardSelected]}
+                  onPress={() => setSelectedMethod('upi')}
                   disabled={loading}
                   activeOpacity={0.8}
                 >
@@ -221,8 +235,22 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
                   </View>
                   <Text style={styles.methodLabel}>Online / UPI</Text>
                   <Text style={styles.methodDesc}>Show QR code to pay</Text>
+                  {selectedMethod === 'upi' && (
+                    <CheckCircle size={18} color={Colors.primary} style={{ position: 'absolute', top: 8, right: 8 }} />
+                  )}
                 </TouchableOpacity>
               </View>
+
+              <TouchableOpacity
+                style={styles.primaryBtn}
+                onPress={handleMethodConfirm}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {selectedMethod === 'cash' ? 'Confirm Cash Payment' : 'Show QR Code'}
+                </Text>
+              </TouchableOpacity>
             </>
           )}
 
@@ -431,6 +459,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  methodCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
   },
   methodIcon: {
     width: 56,

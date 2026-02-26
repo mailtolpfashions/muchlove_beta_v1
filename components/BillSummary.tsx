@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft } from 'lucide-react-native';
+import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription } from '@/types';
@@ -40,6 +40,7 @@ export default function BillSummary({
 }: BillSummaryProps) {
   const [paymentStep, setPaymentStep] = useState<'closed' | 'method' | 'qr'>('closed');
   const [activeUpiIndex, setActiveUpiIndex] = useState(0);
+  const [selectedMethod, setSelectedMethod] = useState<'cash' | 'upi'>('upi');
 
   const { serviceDiscount, serviceDiscountPercent, serviceDiscountLabel, subsDiscount, subsDiscountPercent, subsDiscountLabel, total, totalDiscount } = useMemo(() => {
     const subtotalServices = items.reduce((acc, i) => acc + i.price, 0);
@@ -124,6 +125,7 @@ export default function BillSummary({
     if (upiList.length === 0) {
       onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent));
     } else {
+      setSelectedMethod('upi');
       setPaymentStep('method');
     }
   };
@@ -136,6 +138,14 @@ export default function BillSummary({
   const handleUpiPaymentDone = () => {
     setPaymentStep('closed');
     onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent), upiList[activeUpiIndex]?.id);
+  };
+
+  const handleMethodConfirm = () => {
+    if (selectedMethod === 'cash') {
+      handleCashPayment();
+    } else {
+      handleShowUpiQr();
+    }
   };
 
   const handlePaymentBack = () => {
@@ -268,19 +278,30 @@ export default function BillSummary({
               <>
                 <Text style={styles.paymentModalSubtitle}>How would you like to pay?</Text>
                 <View style={styles.paymentMethodRow}>
-                  <TouchableOpacity style={styles.paymentMethodCard} onPress={handleCashPayment}>
+                  <TouchableOpacity style={[styles.paymentMethodCard, selectedMethod === 'cash' && styles.paymentMethodCardSelected]} onPress={() => setSelectedMethod('cash')}>
                     <View style={[styles.paymentMethodIcon, { backgroundColor: '#D1FAE5' }]}>
                       <Wallet size={24} color="#10B981" />
                     </View>
                     <Text style={styles.paymentMethodLabel}>Cash</Text>
+                    {selectedMethod === 'cash' && (
+                      <CheckCircle size={16} color={Colors.primary} style={{ position: 'absolute', top: 8, right: 8 }} />
+                    )}
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.paymentMethodCard} onPress={handleShowUpiQr}>
+                  <TouchableOpacity style={[styles.paymentMethodCard, selectedMethod === 'upi' && styles.paymentMethodCardSelected]} onPress={() => setSelectedMethod('upi')}>
                     <View style={[styles.paymentMethodIcon, { backgroundColor: Colors.primaryLight }]}>
                       <Smartphone size={24} color={Colors.primary} />
                     </View>
                     <Text style={styles.paymentMethodLabel}>Online / UPI</Text>
+                    {selectedMethod === 'upi' && (
+                      <CheckCircle size={16} color={Colors.primary} style={{ position: 'absolute', top: 8, right: 8 }} />
+                    )}
                   </TouchableOpacity>
                 </View>
+                <TouchableOpacity style={styles.confirmMethodBtn} onPress={handleMethodConfirm}>
+                  <Text style={styles.confirmMethodBtnText}>
+                    {selectedMethod === 'cash' ? 'Confirm Cash Payment' : 'Show QR Code'}
+                  </Text>
+                </TouchableOpacity>
               </>
             )}
 
@@ -563,6 +584,24 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xl,
     alignItems: 'center',
     gap: Spacing.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  paymentMethodCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  confirmMethodBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+  },
+  confirmMethodBtnText: {
+    color: Colors.surface,
+    fontSize: FontSize.md,
+    fontWeight: '700',
   },
   paymentMethodIcon: {
     width: 52,

@@ -2,20 +2,23 @@ import { Tabs } from 'expo-router';
 import React from 'react';
 import { BarChart3, Scissors, Settings, Sparkles } from 'lucide-react-native';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/colors';
 import { HeaderRight } from '@/components/HeaderRight';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textTertiary,
         tabBarStyle: {
-          height: 60,
+          height: 60 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
           borderTopColor: Colors.tabBarBorder,
           backgroundColor: Colors.tabBar,
         },
