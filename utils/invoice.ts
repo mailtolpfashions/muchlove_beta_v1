@@ -1,7 +1,7 @@
 import { Sale } from '@/types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { formatCurrency, formatDate } from './format';
+import { formatCurrency, formatDate, formatDateTime } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 
 export const buildInvoiceHtml = (sale: Sale): string => {
