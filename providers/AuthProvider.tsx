@@ -37,7 +37,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         await initializeDatabase();
 
         // Check for existing Supabase Auth session
-        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        const { data: { session: existingSession }, error: sessionError } = await supabase.auth.getSession();
+
+        // If the stored refresh token is invalid/expired, sign out and clear stale session
+        if (sessionError) {
+          console.log('Session retrieval error (clearing stale session):', sessionError.message);
+          await supabase.auth.signOut();
+          return;
+        }
+
         if (existingSession?.user) {
           const profile = await fetchProfile(existingSession.user.id, existingSession.user.email ?? '');
           if (profile && profile.approved) {
@@ -48,8 +56,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             await supabase.auth.signOut();
           }
         }
-      } catch (e) {
-        console.log('Auth init error:', e);
+      } catch (e: any) {
+        console.log('Auth init error:', e?.message || e);
+        // Clear any corrupted session so the user can login fresh
+        try { await supabase.auth.signOut(); } catch (_) {}
       } finally {
         setIsLoading(false);
         setIsInitialized(true);
@@ -60,13 +70,21 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
+        // Handle invalid refresh token during token refresh
+        if (event === 'TOKEN_REFRESHED' && !newSession) {
+          console.log('Token refresh failed, signing out');
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          return;
+        }
+
         if (newSession?.user) {
           const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
           if (profile && profile.approved) {
             setSession(newSession);
             setUser(profile);
           } else {
-            // Not approved – don't set user
             setSession(null);
             setUser(null);
           }

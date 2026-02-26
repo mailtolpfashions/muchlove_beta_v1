@@ -113,7 +113,7 @@ export default function CustomerPicker({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <View style={[styles.modalContent, showAddForm && styles.modalContentCompact]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{showAddForm || addOnly ? 'Add Customer' : 'Select Customer'}</Text>
             <TouchableOpacity onPress={onClose}>
@@ -233,6 +233,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.xxl,
     height: '85%',
     padding: Spacing.modal,
+  },
+  modalContentCompact: {
+    height: 'auto',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
