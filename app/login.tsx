@@ -128,15 +128,20 @@ export default function LoginScreen() {
       if (!result.success) {
         setError(result.error || 'Sign up failed');
         shake();
-      } else if (result.needsVerification) {
-        setSuccessMsg('Account created! Check your email to verify, then sign in.');
+      } else if (result.needsApproval) {
+        setSuccessMsg('Account created! Please wait for admin approval before signing in.');
         setIsSignUp(false);
         setPassword('');
       }
     } else {
       const result = await login(email, password);
       if (!result.success) {
-        setError(result.error || 'Login failed');
+        if (result.pendingApproval) {
+          setSuccessMsg(result.error || 'Your account is pending approval.');
+          setError('');
+        } else {
+          setError(result.error || 'Login failed');
+        }
         shake();
       }
     }

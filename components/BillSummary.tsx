@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star } from 'lucide-react-native';
+import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription } from '@/types';
@@ -38,8 +38,7 @@ export default function BillSummary({
   onPlaceOrder,
   upiList,
 }: BillSummaryProps) {
-  const [isPaymentModalVisible, setPaymentModalVisible] = useState(false);
-  const [isQrModalVisible, setQrModalVisible] = useState(false);
+  const [paymentStep, setPaymentStep] = useState<'closed' | 'method' | 'qr'>('closed');
   const [activeUpiIndex, setActiveUpiIndex] = useState(0);
 
   const { serviceDiscount, serviceDiscountPercent, serviceDiscountLabel, subsDiscount, subsDiscountPercent, subsDiscountLabel, total, totalDiscount } = useMemo(() => {
@@ -112,9 +111,8 @@ export default function BillSummary({
   }, [items]);
 
   const handleShowUpiQr = () => {
-    setPaymentModalVisible(false);
     setActiveUpiIndex(0);
-    setQrModalVisible(true);
+    setPaymentStep('qr');
   };
 
   const handlePlaceOrder = () => {
@@ -125,13 +123,23 @@ export default function BillSummary({
     if (upiList.length === 0) {
       onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent));
     } else {
-      setPaymentModalVisible(true);
+      setPaymentStep('method');
     }
   };
 
-  const onQrCodeClose = () => {
-    setQrModalVisible(false);
+  const handleCashPayment = () => {
+    setPaymentStep('closed');
+    onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent));
+  };
+
+  const handleUpiPaymentDone = () => {
+    setPaymentStep('closed');
     onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent), upiList[activeUpiIndex]?.id);
+  };
+
+  const handlePaymentBack = () => {
+    if (paymentStep === 'qr') setPaymentStep('method');
+    else setPaymentStep('closed');
   };
 
   const handleScroll = (event: any) => {
@@ -235,72 +243,77 @@ export default function BillSummary({
         </Text>
       </TouchableOpacity>
 
-      {/* Payment Method Modal */}
-      <Modal animationType="fade" transparent visible={isPaymentModalVisible} onRequestClose={() => setPaymentModalVisible(false)}>
+      {/* Payment Flow Modal (method → qr) */}
+      <Modal animationType="slide" transparent visible={paymentStep !== 'closed'} onRequestClose={handlePaymentBack}>
         <View style={styles.paymentModalBackdrop}>
-          <View style={styles.paymentModalContent}>
+          <View style={paymentStep === 'qr' ? styles.qrModalContent : styles.paymentModalContent}>
+            {/* Header with back / close */}
             <View style={styles.paymentModalHeader}>
-              <Text style={styles.paymentModalTitle}>Payment Method</Text>
-              <TouchableOpacity onPress={() => setPaymentModalVisible(false)} style={styles.paymentCloseBtn}>
-                <X size={18} color={Colors.textTertiary} />
+              <TouchableOpacity onPress={handlePaymentBack} style={styles.paymentCloseBtn}>
+                {paymentStep === 'qr' ? (
+                  <ArrowLeft size={20} color={Colors.text} />
+                ) : (
+                  <X size={18} color={Colors.textTertiary} />
+                )}
               </TouchableOpacity>
+              <Text style={styles.paymentModalTitle}>
+                {paymentStep === 'qr' ? 'Scan to Pay' : 'Payment Method'}
+              </Text>
+              <View style={{ width: 36 }} />
             </View>
-            <Text style={styles.paymentModalSubtitle}>How would you like to pay?</Text>
 
-            <View style={styles.paymentMethodRow}>
-              <TouchableOpacity style={styles.paymentMethodCard} onPress={() => { onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent)); setPaymentModalVisible(false); }}>
-                <View style={[styles.paymentMethodIcon, { backgroundColor: '#D1FAE5' }]}>
-                  <Wallet size={24} color="#10B981" />
-                </View>
-                <Text style={styles.paymentMethodLabel}>Cash</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.paymentMethodCard} onPress={handleShowUpiQr}>
-                <View style={[styles.paymentMethodIcon, { backgroundColor: Colors.primaryLight }]}>
-                  <Smartphone size={24} color={Colors.primary} />
-                </View>
-                <Text style={styles.paymentMethodLabel}>Online / UPI</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* QR Code Modal */}
-      <Modal animationType="slide" transparent visible={isQrModalVisible} onRequestClose={onQrCodeClose}>
-        <View style={styles.qrModalBackdrop}>
-          <View style={styles.qrModalContent}>
-            <View style={styles.qrModalHeader}>
-              <Text style={styles.qrModalTitle}>Scan to Pay</Text>
-              <TouchableOpacity onPress={onQrCodeClose} style={styles.paymentCloseBtn}>
-                <X size={18} color={Colors.textTertiary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={handleScroll} style={{ width: modalWidth }} contentContainerStyle={{ alignItems: 'center' }}>
-              {upiList.map((upi, index) => {
-                const upiUri = `upi://pay?pa=${upi.upiId}&pn=${upi.payeeName}&am=${total}&cu=INR`;
-                return (
-                  <View key={index} style={[styles.qrSlide, { width: modalWidth }]}>
-                    <View style={styles.qrCardWrapper}>
-                      <QRCode value={upiUri} size={modalWidth * 0.7} />
+            {/* Step: Payment Method */}
+            {paymentStep === 'method' && (
+              <>
+                <Text style={styles.paymentModalSubtitle}>How would you like to pay?</Text>
+                <View style={styles.paymentMethodRow}>
+                  <TouchableOpacity style={styles.paymentMethodCard} onPress={handleCashPayment}>
+                    <View style={[styles.paymentMethodIcon, { backgroundColor: '#D1FAE5' }]}>
+                      <Wallet size={24} color="#10B981" />
                     </View>
-                    <Text style={styles.upiPayeeName}>{upi.payeeName}</Text>
-                    <Text style={styles.upiId}>{upi.upiId}</Text>
-                  </View>
-                );
-              })}
-            </ScrollView>
-            <View style={styles.qrAmountBadge}>
-              <Text style={styles.qrAmountLabel}>Amount</Text>
-              <Text style={styles.qrAmountValue}>{formatCurrency(total)}</Text>
-            </View>
-            {upiList.length > 1 && (
-              <View style={styles.pagination}>
-                {upiList.map((_, i) => <View key={i} style={[styles.dot, activeUpiIndex === i && styles.activeDot]} />)}
-              </View>
+                    <Text style={styles.paymentMethodLabel}>Cash</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.paymentMethodCard} onPress={handleShowUpiQr}>
+                    <View style={[styles.paymentMethodIcon, { backgroundColor: Colors.primaryLight }]}>
+                      <Smartphone size={24} color={Colors.primary} />
+                    </View>
+                    <Text style={styles.paymentMethodLabel}>Online / UPI</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
-            <TouchableOpacity style={styles.doneBtn} onPress={onQrCodeClose}>
-              <Text style={styles.doneBtnText}>Payment Received</Text>
-            </TouchableOpacity>
+
+            {/* Step: QR Code */}
+            {paymentStep === 'qr' && (
+              <>
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={handleScroll} style={{ width: modalWidth }} contentContainerStyle={{ alignItems: 'center' }}>
+                  {upiList.map((upi, index) => {
+                    const upiUri = `upi://pay?pa=${upi.upiId}&pn=${upi.payeeName}&am=${total}&cu=INR`;
+                    return (
+                      <View key={index} style={[styles.qrSlide, { width: modalWidth }]}>
+                        <View style={styles.qrCardWrapper}>
+                          <QRCode value={upiUri} size={modalWidth * 0.7} />
+                        </View>
+                        <Text style={styles.upiPayeeName}>{upi.payeeName}</Text>
+                        <Text style={styles.upiId}>{upi.upiId}</Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+                <View style={styles.qrAmountBadge}>
+                  <Text style={styles.qrAmountLabel}>Amount</Text>
+                  <Text style={styles.qrAmountValue}>{formatCurrency(total)}</Text>
+                </View>
+                {upiList.length > 1 && (
+                  <View style={styles.pagination}>
+                    {upiList.map((_, i) => <View key={i} style={[styles.dot, activeUpiIndex === i && styles.activeDot]} />)}
+                  </View>
+                )}
+                <TouchableOpacity style={styles.doneBtn} onPress={handleUpiPaymentDone}>
+                  <Text style={styles.doneBtnText}>Payment Received</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -564,13 +577,6 @@ const styles = StyleSheet.create({
   },
 
   /* QR Code Modal */
-  qrModalBackdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.overlay,
-    padding: Spacing.screen,
-  },
   qrModalContent: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xxl,
@@ -582,18 +588,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
-  },
-  qrModalHeader: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
-  },
-  qrModalTitle: {
-    fontSize: FontSize.heading,
-    fontWeight: '700',
-    color: Colors.text,
   },
   qrSlide: {
     alignItems: 'center',

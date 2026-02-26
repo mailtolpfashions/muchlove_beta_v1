@@ -26,6 +26,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       email: data.email ?? email,
       name: data.name,
       role: data.role,
+      approved: data.approved ?? false,
       createdAt: data.created_at,
     };
   }, []);
@@ -38,9 +39,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // Check for existing Supabase Auth session
         const { data: { session: existingSession } } = await supabase.auth.getSession();
         if (existingSession?.user) {
-          setSession(existingSession);
           const profile = await fetchProfile(existingSession.user.id, existingSession.user.email ?? '');
-          if (profile) setUser(profile);
+          if (profile && profile.approved) {
+            setSession(existingSession);
+            setUser(profile);
+          } else {
+            // Not approved – sign them out silently
+            await supabase.auth.signOut();
+          }
         }
       } catch (e) {
         console.log('Auth init error:', e);
@@ -54,11 +60,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
-        setSession(newSession);
         if (newSession?.user) {
           const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
-          setUser(profile);
+          if (profile && profile.approved) {
+            setSession(newSession);
+            setUser(profile);
+          } else {
+            // Not approved – don't set user
+            setSession(null);
+            setUser(null);
+          }
         } else {
+          setSession(null);
           setUser(null);
         }
       }
@@ -67,7 +80,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
-  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string; pendingApproval?: boolean }> => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
@@ -80,11 +93,16 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
       if (data.user) {
         const profile = await fetchProfile(data.user.id, data.user.email ?? '');
-        if (profile) {
-          setUser(profile);
-          return { success: true };
+        if (!profile) {
+          await supabase.auth.signOut();
+          return { success: false, error: 'Profile not found. Please contact admin.' };
         }
-        return { success: false, error: 'Profile not found. Please contact admin.' };
+        if (!profile.approved) {
+          await supabase.auth.signOut();
+          return { success: false, pendingApproval: true, error: 'Your account is pending approval. Please wait for the admin to approve your account.' };
+        }
+        setUser(profile);
+        return { success: true };
       }
 
       return { success: false, error: 'Login failed. Please try again.' };
@@ -93,7 +111,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     }
   }, [fetchProfile]);
 
-  const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
+  const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string; needsApproval?: boolean }> => {
     try {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
@@ -107,23 +125,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return { success: false, error: error.message };
       }
 
-      // If email confirmation is required, user won't have a session yet
-      if (data.user && !data.session) {
-        return { success: true, needsVerification: true };
-      }
-
-      // If auto-confirmed (e.g. Supabase settings), user is signed in
-      if (data.user && data.session) {
-        const profile = await fetchProfile(data.user.id, data.user.email ?? '');
-        if (profile) setUser(profile);
-        return { success: true };
+      if (data.user) {
+        // Always sign out after signup – they need admin approval first
+        await supabase.auth.signOut();
+        return { success: true, needsApproval: true };
       }
 
       return { success: false, error: 'Sign up failed. Please try again.' };
     } catch (e: any) {
       return { success: false, error: e?.message || 'Sign up failed. Please try again.' };
     }
-  }, [fetchProfile]);
+  }, []);
 
   const logout = useCallback(async () => {
     try {
