@@ -34,11 +34,13 @@ CREATE TRIGGER on_auth_user_created
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON profiles;
 CREATE POLICY "Profiles are viewable by authenticated users"
   ON profiles FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   TO authenticated
