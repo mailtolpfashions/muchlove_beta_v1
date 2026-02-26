@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Much Love Billing App",
-    "slug": "much-love-billing-app",
+    "slug": "offline-crm-billing-app",
     "scheme": "much-love-billing-app",
     "version": "1.0.0",
     "orientation": "portrait",
