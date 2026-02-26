@@ -19,7 +19,6 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll);
   const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll);
 
-  const { mutateAsync: addUser } = supabaseDb.users.useAdd();
   const { mutateAsync: updateUser } = supabaseDb.users.useUpdate();
   const { mutateAsync: deleteUser } = supabaseDb.users.useRemove();
 
@@ -134,7 +133,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     users,
     usersLoading,
     usersError,
-    addUser,
     updateUser,
     deleteUser,
     customerSubscriptions,

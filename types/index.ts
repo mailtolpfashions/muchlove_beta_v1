@@ -2,8 +2,7 @@ export type UserRole = 'admin' | 'employee';
 
 export interface User {
   id: string;
-  username: string;
-  passwordHash: string;
+  email: string;
   name: string;
   role: UserRole;
   createdAt: string;

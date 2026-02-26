@@ -21,7 +21,8 @@ import { useData } from '@/providers/DataProvider';
 import { Customer } from '@/types';
 import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
-import SortPills, { SortOption } from '@/components/SortPills';
+import SortPills, { SortOption, SortPillOption, visitSortOptions } from '@/components/SortPills';
+import { ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
 
 export default function CustomersScreen() {
   const { customers, addCustomer, updateCustomer, reload } = useData();
@@ -118,6 +119,12 @@ export default function CustomersScreen() {
       case 'recent':
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         break;
+      case 'visits-high':
+        list.sort((a, b) => (b.visitCount ?? 0) - (a.visitCount ?? 0));
+        break;
+      case 'visits-low':
+        list.sort((a, b) => (a.visitCount ?? 0) - (b.visitCount ?? 0));
+        break;
     }
     return list;
   }, [customers, search, sortBy]);
@@ -165,7 +172,16 @@ export default function CustomersScreen() {
       </View>
 
       <View style={styles.sortRow}>
-        <SortPills value={sortBy} onChange={setSortBy} />
+        <SortPills
+          value={sortBy}
+          onChange={setSortBy}
+          options={[
+            { key: 'a-z', label: 'A\u2013Z', Icon: ArrowDownAZ },
+            { key: 'z-a', label: 'Z\u2013A', Icon: ArrowUpZA },
+            { key: 'recent', label: 'Recent', Icon: Clock },
+            ...visitSortOptions,
+          ]}
+        />
       </View>
 
       <FlatList

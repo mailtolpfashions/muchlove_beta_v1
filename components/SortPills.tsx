@@ -1,26 +1,40 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
+import { ArrowDownAZ, ArrowUpZA, Clock, TrendingUp, TrendingDown } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 
-export type SortOption = 'a-z' | 'z-a' | 'recent';
+export type SortOption = 'a-z' | 'z-a' | 'recent' | 'visits-high' | 'visits-low';
+
+export interface SortPillOption {
+  key: SortOption;
+  label: string;
+  Icon: any;
+}
 
 interface SortPillsProps {
   value: SortOption;
   onChange: (v: SortOption) => void;
+  /** Pass custom options to override the default set */
+  options?: SortPillOption[];
 }
 
-const options: { key: SortOption; label: string; Icon: any }[] = [
+const defaultOptions: SortPillOption[] = [
   { key: 'a-z', label: 'A–Z', Icon: ArrowDownAZ },
   { key: 'z-a', label: 'Z–A', Icon: ArrowUpZA },
   { key: 'recent', label: 'Recent', Icon: Clock },
 ];
 
-export default function SortPills({ value, onChange }: SortPillsProps) {
+export const visitSortOptions: SortPillOption[] = [
+  { key: 'visits-high', label: 'Visits ↓', Icon: TrendingDown },
+  { key: 'visits-low', label: 'Visits ↑', Icon: TrendingUp },
+];
+
+export default function SortPills({ value, onChange, options }: SortPillsProps) {
+  const pills = options ?? defaultOptions;
   return (
     <View style={styles.row}>
-      {options.map(({ key, label, Icon }) => {
+      {pills.map(({ key, label, Icon }) => {
         const active = value === key;
         return (
           <TouchableOpacity

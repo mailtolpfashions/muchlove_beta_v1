@@ -1,16 +1,55 @@
 -- BillPro CRM – Supabase tables (run in SQL Editor in Supabase Dashboard)
 
--- Users (admin + employees) – drop first if table had wrong schema (e.g. id int8)
-DROP TABLE IF EXISTS users;
-
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Profiles (linked to Supabase Auth users)
+-- Each auth.users row gets a matching profile with name + role.
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'employee')),
+  role TEXT NOT NULL DEFAULT 'employee' CHECK (role IN ('admin', 'employee')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Auto-create a profile when a new user signs up via Supabase Auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, name, role)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data ->> 'name', split_part(NEW.email, '@', 1)),
+    'employee'
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Enable RLS on profiles
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Allow authenticated users to read all profiles
+CREATE POLICY "Profiles are viewable by authenticated users"
+  ON profiles FOR SELECT
+  TO authenticated
+  USING (true);
+
+-- Allow users to update their own profile (name only)
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- Legacy users table (kept for backward compatibility, can be dropped later)
+-- DROP TABLE IF EXISTS users;
 
 -- Customers
 CREATE TABLE IF NOT EXISTS customers (

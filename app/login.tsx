@@ -15,7 +15,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Scissors, Lock, User, Eye, EyeOff, Sparkles } from 'lucide-react-native';
+import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles, UserPlus } from 'lucide-react-native';
 import { APP_NAME } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -41,11 +41,14 @@ const Salon = {
 };
 
 export default function LoginScreen() {
-  const { login } = useAuth();
-  const [username, setUsername] = useState('');
+  const { login, signUp } = useAuth();
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -54,6 +57,7 @@ export default function LoginScreen() {
   const logoScale = useRef(new Animated.Value(0.8)).current;
   const sparkle1 = useRef(new Animated.Value(0)).current;
   const sparkle2 = useRef(new Animated.Value(0)).current;
+  const nameRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -101,21 +105,49 @@ export default function LoginScreen() {
     ]).start();
   };
 
-  const handleLogin = async () => {
+  const handleSubmit = async () => {
     Keyboard.dismiss();
-    if (!username.trim() || !password.trim()) {
-      setError('Please enter both username and password');
+    setError('');
+    setSuccessMsg('');
+
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter both email and password');
       shake();
       return;
     }
-    setLoading(true);
-    setError('');
-    const result = await login(username.trim(), password);
-    if (!result.success) {
-      setError(result.error || 'Login failed');
+    if (isSignUp && !name.trim()) {
+      setError('Please enter your name');
       shake();
+      return;
     }
+
+    setLoading(true);
+
+    if (isSignUp) {
+      const result = await signUp(email, password, name);
+      if (!result.success) {
+        setError(result.error || 'Sign up failed');
+        shake();
+      } else if (result.needsVerification) {
+        setSuccessMsg('Account created! Check your email to verify, then sign in.');
+        setIsSignUp(false);
+        setPassword('');
+      }
+    } else {
+      const result = await login(email, password);
+      if (!result.success) {
+        setError(result.error || 'Login failed');
+        shake();
+      }
+    }
+
     setLoading(false);
+  };
+
+  const toggleMode = () => {
+    setIsSignUp(!isSignUp);
+    setError('');
+    setSuccessMsg('');
   };
 
   return (
@@ -192,8 +224,8 @@ export default function LoginScreen() {
               },
             ]}
           >
-            <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.signInText}>Sign in to your account</Text>
+            <Text style={styles.welcomeText}>{isSignUp ? 'Create Account' : 'Welcome Back'}</Text>
+            <Text style={styles.signInText}>{isSignUp ? 'Sign up with your email' : 'Sign in to your account'}</Text>
 
             {error ? (
               <View style={styles.errorBox}>
@@ -201,29 +233,62 @@ export default function LoginScreen() {
               </View>
             ) : null}
 
-            {/* Username */}
+            {successMsg ? (
+              <View style={styles.successBox}>
+                <Text style={styles.successText}>{successMsg}</Text>
+              </View>
+            ) : null}
+
+            {/* Email */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Username</Text>
+              <Text style={styles.inputLabel}>Email</Text>
               <View style={styles.inputContainer}>
-                <User
+                <Mail
                   size={18}
                   color={Salon.roseSoft}
                   style={styles.inputIcon}
                 />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your username"
+                  placeholder="Enter your email"
                   placeholderTextColor={Salon.textLight}
-                  value={username}
-                  onChangeText={setUsername}
+                  value={email}
+                  onChangeText={setEmail}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  keyboardType="email-address"
                   returnKeyType="next"
-                  onSubmitEditing={() => passwordRef.current?.focus()}
-                  testID="login-username"
+                  onSubmitEditing={() => isSignUp ? nameRef.current?.focus() : passwordRef.current?.focus()}
+                  testID="login-email"
                 />
               </View>
             </View>
+
+            {/* Name (sign-up only) */}
+            {isSignUp && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Full Name</Text>
+                <View style={styles.inputContainer}>
+                  <User
+                    size={18}
+                    color={Salon.roseSoft}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    ref={nameRef}
+                    style={styles.input}
+                    placeholder="Enter your full name"
+                    placeholderTextColor={Salon.textLight}
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    testID="signup-name"
+                  />
+                </View>
+              </View>
+            )}
 
             {/* Password */}
             <View style={styles.inputGroup}>
@@ -243,7 +308,7 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   returnKeyType="done"
-                  onSubmitEditing={handleLogin}
+                  onSubmitEditing={handleSubmit}
                   testID="login-password"
                 />
                 <TouchableOpacity
@@ -260,9 +325,9 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Sign In Button */}
+            {/* Sign In / Sign Up Button */}
             <TouchableOpacity
-              onPress={handleLogin}
+              onPress={handleSubmit}
               disabled={loading}
               activeOpacity={0.85}
               testID="login-button"
@@ -277,9 +342,23 @@ export default function LoginScreen() {
                 {loading ? (
                   <ActivityIndicator color={Salon.white} size="small" />
                 ) : (
-                  <Text style={styles.loginBtnText}>Sign In</Text>
+                  <Text style={styles.loginBtnText}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>
                 )}
               </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Toggle Sign In / Sign Up */}
+            <TouchableOpacity
+              onPress={toggleMode}
+              style={styles.toggleBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.toggleText}>
+                {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+                <Text style={styles.toggleTextBold}>
+                  {isSignUp ? 'Sign In' : 'Sign Up'}
+                </Text>
+              </Text>
             </TouchableOpacity>
           </Animated.View>
         </ScrollView>
@@ -407,6 +486,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  successBox: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: '#22C55E',
+  },
+  successText: {
+    color: '#15803D',
+    fontSize: 13,
+    fontWeight: '500',
+  },
 
   /* Inputs */
   inputGroup: {
@@ -466,5 +558,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.8,
   },
-
+  toggleBtn: {
+    marginTop: 20,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  toggleText: {
+    fontSize: 14,
+    color: Salon.textMuted,
+  },
+  toggleTextBold: {
+    color: Salon.rose,
+    fontWeight: '700',
+  },
 });

@@ -11,16 +11,18 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
-import { Plus, Trash2, X, Search, Users } from 'lucide-react-native';
+import { Trash2, X, Search, Users, Shield, UserCheck } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { User } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
 import { capitalizeWords, isValidName } from '@/utils/format';
+import { useAuth } from '@/providers/AuthProvider';
 
 export default function StaffScreen() {
-  const { users, addUser, updateUser, deleteUser, reload } = useData();
+  const { users, updateUser, deleteUser, reload } = useData();
+  const { user: currentUser, isAdmin } = useAuth();
   const { showAlert, showConfirm } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -35,53 +37,32 @@ export default function StaffScreen() {
 
   // Form state
   const [name, setName] = useState<string>('');
-  const [username, setUsername] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
+  const [role, setRole] = useState<User['role']>('employee');
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const resetForm = () => {
     setName('');
-    setUsername('');
-    setPassword('');
+    setRole('employee');
     setIsEditing(false);
     setEditingId(null);
   };
 
   const handleSaveStaff = async () => {
-    if (!name.trim() || !username.trim()) {
-      showAlert('Error', 'Name and username are required');
+    if (!name.trim()) {
+      showAlert('Error', 'Name is required');
       return;
     }
     if (!isValidName(name.trim())) {
       showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
-    if (!isEditing && !password.trim()) {
-      showAlert('Error', 'Password is required for new employees');
-      return;
-    }
     try {
       if (isEditing && editingId) {
-        const userToUpdate = users.find((u: User) => u.id === editingId);
-        if (userToUpdate) {
-          const updatedUser: User & { password?: string } = {
-            ...userToUpdate,
-            name: name.trim(),
-            username: username.trim(),
-          };
-          const newPassword = password.trim();
-          if (newPassword) {
-            updatedUser.password = newPassword;
-          }
-          await updateUser(updatedUser);
-        }
-      } else {
-        await addUser({
-          username: username.trim(),
+        await updateUser({
+          id: editingId,
           name: name.trim(),
-          role: 'employee',
-          password: password.trim(),
+          role,
         });
       }
       setshowStaffForm(false);
@@ -92,9 +73,13 @@ export default function StaffScreen() {
   };
 
   const handleDeleteStaff = (user: User) => {
+    if (user.id === currentUser?.id) {
+      showAlert('Error', 'You cannot remove yourself');
+      return;
+    }
     showConfirm(
       'Remove Employee',
-      `Delete "${user.name}"?`,
+      `Delete "${user.name}"? This only removes their profile, not their auth account.`,
       () => deleteUser(user.id),
       'Delete',
     );
@@ -104,7 +89,7 @@ export default function StaffScreen() {
     if (!search.trim()) return users;
     const q = search.toLowerCase();
     return users.filter(
-      (u: User) => u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+      (u: User) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
     );
   }, [users, search]);
 
@@ -114,20 +99,30 @@ export default function StaffScreen() {
         style={styles.cardContent}
         activeOpacity={0.7}
         onPress={() => {
+          if (!isAdmin) return;
           setIsEditing(true);
           setEditingId(item.id);
           setName(item.name);
-          setUsername(item.username);
-          setPassword('');
+          setRole(item.role);
           setshowStaffForm(true);
         }}
       >
-        <Text style={styles.staffName}>{capitalizeWords(item.name)}</Text>
-        <Text style={styles.staffUsername}>@{item.username}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.staffName}>{capitalizeWords(item.name)}</Text>
+          {item.role === 'admin' && (
+            <View style={styles.adminBadge}>
+              <Shield size={10} color={Colors.primary} />
+              <Text style={styles.adminBadgeText}>Admin</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.staffEmail}>{item.email}</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteStaff(item)}>
-        <Trash2 size={16} color={Colors.danger} />
-      </TouchableOpacity>
+      {isAdmin && item.id !== currentUser?.id && (
+        <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteStaff(item)}>
+          <Trash2 size={16} color={Colors.danger} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -138,15 +133,18 @@ export default function StaffScreen() {
           <Search size={16} color={Colors.textTertiary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search name or username..."
+            placeholder="Search name or email..."
             placeholderTextColor={Colors.textTertiary}
             value={search}
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setshowStaffForm(true); }}>
-          <Plus size={18} color={Colors.surface} />
-        </TouchableOpacity>
+      </View>
+
+      {/* Info banner */}
+      <View style={styles.infoBanner}>
+        <UserCheck size={14} color={Colors.textSecondary} />
+        <Text style={styles.infoText}>Staff members sign up from the login screen. Admin can edit roles here.</Text>
       </View>
 
       <FlatList
@@ -161,7 +159,7 @@ export default function StaffScreen() {
           <View style={styles.empty}>
             <Users size={48} color={Colors.textTertiary} />
             <Text style={styles.emptyTitle}>No employees</Text>
-            <Text style={styles.emptySubtitle}>Add new employee records</Text>
+            <Text style={styles.emptySubtitle}>Staff will appear here after they sign up</Text>
           </View>
         }
       />
@@ -174,7 +172,7 @@ export default function StaffScreen() {
           >
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{isEditing ? 'Edit Employee' : 'Add Employee'}</Text>
+                <Text style={styles.modalTitle}>Edit Employee</Text>
                 <TouchableOpacity onPress={() => setshowStaffForm(false)}>
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
@@ -187,26 +185,23 @@ export default function StaffScreen() {
                 value={name}
                 onChangeText={setName}
               />
-              <Text style={styles.label}>Username *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Login username"
-                placeholderTextColor={Colors.textTertiary}
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-              />
-              <Text style={styles.label}>{isEditing ? 'New Password (optional)' : 'Password *'}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Min. 6 characters"
-                placeholderTextColor={Colors.textTertiary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <Text style={styles.label}>Role</Text>
+              <View style={styles.roleRow}>
+                <TouchableOpacity
+                  style={[styles.roleBtn, role === 'employee' && styles.roleBtnActive]}
+                  onPress={() => setRole('employee')}
+                >
+                  <Text style={[styles.roleBtnText, role === 'employee' && styles.roleBtnTextActive]}>Employee</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.roleBtn, role === 'admin' && styles.roleBtnActive]}
+                  onPress={() => setRole('admin')}
+                >
+                  <Text style={[styles.roleBtnText, role === 'admin' && styles.roleBtnTextActive]}>Admin</Text>
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveStaff}>
-                <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Employee'}</Text>
+                <Text style={styles.saveBtnText}>Save Changes</Text>
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
@@ -280,10 +275,72 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.text,
   },
-  staffUsername: {
+  nameRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
+  adminBadge: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 3,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  adminBadgeText: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  staffEmail: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  infoBanner: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginHorizontal: Spacing.card,
+    marginBottom: Spacing.md,
+    padding: 12,
+    backgroundColor: Colors.primaryLight ?? '#FFF0F5',
+    borderRadius: BorderRadius.md,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  roleRow: {
+    flexDirection: 'row' as const,
+    gap: 10,
+    marginTop: 4,
+  },
+  roleBtn: {
+    flex: 1,
+    height: 44,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.inputBorder,
+    backgroundColor: Colors.inputBg,
+  },
+  roleBtnActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight ?? '#FFF0F5',
+  },
+  roleBtnText: {
+    fontSize: FontSize.body,
+    fontWeight: '500' as const,
+    color: Colors.textSecondary,
+  },
+  roleBtnTextActive: {
+    color: Colors.primary,
+    fontWeight: '600' as const,
   },
   deleteBtn: {
     padding: 8,

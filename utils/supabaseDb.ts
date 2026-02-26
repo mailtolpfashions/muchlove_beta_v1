@@ -13,11 +13,11 @@ import type {
   UpiData,
   CartItem,
 } from '@/types';
-import { hashPassword, generateId } from '@/utils/hash';
+import { generateId } from '@/utils/hash';
 
 // Row Mappers (DB snake_case -> App camelCase)
 // These functions remain the same...
-function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, username: r.username as string, passwordHash: r.password_hash as string, name: r.name as string, role: r.role as User['role'], createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
+function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, email: r.email as string, name: r.name as string, role: r.role as User['role'], createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapCustomer(r: Record<string, unknown>): Customer { return { id: r.id as string, name: r.name as string, age: (r.age as string) ?? '', mobile: r.mobile as string, altNumber: (r.alt_number as string) ?? '', location: (r.location as string) ?? '', isStudent: (r.is_student as boolean) ?? false, visitCount: (r.visit_count as number) ?? 0, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapService(r: Record<string, unknown>): Service { return { id: r.id as string, name: r.name as string, code: r.code as string, price: Number(r.price), kind: ((r.kind as string) ?? 'service') as Service['kind'], mrp: r.mrp != null ? Number(r.mrp) : undefined, offerPrice: r.offer_price != null ? Number(r.offer_price) : undefined, createdAt: (r.created_at as string) ?? new Date().toISOString(), paymentMethod: r.payment_method as Service['paymentMethod'] }; }
 function mapSubscriptionPlan(r: Record<string, unknown>): SubscriptionPlan { return { id: r.id as string, name: r.name as string, durationMonths: Number(r.duration_months), price: Number(r.price), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
@@ -44,48 +44,23 @@ function mapSubscriptionSaleItem(r: Record<string, unknown>): SubscriptionSaleIt
 
 export const users = {
   getAll: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
     if (error) throw error;
     return data.map(mapUser);
   },
-  findByUsername: async (username: string): Promise<User | undefined> => {
-    const { data, error } = await supabase.from('users').select('*').eq('username', username.trim().toLowerCase()).maybeSingle();
+  findByEmail: async (email: string): Promise<User | undefined> => {
+    const { data, error } = await supabase.from('profiles').select('*').eq('email', email.trim().toLowerCase()).maybeSingle();
     if (error) throw error;
     return data ? mapUser(data) : undefined;
-  },
-  useAdd: (onSuccess?: () => void | Promise<void>) => {
-    const queryClient = useQueryClient();
-    return useMutation({
-      mutationFn: async (user: Omit<User, 'id' | 'createdAt' | 'passwordHash'> & { password: string }) => {
-        const passwordHash = await hashPassword(user.password);
-        const newUser = {
-          id: generateId(),
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          password_hash: passwordHash,
-          created_at: new Date().toISOString()
-        };
-        const { data, error } = await supabase.from('users').insert(newUser).select().single();
-        if (error) throw error;
-        return mapUser(data);
-      },
-      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['users'] }); if (onSuccess) await onSuccess(); }
-    });
   },
   useUpdate: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (user: User & { password?: string }) => {
-        let userToUpdate: any = {
+      mutationFn: async (user: Pick<User, 'id' | 'name' | 'role'>) => {
+        const { error } = await supabase.from('profiles').update({
           name: user.name,
-          username: user.username,
           role: user.role,
-        };
-        if (user.password) {
-          userToUpdate.password_hash = await hashPassword(user.password);
-        }
-        const { error } = await supabase.from('users').update(userToUpdate).eq('id', user.id);
+        }).eq('id', user.id);
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['users'] }); if (onSuccess) await onSuccess(); }
@@ -95,7 +70,7 @@ export const users = {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (id: string) => {
-        const { error } = await supabase.from('users').delete().eq('id', id);
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['users'] }); if (onSuccess) await onSuccess(); }
@@ -512,16 +487,10 @@ export const upiConfigs = {
 
 
 export async function seedSupabaseIfNeeded(): Promise<void> {
-  const { data: users } = await supabase.from('users').select('id').limit(1);
-  if (users && users.length > 0) return;
-
-  const adminHash = await hashPassword('admin123');
-  const empHash = await hashPassword('emp123');
-  const defaultUsers = [
-    { id: generateId(), username: 'admin', password_hash: adminHash, name: 'Administrator', role: 'admin', created_at: new Date().toISOString() },
-    { id: generateId(), username: 'employee', password_hash: empHash, name: 'Staff Member', role: 'employee', created_at: new Date().toISOString() },
-  ];
-  await supabase.from('users').insert(defaultUsers);
+  // Users are now created via Supabase Auth sign-up (profiles table auto-populated by trigger).
+  // Only seed services and subscription plans if they don't exist yet.
+  const { data: existingServices } = await supabase.from('services').select('id').limit(1);
+  if (existingServices && existingServices.length > 0) return;
 
   const defaultServices = [
     { id: generateId(), name: 'Haircut', code: 'HC001', price: 300, kind: 'service', created_at: new Date().toISOString() },

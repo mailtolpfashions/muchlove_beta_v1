@@ -1,76 +1,158 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 import { User } from '@/types';
-import { hashPassword } from '@/utils/hash';
+import { supabase } from '@/lib/supabase';
 import { initializeDatabase } from '@/utils/database';
-import * as supabaseDb from '@/utils/supabaseDb';
-
-
-const AUTH_KEY = '@crm_current_user';
+import type { Session } from '@supabase/supabase-js';
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
+
+  /** Fetch the profile row for a given auth user ID */
+  const fetchProfile = useCallback(async (authUserId: string, email: string): Promise<User | null> => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', authUserId)
+      .single();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      email: data.email ?? email,
+      name: data.name,
+      role: data.role,
+      createdAt: data.created_at,
+    };
+  }, []);
 
   useEffect(() => {
     const init = async () => {
       try {
         await initializeDatabase();
-        const stored = await AsyncStorage.getItem(AUTH_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as User;
-          const fresh = await supabaseDb.users.findByUsername(parsed.username);
-          if (fresh) {
-            setUser(fresh);
-          }
+
+        // Check for existing Supabase Auth session
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession?.user) {
+          setSession(existingSession);
+          const profile = await fetchProfile(existingSession.user.id, existingSession.user.email ?? '');
+          if (profile) setUser(profile);
         }
       } catch (e) {
+        console.log('Auth init error:', e);
       } finally {
         setIsLoading(false);
         setIsInitialized(true);
       }
     };
     init();
-  }, []);
 
-  const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    // Listen for auth state changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        setSession(newSession);
+        if (newSession?.user) {
+          const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
+          setUser(profile);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [fetchProfile]);
+
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const found = await supabaseDb.users.findByUsername(username);
-      if (!found) {
-        console.log('Login failed: User not found');
-        return { success: false, error: 'User not found' };
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
       }
-      const hashed = await hashPassword(password);
-      if (hashed !== found.passwordHash) {
-        console.log('Login failed: Invalid password');
-        return { success: false, error: 'Invalid password' };
+
+      if (data.user) {
+        const profile = await fetchProfile(data.user.id, data.user.email ?? '');
+        if (profile) {
+          setUser(profile);
+          return { success: true };
+        }
+        return { success: false, error: 'Profile not found. Please contact admin.' };
       }
-      setUser(found);
-      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(found));
-      return { success: true };
-    } catch (e) {
-      console.log('Login failed with error:', e);
+
       return { success: false, error: 'Login failed. Please try again.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Login failed. Please try again.' };
     }
-  }, []);
+  }, [fetchProfile]);
+
+  const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+        options: {
+          data: { name: name.trim() },
+        },
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // If email confirmation is required, user won't have a session yet
+      if (data.user && !data.session) {
+        return { success: true, needsVerification: true };
+      }
+
+      // If auto-confirmed (e.g. Supabase settings), user is signed in
+      if (data.user && data.session) {
+        const profile = await fetchProfile(data.user.id, data.user.email ?? '');
+        if (profile) setUser(profile);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Sign up failed. Please try again.' };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Sign up failed. Please try again.' };
+    }
+  }, [fetchProfile]);
 
   const logout = useCallback(async () => {
     try {
+      await supabase.auth.signOut();
       setUser(null);
-      await AsyncStorage.removeItem(AUTH_KEY);
+      setSession(null);
     } catch (e) {
+      console.log('Logout error:', e);
     }
   }, []);
 
+  /** Refresh profile from DB (call after role changes, etc.) */
+  const refreshProfile = useCallback(async () => {
+    if (session?.user) {
+      const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+      if (profile) setUser(profile);
+    }
+  }, [session, fetchProfile]);
+
   return {
     user,
+    session,
     isLoading,
     isInitialized,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user && !!session,
     isAdmin: user?.role === 'admin',
     login,
+    signUp,
     logout,
+    refreshProfile,
   };
 });
