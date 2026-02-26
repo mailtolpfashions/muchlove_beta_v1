@@ -2,8 +2,6 @@
 
 ## Project Overview
 
-token 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
-
 This is a __React Native Expo__ application for a beauty salon billing and management system, built with TypeScript and using Supabase as the backend.
 
 ## Key Technologies
