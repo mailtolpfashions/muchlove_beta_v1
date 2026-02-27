@@ -14,14 +14,15 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.much-love-billing-app"
+      "bundleIdentifier": "app.muchlove.billing"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#E91E63"
       },
-      "package": "app.rork.much_love_billing_app"
+      "package": "app.muchlove.billing",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -30,7 +31,13 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E91E63"
+        }
+      ]
     ],
     "extra": {
       "eas": {

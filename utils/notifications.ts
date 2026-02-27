@@ -4,9 +4,15 @@ import Constants from 'expo-constants';
 import { supabase } from '@/lib/supabase';
 import { generateId } from '@/utils/hash';
 
-// expo-notifications remote features are unavailable in Expo Go (SDK 53+).
-// Detect Expo Go so we can silently skip notification calls.
-const isExpoGo = Constants.appOwnership === 'expo';
+// Detect Expo Go — push notifications are not available there.
+// Check both appOwnership AND executionEnvironment for reliability.
+const isExpoGo =
+  Constants.appOwnership === 'expo' ||
+  (Constants as any).executionEnvironment === 'storeClient';
+
+console.log('[Push] appOwnership:', Constants.appOwnership,
+  '| executionEnvironment:', (Constants as any).executionEnvironment,
+  '| isExpoGo:', isExpoGo);
 
 // Configure how notifications appear when app is in foreground
 try {
@@ -31,15 +37,19 @@ export async function registerForNotifications(): Promise<boolean> {
     return false;
   }
   try {
+    console.log('[Push] Requesting notification permissions…');
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
+    console.log('[Push] Existing permission status:', existingStatus);
 
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
+      console.log('[Push] Requested permission, new status:', status);
     }
 
     if (finalStatus !== 'granted') {
+      console.warn('[Push] Permission not granted:', finalStatus);
       return false;
     }
 
@@ -50,11 +60,12 @@ export async function registerForNotifications(): Promise<boolean> {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#E91E63',
       });
+      console.log('[Push] Android notification channel created');
     }
 
     return true;
   } catch (error) {
-    console.error('Failed to register for notifications:', error);
+    console.error('[Push] Failed to register for notifications:', error);
     return false;
   }
 }
