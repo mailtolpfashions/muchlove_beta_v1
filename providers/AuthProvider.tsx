@@ -74,41 +74,65 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // Run seeding in background — don't block auth init
         initializeDatabase().catch(() => {});
 
-        // Check for existing Supabase Auth session (with shorter timeout)
-        const { data: { session: existingSession }, error: sessionError } = await withTimeout(
-          supabase.auth.getSession(),
-          5000,
-          'Session retrieval',
-        );
+        // Check for existing Supabase Auth session.
+        // Use a generous timeout — AsyncStorage can be slow on some devices,
+        // especially after caching a lot of offline data.
+        let existingSession: Session | null = null;
+        let sessionError: any = null;
+
+        try {
+          const result = await withTimeout(
+            supabase.auth.getSession(),
+            15000,
+            'Session retrieval',
+          );
+          existingSession = result.data?.session ?? null;
+          sessionError = result.error;
+        } catch (timeoutErr: any) {
+          // Timeout: don't sign out — just proceed without session.
+          // The user can still log in manually. This avoids clearing
+          // a valid session just because AsyncStorage was slow.
+          console.log('Session retrieval slow, proceeding without session:', timeoutErr?.message);
+          return;
+        }
 
         if (cancelled) return;
 
         // If the stored refresh token is invalid/expired, sign out and clear stale session
         if (sessionError) {
           console.log('Session retrieval error (clearing stale session):', sessionError.message);
-          await supabase.auth.signOut();
+          try { await supabase.auth.signOut(); } catch (_) {}
           return;
         }
 
         if (existingSession?.user) {
-          const profile = await withTimeout(
-            fetchProfile(existingSession.user.id, existingSession.user.email ?? ''),
-            4000,
-            'Profile fetch',
-          );
+          let profile: User | null = null;
+          try {
+            profile = await withTimeout(
+              fetchProfile(existingSession.user.id, existingSession.user.email ?? ''),
+              8000,
+              'Profile fetch',
+            );
+          } catch (profileErr: any) {
+            // Profile fetch failed/timed out — still set session so user isn't locked out.
+            // They'll see data when connectivity improves.
+            console.log('Profile fetch slow, setting session without profile:', profileErr?.message);
+            setSession(existingSession);
+            return;
+          }
           if (cancelled) return;
           if (profile && profile.approved) {
             setSession(existingSession);
             setUser(profile);
           } else {
             // Not approved – sign them out silently
-            await supabase.auth.signOut();
+            try { await supabase.auth.signOut(); } catch (_) {}
           }
         }
       } catch (e: any) {
         console.log('Auth init error:', e?.message || e);
-        // Clear any corrupted session so the user can login fresh
-        try { await supabase.auth.signOut(); } catch (_) {}
+        // Don't sign out on unexpected errors — just let user proceed to login
+        // This prevents clearing valid sessions due to transient issues
       } finally {
         if (!cancelled) {
           setIsLoading(false);

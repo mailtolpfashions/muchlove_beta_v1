@@ -44,6 +44,7 @@ import { randomUUID } from 'expo-crypto';
 import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type FilterTab = 'services' | 'products' | 'combos' | null;
 type ListItem = { type: 'service'; data: Service } | { type: 'combo'; data: Combo };
@@ -63,6 +64,7 @@ const getDaysUntilExpiry = (sub: CustomerSubscription): number => {
 };
 
 export default function BillingScreen() {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError } = useData();
   const { upiList } = usePayment();
@@ -863,12 +865,12 @@ export default function BillingScreen() {
                     <Text style={styles.emptySubtitle}>Try a different search or category</Text>
                   </View>
                 }
-                contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
+                contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 + insets.bottom }}
               />
 
               {/* Modal sticky footer showing cart count */}
               {totalItems > 0 && (
-                <View style={styles.serviceModalFooter}>
+                <View style={[styles.serviceModalFooter, { paddingBottom: Spacing.md + insets.bottom }]}>
                   <View style={styles.footerInfo}>
                     <View style={styles.footerBadge}>
                       <ShoppingBag size={14} color={Colors.surface} />

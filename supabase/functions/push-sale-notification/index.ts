@@ -87,26 +87,38 @@ Deno.serve(async (req) => {
       chunks.push(messages.slice(i, i + 100))
     }
 
+    const expoAccessToken = Deno.env.get('EXPO_ACCESS_TOKEN') ?? ''
+
     let totalSent = 0
+    const allTickets: any[] = []
     for (const chunk of chunks) {
+      const headers: Record<string, string> = {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      }
+      if (expoAccessToken) {
+        headers['Authorization'] = `Bearer ${expoAccessToken}`
+      }
+
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(chunk),
       })
 
-      if (response.ok) {
+      const responseBody = await response.json()
+      console.log('Expo push response:', JSON.stringify(responseBody))
+
+      if (response.ok && responseBody.data) {
+        allTickets.push(...responseBody.data)
         totalSent += chunk.length
       } else {
-        console.error('Expo push error:', await response.text())
+        console.error('Expo push error:', JSON.stringify(responseBody))
       }
     }
 
-    return new Response(JSON.stringify({ sent: totalSent }), {
+    return new Response(JSON.stringify({ sent: totalSent, tickets: allTickets, tokens: tokens.map((t: {token: string}) => t.token) }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
