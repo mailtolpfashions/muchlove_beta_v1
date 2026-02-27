@@ -73,11 +73,12 @@ A full-featured, offline-first CRM and billing application for beauty salons bui
 | Slug | offline-crm-billing-app |
 | Deep Link Scheme | much-love-billing-app |
 | Orientation | portrait (locked) |
-| iOS Bundle ID | com.mugu.offlinecrmbillingapp |
-| Android Package | com.mugu.offlinecrmbillingapp |
+| iOS Bundle ID | app.muchlove.billing |
+| Android Package | app.muchlove.billing |
 | Entry Point | expo-router/entry |
 | EAS Project ID | 627cb85d-ae16-4fc0-ad2d-b1aefd8aad80 |
-| Plugins | expo-router, expo-font (Billabong), expo-web-browser |
+| Google Services File | `./google-services.json` (Firebase/FCM) |
+| Plugins | expo-router, expo-font (Billabong), expo-web-browser, expo-notifications (icon + color), expo-dev-client |
 
 ### eas.json (Build Profiles)
 
@@ -566,10 +567,12 @@ QueryClientProvider
 
 **Init Sequence**:
 1. Seeds database in background (non-blocking)
-2. Checks existing session with **5s timeout**
-3. Fetches profile with **4s timeout**
+2. Checks existing session with **15s timeout** (does NOT sign out on timeout — preserves valid session for slow networks)
+3. Fetches profile with **8s timeout** (separate try/catch — profile failure doesn't break session)
 4. Clears stale sessions
 5. `onAuthStateChange` — handles `TOKEN_REFRESHED` (signs out if no session), **skips `SIGNED_IN`** (login handles it directly to avoid double fetchProfile)
+
+> **Session Resilience**: On timeout, the app stays on the login screen without invalidating the session. This prevents unnecessary logouts on slow/flaky connections (same pattern used by Instagram, Facebook). The next app open will retry session retrieval.
 
 ### DataProvider (`providers/DataProvider.tsx`)
 
@@ -1242,6 +1245,26 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 See `docs/PUSH_NOTIFICATIONS_SETUP.md` for detailed push notification setup instructions.
 
+### Firebase / FCM Setup (for Push Notifications)
+
+1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
+2. Add an Android app with package name `app.muchlove.billing`
+3. Download `google-services.json` and place it in project root
+4. In Firebase Console → Project Settings → Service Accounts → Generate new private key (JSON)
+5. Upload FCM V1 Service Account Key to Expo:
+   ```bash
+   eas credentials -p android
+   # Select "Push Notifications: Manage your FCM V1 service account key"
+   # Upload the JSON key downloaded in step 4
+   ```
+   **Important**: Ensure the key is linked to the correct application identifier (`app.muchlove.billing`) on the Expo dashboard under Credentials.
+6. Create an Expo Access Token at [expo.dev/accounts/.../access-tokens](https://expo.dev/accounts) (Personal Access Token, never expires)
+7. Set the token as a Supabase secret:
+   ```bash
+   npx supabase secrets set EXPO_ACCESS_TOKEN=your-expo-access-token
+   ```
+8. The Edge Function (`push-sale-notification`) uses this token in the `Authorization: Bearer` header when calling the Expo Push API
+
 ### Supabase Client Configuration (`lib/supabase.ts`)
 - Auth persistence via AsyncStorage
 - `autoRefreshToken: true`
@@ -1274,6 +1297,11 @@ Generates `icon.png`, `adaptive-icon.png`, `favicon.png`, `splash-icon.png` in `
 - ✅ Standardized PDF file naming (invoices + sales reports)
 - ✅ Employee role restrictions
 - ✅ Enhanced offline support (offline CRUD for all entities, conflict resolution, 7-day cache, per-entity indicators)
+- ✅ Firebase FCM V1 integration (replaced legacy FCM key)
+- ✅ Expo Access Token for authenticated push delivery
+- ✅ Session timeout resilience (15s timeout, no sign-out on timeout)
+- ✅ Safe area insets fix for billing modal (navigation bar overlap)
+- ✅ Performance optimization (25 files — memoization, virtualization, reduced re-renders)
 
 ### Planned
 - 🔮 OTP validation via WhatsApp
