@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "366821432557",
+    "project_id": "much-love-b5344",
+    "storage_bucket": "much-love-b5344.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:366821432557:android:3c4a7178eaf8fd38fb40e4",
+        "android_client_info": {
+          "package_name": "app.muchlove.billing"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBr0hGpCWVulN6ixzccSUxq1rnGnD4GWNM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
