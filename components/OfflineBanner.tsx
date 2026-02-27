@@ -17,7 +17,7 @@ function pendingLabel(saleCount: number, mutCount: number): string {
   return parts.join(' · ') || '';
 }
 
-export default function OfflineBanner() {
+function OfflineBanner() {
   const {
     isOffline,
     pendingCount,
@@ -95,6 +95,8 @@ export default function OfflineBanner() {
 
   return null;
 }
+
+export default React.memo(OfflineBanner);
 
 const styles = StyleSheet.create({
   banner: {

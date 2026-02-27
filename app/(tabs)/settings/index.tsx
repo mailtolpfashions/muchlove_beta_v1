@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -51,7 +51,7 @@ export default function SettingsScreen() {
     setRefreshing(false);
   }, [reload]);
 
-  const adminMenuItems = [
+  const adminMenuItems = useMemo(() => [
     {
       title: 'Inventory',
       subtitle: `${services.length} items configured`,
@@ -76,11 +76,11 @@ export default function SettingsScreen() {
       bg: '#E0F2FE',
       route: '/settings/customers' as const,
     },
-  ];
+  ], [services.length, users.length, customers.length]);
 
   const menuItems = isAdmin ? adminMenuItems : [];
 
-  const subscriptionMenuItems = isAdmin ? [
+  const subscriptionMenuItems = useMemo(() => isAdmin ? [
     {
       title: 'Subscription Plans',
       subtitle: `${subscriptions.length} plans available`,
@@ -97,9 +97,9 @@ export default function SettingsScreen() {
       bg: '#FEF3C7',
       route: '/settings/customer-subscriptions' as const,
     },
-  ] : [];
+  ] : [], [isAdmin, subscriptions.length, subscribedCount]);
 
-  const offersMenuItems = isAdmin ? [
+  const offersMenuItems = useMemo(() => isAdmin ? [
     {
       title: 'Offers',
       subtitle: `${offers.length} visit & promo offers`,
@@ -116,7 +116,7 @@ export default function SettingsScreen() {
       bg: '#EDE9FE',
       route: '/settings/combos' as const,
     },
-  ] : [];
+  ] : [], [isAdmin, offers.length, combos.length]);
 
   const paymentsMenuItems = [
     {
@@ -138,7 +138,7 @@ export default function SettingsScreen() {
     );
   };
 
-  const renderSection = (label: string, items: typeof menuItems) => {
+  const renderSection = useCallback((label: string, items: typeof menuItems) => {
     if (items.length === 0) return null;
     return (
       <>
@@ -169,7 +169,7 @@ export default function SettingsScreen() {
         </View>
       </>
     );
-  };
+  }, [router]);
 
   return (
     <ScrollView

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,7 @@ interface CustomerPickerProps {
   addOnly?: boolean;
 }
 
-export default function CustomerPicker({
+function CustomerPicker({
   visible,
   customers,
   selectedCustomer,
@@ -226,6 +226,8 @@ export default function CustomerPicker({
     </Modal>
   );
 }
+
+export default React.memo(CustomerPicker);
 
 const styles = StyleSheet.create({
   modalOverlay: {

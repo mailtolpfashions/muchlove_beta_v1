@@ -105,6 +105,10 @@ export default function PaymentsScreen() {
         data={upiList}
         keyExtractor={item => item.id}
         renderItem={renderItem}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }

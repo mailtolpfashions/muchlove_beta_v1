@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,16 @@ const SERVICE = 'service';
 const PRODUCT = 'product';
 const OTHER = 'other';
 
+const saleKeyExtractor = (item: Sale) => item.id;
+
+const salesEmptyComponent = (
+  <View style={{ alignItems: 'center', paddingVertical: 48 }}>
+    <BarChart3 size={48} color={Colors.textTertiary} />
+    <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text, marginTop: 12 }}>No sales yet</Text>
+    <Text style={{ fontSize: 13, color: Colors.textSecondary, marginTop: 4 }}>Completed sales will appear here</Text>
+  </View>
+);
+
 export default function SalesScreen() {
   const { user, isAdmin } = useAuth();
   const { sales, reload, dataLoading, loadError } = useData();
@@ -77,15 +87,16 @@ export default function SalesScreen() {
 
   const visibleSales = useMemo(() => {
     if (!user || !sales) return [];
-    return isAdmin ? sales : sales.filter((s: Sale) => s.employeeId === user.id);
+    let list = isAdmin ? sales : sales.filter((s: Sale) => s.employeeId === user.id);
+
+    // Sort by date descending
+    list = [...list].sort((a: Sale, b: Sale) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return list;
   }, [sales, user, isAdmin]);
 
-  const sortedSales = useMemo(() => {
-    return [...visibleSales].sort((a: Sale, b: Sale) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [visibleSales]);
-
   const filteredSales = useMemo(() => {
-    let filtered = sortedSales;
+    let filtered = visibleSales;
 
     if (dateFilter === TODAY) filtered = filtered.filter(s => isToday(s.createdAt));
     else if (dateFilter === YESTERDAY) filtered = filtered.filter(s => isYesterday(s.createdAt));
@@ -115,7 +126,7 @@ export default function SalesScreen() {
       );
     }
     return filtered;
-  }, [sortedSales, search, dateFilter, paymentFilter, typeFilter, pickedDate, pickedEndDate]);
+  }, [visibleSales, search, dateFilter, paymentFilter, typeFilter, pickedDate, pickedEndDate]);
 
   const openFilterModal = () => {
     setTempDateFilter(dateFilter);
@@ -137,21 +148,21 @@ export default function SalesScreen() {
 
   const handleCancelFilters = () => setFilterModalVisible(false);
 
-  const handleDownload = async (sale: Sale) => {
+  const handleDownload = useCallback(async (sale: Sale) => {
     try {
       await openInvoice(sale);
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
 
-  const handleShare = async (sale: Sale) => {
+  const handleShare = useCallback(async (sale: Sale) => {
     try {
       await shareInvoice(sale);
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
 
   const handleDownloadReport = async () => {
     if (filteredSales.length === 0) {
@@ -176,7 +187,7 @@ export default function SalesScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: Sale }) => {
+  const renderItem = useCallback(({ item }: { item: Sale }) => {
     const isCash = item.paymentMethod === 'cash';
     return (
       <View style={styles.card}>
@@ -223,14 +234,20 @@ export default function SalesScreen() {
         </View>
       </View>
     );
-  };
+  }, [handleDownload, handleShare]);
 
-  const dateFilters = isAdmin
+  const filteredTotal = useMemo(() =>
+    filteredSales.reduce((sum: number, s: Sale) => sum + s.total, 0),
+    [filteredSales]
+  );
+
+  const dateFilters = useMemo(() => isAdmin
     ? [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }, { label: 'Last Week', value: LAST_WEEK }, { label: 'This Month', value: THIS_MONTH }, { label: 'Pick Date', value: PICK_DATE }]
-    : [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }];
+    : [{ label: 'All', value: ALL }, { label: 'Today', value: TODAY }, { label: 'Yesterday', value: YESTERDAY }],
+  [isAdmin]);
 
-  const paymentFilters = [{ label: 'All', value: ALL }, { label: 'Cash', value: CASH }, { label: 'Online/UPI', value: ONLINE }];
-  const typeFilters = [{ label: 'All', value: ALL }, { label: 'Service', value: SERVICE }, { label: 'Product', value: PRODUCT }, { label: 'Others', value: OTHER }];
+  const paymentFilters = useMemo(() => [{ label: 'All', value: ALL }, { label: 'Cash', value: CASH }, { label: 'Online/UPI', value: ONLINE }], []);
+  const typeFilters = useMemo(() => [{ label: 'All', value: ALL }, { label: 'Service', value: SERVICE }, { label: 'Product', value: PRODUCT }, { label: 'Others', value: OTHER }], []);
 
   return (
     <View style={styles.container}>
@@ -294,7 +311,7 @@ export default function SalesScreen() {
       <View style={styles.resultsRow}>
         <Text style={styles.resultsCount}>{filteredSales.length} sale{filteredSales.length !== 1 ? 's' : ''}</Text>
         <View style={styles.resultsRight}>
-          <Text style={styles.resultsTotal}>{formatCurrency(filteredSales.reduce((s, sale) => s + sale.total, 0))}</Text>
+          <Text style={styles.resultsTotal}>{formatCurrency(filteredTotal)}</Text>
           {isAdmin && filteredSales.length > 0 && (
             <TouchableOpacity
               style={[styles.reportDownloadBtn, downloading && styles.reportDownloadBtnDisabled]}
@@ -451,9 +468,13 @@ export default function SalesScreen() {
       )}
       <FlatList
         data={filteredSales}
-        keyExtractor={item => item.id}
+        keyExtractor={saleKeyExtractor}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={refreshing || (dataLoading && !sales.length)}
@@ -461,13 +482,7 @@ export default function SalesScreen() {
             tintColor={Colors.primary}
           />
         }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <BarChart3 size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No sales yet</Text>
-            <Text style={styles.emptySubtitle}>Completed sales will appear here</Text>
-          </View>
-        }
+        ListEmptyComponent={salesEmptyComponent}
       />
     </View>
   );

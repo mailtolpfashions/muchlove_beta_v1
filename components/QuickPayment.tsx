@@ -30,7 +30,7 @@ interface QuickPaymentProps {
   onClose: () => void;
 }
 
-export default function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProps) {
+function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProps) {
   const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
@@ -165,7 +165,7 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
               </View>
 
               <View style={styles.quickAmounts}>
-                {[100, 200, 500, 1000].map((val) => (
+                {[50, 100, 200, 500, 1000].map((val) => (
                   <TouchableOpacity
                     key={val}
                     style={styles.quickAmountChip}
@@ -313,6 +313,8 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
     </Modal>
   );
 }
+
+export default React.memo(QuickPayment);
 
 const styles = StyleSheet.create({
   overlay: {

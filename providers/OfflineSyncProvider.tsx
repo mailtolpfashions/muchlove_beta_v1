@@ -392,16 +392,16 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
     prevConnected.current = netInfo.isConnected;
   }, [netInfo.isConnected, syncNow]);
 
-  // ── Auto-sync on app foreground ───────────────────────────────────────────
+  // ── Auto-sync on app foreground (only when there are pending items) ──────
   useEffect(() => {
     const handler = (state: AppStateStatus) => {
-      if (state === 'active' && !isOffline) {
+      if (state === 'active' && !isOffline && (pendingCount + pendingMutationCount) > 0) {
         syncNow();
       }
     };
     const sub = AppState.addEventListener('change', handler);
     return () => sub.remove();
-  }, [isOffline, syncNow]);
+  }, [isOffline, syncNow, pendingCount, pendingMutationCount]);
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -26,7 +26,7 @@ interface SubscriptionPickerProps {
   maxSelection?: number;
 }
 
-export default function SubscriptionPicker({
+function SubscriptionPicker({
   visible,
   subscriptions,
   onClose,
@@ -135,6 +135,8 @@ export default function SubscriptionPicker({
     </Modal>
   );
 }
+
+export default React.memo(SubscriptionPicker);
 
 const styles = StyleSheet.create({
   overlay: {

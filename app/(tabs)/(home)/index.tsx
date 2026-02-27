@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -44,6 +44,32 @@ export default function DashboardScreen() {
 
   const SCREEN_WIDTH = Dimensions.get('window').width;
 
+  const chartConfig = useMemo(() => ({
+    backgroundColor: Colors.surface,
+    backgroundGradientFrom: Colors.surface,
+    backgroundGradientTo: Colors.surface,
+    decimalPlaces: 0,
+    color: (opacity = 1) => `rgba(233, 30, 99, ${opacity})`,
+    labelColor: () => Colors.textTertiary,
+    barPercentage: 0.5,
+    propsForBackgroundLines: {
+      strokeDasharray: '',
+      stroke: Colors.borderLight,
+    },
+    style: {
+      borderRadius: 12,
+    },
+  }), []);
+
+  const dateText = useMemo(() =>
+    new Date().toLocaleDateString('en-IN', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
+  []);
+
   const last7DaysChart = useMemo(() => {
     if (!isAdmin || !sales.length) return null;
 
@@ -87,11 +113,11 @@ export default function DashboardScreen() {
     };
   }, [sales, user, isAdmin]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await reload();
     setRefreshing(false);
-  };
+  }, [reload]);
 
   const displayStats = isAdmin ? stats : employeeStats;
   const cards = useMemo(() => {
@@ -171,12 +197,7 @@ export default function DashboardScreen() {
       <View style={styles.dateRow}>
         <CalendarDays size={13} color={Colors.textTertiary} />
         <Text style={styles.dateText}>
-          {new Date().toLocaleDateString('en-IN', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })}
+          {dateText}
         </Text>
       </View>
 
@@ -219,22 +240,7 @@ export default function DashboardScreen() {
             withInnerLines={false}
             fromZero
             showBarTops={false}
-            chartConfig={{
-              backgroundColor: Colors.surface,
-              backgroundGradientFrom: Colors.surface,
-              backgroundGradientTo: Colors.surface,
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(233, 30, 99, ${opacity})`,
-              labelColor: () => Colors.textTertiary,
-              barPercentage: 0.5,
-              propsForBackgroundLines: {
-                strokeDasharray: '',
-                stroke: Colors.borderLight,
-              },
-              style: {
-                borderRadius: 12,
-              },
-            }}
+            chartConfig={chartConfig}
             style={styles.chart}
           />
         </View>

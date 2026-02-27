@@ -30,7 +30,7 @@ export const visitSortOptions: SortPillOption[] = [
   { key: 'visits-low', label: 'Visits ↑', Icon: TrendingUp },
 ];
 
-export default function SortPills({ value, onChange, options }: SortPillsProps) {
+function SortPills({ value, onChange, options }: SortPillsProps) {
   const pills = options ?? defaultOptions;
   return (
     <View style={styles.row}>
@@ -51,6 +51,8 @@ export default function SortPills({ value, onChange, options }: SortPillsProps) 
     </View>
   );
 }
+
+export default React.memo(SortPills);
 
 const styles = StyleSheet.create({
   row: {

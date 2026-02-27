@@ -14,7 +14,7 @@ interface SaleCompleteProps {
     onClose: () => void;
 }
 
-export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
+function SaleComplete({ sale, onClose }: SaleCompleteProps) {
     const { showAlert } = useAlert();
     const insets = useSafeAreaInsets();
     if (!sale) return null;
@@ -143,6 +143,8 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
         </Modal>
     );
 }
+
+export default React.memo(SaleComplete);
 
 const styles = StyleSheet.create({
     overlay: {

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, QueryKey } from '@tanstack/react-query';
 import { useNetInfo } from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /** Maximum offline cache age — 7 days in milliseconds */
 const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -37,6 +37,9 @@ export function useOfflineQuery<T>(
   const cacheLoaded = useRef(false);
   const [cacheAge, setCacheAge] = useState<string | null>(null);
 
+  // Stable string representation of the query key to avoid array-reference deps
+  const keyStr = useMemo(() => JSON.stringify(queryKey), [queryKey]);
+
   // ── 1. Hydrate query cache from AsyncStorage on first mount ──────────────
   //    This ensures the UI shows data instantly instead of blank + spinner.
   //    Uses cache-age metadata to skip expired entries (>7 days).
@@ -44,11 +47,12 @@ export function useOfflineQuery<T>(
     if (cacheLoaded.current) return;
     cacheLoaded.current = true;
 
+    const key: QueryKey = JSON.parse(keyStr);
     (async () => {
       try {
         const [json, meta] = await Promise.all([
-          AsyncStorage.getItem(cacheKey(queryKey)),
-          AsyncStorage.getItem(metaKey(queryKey)),
+          AsyncStorage.getItem(cacheKey(key)),
+          AsyncStorage.getItem(metaKey(key)),
         ]);
 
         if (json != null) {
@@ -57,7 +61,7 @@ export function useOfflineQuery<T>(
             const { cachedAt } = JSON.parse(meta);
             if (Date.now() - cachedAt > MAX_CACHE_AGE_MS) {
               // Cache expired — remove stale data
-              await AsyncStorage.multiRemove([cacheKey(queryKey), metaKey(queryKey)]);
+              await AsyncStorage.multiRemove([cacheKey(key), metaKey(key)]);
               return;
             }
             setCacheAge(formatCacheAge(cachedAt));
@@ -65,9 +69,9 @@ export function useOfflineQuery<T>(
 
           const cached = JSON.parse(json);
           // Only set if the query hasn't already fetched fresh data
-          const current = queryClient.getQueryData(queryKey);
+          const current = queryClient.getQueryData(key);
           if (current === undefined) {
-            queryClient.setQueryData(queryKey, cached);
+            queryClient.setQueryData(key, cached);
           }
         }
       } catch {
@@ -91,23 +95,25 @@ export function useOfflineQuery<T>(
   // ── 3. Persist fresh data to AsyncStorage with metadata ───────────────────
   useEffect(() => {
     if (queryResult.data != null && isOnline) {
+      const key: QueryKey = JSON.parse(keyStr);
       const now = Date.now();
       Promise.all([
-        AsyncStorage.setItem(cacheKey(queryKey), JSON.stringify(queryResult.data)),
-        AsyncStorage.setItem(metaKey(queryKey), JSON.stringify({ cachedAt: now })),
+        AsyncStorage.setItem(cacheKey(key), JSON.stringify(queryResult.data)),
+        AsyncStorage.setItem(metaKey(key), JSON.stringify({ cachedAt: now })),
       ]).catch(() => {});
       setCacheAge(null); // fresh data, no age to show
     }
-  }, [queryResult.data, isOnline, queryKey]);
+  }, [queryResult.data, isOnline, keyStr]);
 
   // ── 4. When going explicitly offline, hydrate from cache if data is empty ─
   useEffect(() => {
     if (netInfo.isConnected === false) {
+      const key: QueryKey = JSON.parse(keyStr);
       (async () => {
         try {
           const [json, meta] = await Promise.all([
-            AsyncStorage.getItem(cacheKey(queryKey)),
-            AsyncStorage.getItem(metaKey(queryKey)),
+            AsyncStorage.getItem(cacheKey(key)),
+            AsyncStorage.getItem(metaKey(key)),
           ]);
           if (json != null) {
             // Check cache age
@@ -116,14 +122,14 @@ export function useOfflineQuery<T>(
               if (Date.now() - cachedAt > MAX_CACHE_AGE_MS) return;
               setCacheAge(formatCacheAge(cachedAt));
             }
-            queryClient.setQueryData(queryKey, JSON.parse(json));
+            queryClient.setQueryData(key, JSON.parse(json));
           }
         } catch {
           // ignore
         }
       })();
     }
-  }, [netInfo.isConnected, queryKey, queryClient]);
+  }, [netInfo.isConnected, keyStr, queryClient]);
 
   const error = useMemo(() => {
     if (netInfo.isConnected === false) {

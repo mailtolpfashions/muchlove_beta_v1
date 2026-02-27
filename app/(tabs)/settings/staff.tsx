@@ -152,6 +152,10 @@ export default function StaffScreen() {
         data={filteredStaff}
         keyExtractor={item => item.id}
         renderItem={renderStaffItem}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }

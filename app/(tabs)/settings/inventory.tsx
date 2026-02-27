@@ -232,6 +232,10 @@ export default function InventoryScreen() {
         data={filteredItems}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }

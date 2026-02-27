@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
 } from 'react-native';
@@ -29,7 +29,7 @@ interface BillSummaryProps {
 
 const modalWidth = Dimensions.get('window').width * 0.8;
 
-export default function BillSummary({
+function BillSummary({
   items,
   subs,
   addedCombos = [],
@@ -404,6 +404,8 @@ export default function BillSummary({
     </View>
   );
 }
+
+export default React.memo(BillSummary);
 
 const styles = StyleSheet.create({
   container: {

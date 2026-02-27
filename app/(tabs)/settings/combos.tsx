@@ -229,6 +229,10 @@ export default function CombosScreen() {
         data={filteredCombos}
         keyExtractor={item => item.id}
         renderItem={renderComboCard}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={

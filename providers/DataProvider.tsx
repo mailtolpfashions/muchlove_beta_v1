@@ -231,7 +231,7 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const { mutateAsync: _addSale } = supabaseDb.sales.useAdd();
 
-  const addSale = async (sale: any) => {
+  const addSale = useCallback(async (sale: any) => {
     try {
       const result = await _addSale(sale);
       return result;
@@ -248,7 +248,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       }
       throw error;
     }
-  };
+  }, [_addSale]);
 
   // ── Services (offline-aware) ────────────────────────────────────────────
 
@@ -647,7 +647,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading;
   const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError;
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     await Promise.all([
       refetchCustomers(),
       refetchServices(),
@@ -658,7 +658,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       refetchOffers(),
       refetchCombos(),
     ]);
-  };
+  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos]);
 
   return {
     customers,

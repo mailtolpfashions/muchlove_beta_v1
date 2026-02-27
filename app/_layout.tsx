@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
@@ -21,7 +21,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,        // 5 min — avoid redundant refetches
+      staleTime: 10 * 60 * 1000,        // 10 min — realtime sync keeps data fresh
       gcTime: 30 * 60 * 1000,           // 30 min — keep cache longer for offline
       retry: 2,                          // retry failed fetches twice
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
@@ -35,6 +35,7 @@ function RootLayoutNav() {
   const { isAuthenticated, isLoading, isInitialized, user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const segmentKey = segments.join('/');
   const [fontsLoaded] = useFonts({
     'Billabong': require('../assets/fonts/Billabong.ttf'),
   });
@@ -65,15 +66,17 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!isInitialized || !fontsLoaded) return;
 
-    const inTabsGroup = segments[0] === '(tabs)';
-    const onLoginPage = segments[0] === 'login';
+    const inTabsGroup = segmentKey.startsWith('(tabs)');
+    const onLoginPage = segmentKey.startsWith('login');
 
     if (isAuthenticated && !inTabsGroup) {
       router.replace('/(tabs)/');
     } else if (!isAuthenticated && !onLoginPage) {
       router.replace('/login');
     }
-  }, [isAuthenticated, isInitialized, segments, fontsLoaded]);
+  }, [isAuthenticated, isInitialized, segmentKey, fontsLoaded]);
+
+  const renderHeaderRight = useCallback(() => <HeaderRight />, []);
 
   if (isLoading || !isInitialized || !fontsLoaded) {
     return (
@@ -99,7 +102,7 @@ function RootLayoutNav() {
           fontSize: 18,
           letterSpacing: 0.3,
         },
-        headerRight: () => <HeaderRight />,
+        headerRight: renderHeaderRight,
       }}
     >
       <Stack.Screen name="login" options={{ headerShown: false, gestureEnabled: false }} />
@@ -119,7 +122,7 @@ export default function RootLayout() {
             <PaymentProvider>
               <AlertProvider>
                 <SafeAreaProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
+                  <GestureHandlerRootView style={styles.flex}>
                     <RootLayoutNav />
                   </GestureHandlerRootView>
                 </SafeAreaProvider>
@@ -133,6 +136,9 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

@@ -852,6 +852,10 @@ export default function BillingScreen() {
                 data={filteredList}
                 keyExtractor={(item) => `${item.type}-${item.data.id}`}
                 renderItem={renderListItem}
+                initialNumToRender={15}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews
                 ListEmptyComponent={
                   <View style={styles.emptyState}>
                     <Search size={40} color={Colors.textTertiary} />
