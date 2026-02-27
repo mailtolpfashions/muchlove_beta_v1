@@ -790,7 +790,7 @@ export default function BillingScreen() {
           <View style={styles.serviceModalContent}>
             <KeyboardAvoidingView
               style={{ flex: 1 }}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              behavior="padding"
             >
               {/* Modal header — same as CustomerPicker */}
               <View style={styles.serviceModalHeader}>

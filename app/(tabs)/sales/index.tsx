@@ -24,6 +24,7 @@ import {
   isYesterday,
   isLastWeek,
   isSameDay,
+  isInDateRange,
   capitalizeWords,
 } from '@/utils/format';
 import { openInvoice, shareInvoice, shareSalesReport } from '@/utils/invoice';
@@ -62,8 +63,11 @@ export default function SalesScreen() {
   const [tempPaymentFilter, setTempPaymentFilter] = useState(paymentFilter);
   const [tempTypeFilter, setTempTypeFilter] = useState(typeFilter);
   const [pickedDate, setPickedDate] = useState<Date | null>(null);
+  const [pickedEndDate, setPickedEndDate] = useState<Date | null>(null);
   const [tempPickedDate, setTempPickedDate] = useState<Date | null>(null);
+  const [tempPickedEndDate, setTempPickedEndDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -87,6 +91,7 @@ export default function SalesScreen() {
     else if (dateFilter === YESTERDAY) filtered = filtered.filter(s => isYesterday(s.createdAt));
     else if (dateFilter === LAST_WEEK) filtered = filtered.filter(s => isLastWeek(s.createdAt));
     else if (dateFilter === THIS_MONTH) filtered = filtered.filter(s => isThisMonth(s.createdAt));
+    else if (dateFilter === PICK_DATE && pickedDate && pickedEndDate) filtered = filtered.filter(s => isInDateRange(s.createdAt, pickedDate, pickedEndDate));
     else if (dateFilter === PICK_DATE && pickedDate) filtered = filtered.filter(s => isSameDay(s.createdAt, pickedDate));
     else if (dateFilter === ALL && !isAdmin) filtered = filtered.filter(s => isToday(s.createdAt) || isYesterday(s.createdAt));
     // Admin ALL filter requires no further reduction
@@ -110,13 +115,14 @@ export default function SalesScreen() {
       );
     }
     return filtered;
-  }, [sortedSales, search, dateFilter, paymentFilter, typeFilter, pickedDate]);
+  }, [sortedSales, search, dateFilter, paymentFilter, typeFilter, pickedDate, pickedEndDate]);
 
   const openFilterModal = () => {
     setTempDateFilter(dateFilter);
     setTempPaymentFilter(paymentFilter);
     setTempTypeFilter(typeFilter);
     setTempPickedDate(pickedDate);
+    setTempPickedEndDate(pickedEndDate);
     setFilterModalVisible(true);
   };
 
@@ -125,6 +131,7 @@ export default function SalesScreen() {
     setPaymentFilter(tempPaymentFilter);
     setTypeFilter(tempTypeFilter);
     setPickedDate(tempPickedDate);
+    setPickedEndDate(tempPickedEndDate);
     setFilterModalVisible(false);
   };
 
@@ -154,7 +161,9 @@ export default function SalesScreen() {
     setDownloading(true);
     try {
       const dateLabel = dateFilter === PICK_DATE && pickedDate
-        ? formatDateDDMMYYYY(pickedDate)
+        ? (pickedEndDate
+            ? `${formatDateDDMMYYYY(pickedDate)} to ${formatDateDDMMYYYY(pickedEndDate)}`
+            : formatDateDDMMYYYY(pickedDate))
         : dateFilters.find(f => f.value === dateFilter)?.label || 'All';
       const paymentLabel = paymentFilters.find(f => f.value === paymentFilter)?.label || 'All';
       const typeLabel = typeFilters.find(f => f.value === typeFilter)?.label || 'All';
@@ -255,7 +264,9 @@ export default function SalesScreen() {
               <Calendar size={10} color={Colors.primary} />
               <Text style={styles.activeFilterText}>
                 {dateFilter === PICK_DATE && pickedDate
-                  ? formatDateDDMMYYYY(pickedDate)
+                  ? (pickedEndDate
+                      ? `${formatDateDDMMYYYY(pickedDate)} → ${formatDateDDMMYYYY(pickedEndDate)}`
+                      : formatDateDDMMYYYY(pickedDate))
                   : dateFilters.find(f => f.value === dateFilter)?.label}
               </Text>
             </View>
@@ -272,7 +283,7 @@ export default function SalesScreen() {
               <Text style={styles.activeFilterText}>{typeFilters.find(f => f.value === typeFilter)?.label}</Text>
             </View>
           )}
-          <TouchableOpacity onPress={() => { setDateFilter(TODAY); setPaymentFilter(ALL); setTypeFilter(ALL); setPickedDate(null); }} style={styles.clearFiltersBtn}>
+          <TouchableOpacity onPress={() => { setDateFilter(TODAY); setPaymentFilter(ALL); setTypeFilter(ALL); setPickedDate(null); setPickedEndDate(null); }} style={styles.clearFiltersBtn}>
             <X size={12} color={Colors.danger} />
             <Text style={styles.clearFiltersText}>Clear</Text>
           </TouchableOpacity>
@@ -327,17 +338,38 @@ export default function SalesScreen() {
                     } else {
                       setTempDateFilter(f.value);
                       setTempPickedDate(null);
+                      setTempPickedEndDate(null);
                     }
                   }}
                 >
                   <Text style={[styles.filterBtnText, tempDateFilter === f.value && styles.filterBtnTextActive]}>
                     {f.value === PICK_DATE && tempDateFilter === PICK_DATE && tempPickedDate
-                      ? formatDateDDMMYYYY(tempPickedDate)
+                      ? (tempPickedEndDate
+                          ? `${formatDateDDMMYYYY(tempPickedDate)} → ${formatDateDDMMYYYY(tempPickedEndDate)}`
+                          : formatDateDDMMYYYY(tempPickedDate))
                       : f.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* End Date button — only visible when a start date is picked */}
+            {tempDateFilter === PICK_DATE && tempPickedDate && (
+              <TouchableOpacity
+                style={[styles.filterBtn, styles.endDateBtn, tempPickedEndDate && styles.filterBtnActive]}
+                onPress={() => setShowEndDatePicker(true)}
+              >
+                <Calendar size={12} color={tempPickedEndDate ? Colors.surface : Colors.primary} />
+                <Text style={[styles.filterBtnText, tempPickedEndDate && styles.filterBtnTextActive]}>
+                  {tempPickedEndDate ? `To: ${formatDateDDMMYYYY(tempPickedEndDate)}` : 'Add End Date (optional)'}
+                </Text>
+                {tempPickedEndDate && (
+                  <TouchableOpacity onPress={() => setTempPickedEndDate(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <X size={12} color={Colors.surface} />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            )}
 
             <Text style={styles.filterSectionTitle}>Payment Method</Text>
             <View style={styles.filterGroup}>
@@ -379,16 +411,34 @@ export default function SalesScreen() {
 
       <DatePickerModal
         visible={showDatePicker}
-        title="Pick a Date"
+        title="Pick Start Date"
         value={tempPickedDate}
         maxDate={new Date()}
         onSelect={(d) => {
           if (d) {
             setTempPickedDate(d);
             setTempDateFilter(PICK_DATE);
+            // Reset end date if new start is after current end
+            if (tempPickedEndDate && d > tempPickedEndDate) {
+              setTempPickedEndDate(null);
+            }
           }
         }}
         onClose={() => setShowDatePicker(false)}
+      />
+
+      <DatePickerModal
+        visible={showEndDatePicker}
+        title="Pick End Date"
+        value={tempPickedEndDate}
+        minDate={tempPickedDate || undefined}
+        maxDate={new Date()}
+        onSelect={(d) => {
+          if (d) {
+            setTempPickedEndDate(d);
+          }
+        }}
+        onClose={() => setShowEndDatePicker(false)}
       />
 
       {loadError && (
@@ -804,6 +854,15 @@ const styles = StyleSheet.create({
   },
   filterBtnActive: {
     backgroundColor: Colors.primary,
+  },
+  endDateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: Spacing.sm,
+    borderColor: Colors.primaryLight,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
   },
   filterBtnText: {
     color: Colors.textSecondary,

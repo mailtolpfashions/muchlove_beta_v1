@@ -8,6 +8,8 @@ import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription, Combo } from '@/types';
 import { formatCurrency, capitalizeWords } from '@/utils/format';
+import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BillSummaryProps {
   items: Service[];
@@ -42,6 +44,8 @@ export default function BillSummary({
   onPlaceOrder,
   upiList,
 }: BillSummaryProps) {
+  const { showAlert } = useAlert();
+  const insets = useSafeAreaInsets();
   const [paymentStep, setPaymentStep] = useState<'closed' | 'method' | 'qr'>('closed');
   const [activeUpiIndex, setActiveUpiIndex] = useState(0);
   const [selectedMethod, setSelectedMethod] = useState<'cash' | 'upi'>('upi');
@@ -151,12 +155,9 @@ export default function BillSummary({
       onPlaceOrder(0, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent));
       return;
     }
-    if (upiList.length === 0) {
-      onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent));
-    } else {
-      setSelectedMethod('upi');
-      setPaymentStep('method');
-    }
+    // Always show payment method picker
+    setSelectedMethod(upiList.length > 0 ? 'upi' : 'cash');
+    setPaymentStep('method');
   };
 
   const handleCashPayment = () => {
@@ -173,6 +174,10 @@ export default function BillSummary({
     if (selectedMethod === 'cash') {
       handleCashPayment();
     } else {
+      if (upiList.length === 0) {
+        showAlert('No UPI Configured', 'Please add a UPI ID in Settings → Payments to accept online payments.');
+        return;
+      }
       handleShowUpiQr();
     }
   };
@@ -314,7 +319,7 @@ export default function BillSummary({
       {/* Payment Flow Modal (method → qr) */}
       <Modal animationType="slide" transparent visible={paymentStep !== 'closed'} onRequestClose={handlePaymentBack}>
         <View style={styles.paymentModalBackdrop}>
-          <View style={paymentStep === 'qr' ? styles.qrModalContent : styles.paymentModalContent}>
+          <View style={paymentStep === 'qr' ? [styles.qrModalContent, { paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md) }] : [styles.paymentModalContent, { paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md) }]}>
             {/* Header with back / close */}
             <View style={styles.paymentModalHeader}>
               <TouchableOpacity onPress={handlePaymentBack} style={styles.paymentCloseBtn}>

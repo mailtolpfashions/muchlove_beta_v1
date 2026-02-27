@@ -69,6 +69,14 @@ export function isSameDay(a: Date | string, b: Date | string): boolean {
   );
 }
 
+/** Check if a date falls within a range (inclusive of both start and end day) */
+export function isInDateRange(dateString: string, start: Date, end: Date): boolean {
+  const date = new Date(dateString);
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+  return date >= startDay && date <= endDay;
+}
+
 export function isToday(dateString: string): boolean {
   const date = new Date(dateString);
   const today = new Date();

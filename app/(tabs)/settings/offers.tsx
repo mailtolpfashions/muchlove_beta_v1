@@ -313,7 +313,7 @@ export default function OffersScreen() {
       <Modal visible={showAdd} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKav}>
-            <ScrollView style={styles.modalContent}>
+            <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Offer' : 'Add Offer'}</Text>
                 <TouchableOpacity onPress={() => setShowAdd(false)}>

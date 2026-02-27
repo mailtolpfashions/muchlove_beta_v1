@@ -8,11 +8,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Search, X, CheckCircle, Circle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { SubscriptionPlan } from '@/types';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords } from '@/utils/format';
 import { formatCurrency } from '@/utils/format';
 
@@ -31,6 +33,7 @@ export default function SubscriptionPicker({
   onAdd,
   maxSelection,
 }: SubscriptionPickerProps) {
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubs, setSelectedSubs] = useState<SubscriptionPlan[]>([]);
 
@@ -79,7 +82,8 @@ export default function SubscriptionPicker({
       onRequestClose={handleClose}
     >
       <View style={styles.overlay}>
-      <View style={styles.modalContainer}>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
+      <View style={[styles.modalContainer, { paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md) }]}>
         <View style={styles.header}>
           <Text style={styles.headerText}>Select Subscriptions</Text>
           <TouchableOpacity onPress={handleClose}>
@@ -126,6 +130,7 @@ export default function SubscriptionPicker({
           <Text style={styles.addButtonText}>Add ({selectedSubs.length})</Text>
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -142,7 +147,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,
     padding: Spacing.lg,
-    paddingBottom: Spacing.xl,
     maxHeight: '80%',
   },
   header: {

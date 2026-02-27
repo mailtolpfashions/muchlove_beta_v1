@@ -17,6 +17,7 @@ import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { UpiData } from '@/types';
 import { Sparkles, X, Wallet, Smartphone, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -31,6 +32,7 @@ interface QuickPaymentProps {
 
 export default function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProps) {
   const { showAlert } = useAlert();
+  const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,9 +126,9 @@ export default function QuickPayment({ visible, upiList, onPayment, onClose }: Q
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
       >
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingBottom: Math.max(40, insets.bottom + Spacing.lg) }]}>
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={handleBack} style={styles.closeBtn}>
@@ -322,7 +324,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,
-    paddingBottom: 40,
     paddingHorizontal: Spacing.lg,
     minHeight: '55%',
   },

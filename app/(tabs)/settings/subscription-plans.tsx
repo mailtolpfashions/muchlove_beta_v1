@@ -157,7 +157,7 @@ export default function SubscriptionPlansScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.modalKav}
           >
-            <ScrollView style={styles.modalContent}>
+            <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Plan' : 'Add Plan'}</Text>
                 <TouchableOpacity onPress={() => setshowPlanForm(false)}>

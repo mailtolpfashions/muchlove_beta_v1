@@ -8,6 +8,8 @@ import {
   FlatList,
   TextInput,
   Switch,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import { X, Search, User, PlusCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -17,6 +19,7 @@ import { useData } from '@/providers/DataProvider';
 import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface CustomerPickerProps {
   visible: boolean;
@@ -37,6 +40,7 @@ export default function CustomerPicker({
   showAddFormInitially = false,
   addOnly = false,
 }: CustomerPickerProps) {
+  const insets = useSafeAreaInsets();
   const { addCustomer } = useData();
   const { showAlert } = useAlert();
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,7 +117,8 @@ export default function CustomerPicker({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, showAddForm && styles.modalContentCompact]}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <View style={[styles.modalContent, showAddForm && styles.modalContentCompact, { paddingBottom: Math.max(Spacing.modal, insets.bottom + Spacing.md) }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{showAddForm || addOnly ? 'Add Customer' : 'Select Customer'}</Text>
             <TouchableOpacity onPress={onClose}>
@@ -122,7 +127,7 @@ export default function CustomerPicker({
           </View>
 
           {showAddForm ? (
-            <View>
+            <ScrollView keyboardShouldPersistTaps="handled">
               <View>
                 <Text style={styles.label}>Name *</Text>
                 <TextInput
@@ -164,7 +169,7 @@ export default function CustomerPicker({
                   <Text style={styles.linkButtonText}>Or Select an Existing Customer</Text>
                 </TouchableOpacity>
               )}
-            </View>
+            </ScrollView>
           ) : (
             <>
               <View style={styles.searchBar}>
@@ -216,6 +221,7 @@ export default function CustomerPicker({
             </>
           )}
         </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );

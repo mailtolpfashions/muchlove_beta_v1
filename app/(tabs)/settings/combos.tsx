@@ -243,7 +243,7 @@ export default function CombosScreen() {
       {/* Add / Edit Combo Modal */}
       <Modal visible={showAdd} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKav}>
+          <KeyboardAvoidingView behavior="padding" style={styles.modalKav}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Combo' : 'New Combo'}</Text>

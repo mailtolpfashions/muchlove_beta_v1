@@ -7,6 +7,7 @@ import { Sale } from '@/types';
 import { openInvoice } from '@/utils/invoice';
 import { useAlert } from '@/providers/AlertProvider';
 import { capitalizeWords } from '@/utils/format';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface SaleCompleteProps {
     sale: any;
@@ -15,6 +16,7 @@ interface SaleCompleteProps {
 
 export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
     const { showAlert } = useAlert();
+    const insets = useSafeAreaInsets();
     if (!sale) return null;
 
     const handleDownloadPdf = async () => {
@@ -58,7 +60,7 @@ export default function SaleComplete({ sale, onClose }: SaleCompleteProps) {
     return (
         <Modal visible={!!sale} animationType="slide" transparent={true} onRequestClose={onClose}>
             <View style={styles.overlay}>
-              <View style={styles.container}>
+              <View style={[styles.container, { paddingBottom: Math.max(Spacing.lg, insets.bottom + Spacing.sm) }]}>
                 <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                     <View style={styles.headerArea}>
                         <View style={styles.successIconContainer}>
@@ -282,7 +284,6 @@ const styles = StyleSheet.create({
     },
     footer: {
         padding: Spacing.lg,
-        paddingBottom: Platform.OS === 'ios' ? 34 : Spacing.lg,
         borderTopWidth: 1,
         borderTopColor: Colors.border,
     },

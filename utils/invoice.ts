@@ -8,6 +8,10 @@ import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/a
 const sanitizeFileName = (name: string): string =>
   name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
 
+/** Escape HTML special characters to prevent broken markup in PDF templates */
+const escapeHtml = (str: string): string =>
+  (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 export const buildInvoiceHtml = (sale: Sale): string => {
   const {
     id,
@@ -304,28 +308,39 @@ export const buildInvoiceHtml = (sale: Sale): string => {
 };
 
 export const openInvoice = async (sale: Sale) => {
-  const html = buildInvoiceHtml(sale);
-  try {
-    await Print.printAsync({ html });
-  } catch (error) {
-    console.error('Failed to open invoice:', error);
-    throw new Error('Could not open invoice.');
-  }
+  // Same as shareInvoice — generates a named PDF and opens share sheet
+  return shareInvoice(sale);
 };
 
 export const shareInvoice = async (sale: Sale) => {
   const html = buildInvoiceHtml(sale);
+
+  let uri: string;
   try {
-    const { uri } = await Print.printToFileAsync({ html });
-    const customerPart = sanitizeFileName(sale.customerName);
-    const invoicePart = sale.id.slice(0, 8).toUpperCase();
-    const fileName = `${customerPart}_${invoicePart}.pdf`;
-    const newUri = `${FileSystem.cacheDirectory}${fileName}`;
-    await FileSystem.moveAsync({ from: uri, to: newUri });
-    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    const result = await Print.printToFileAsync({ html });
+    uri = result.uri;
   } catch (error) {
-    console.error('Failed to share invoice:', error);
-    throw new Error('Could not share invoice.');
+    console.error('Failed to generate invoice PDF:', error);
+    throw new Error('Could not generate invoice PDF.');
+  }
+
+  const customerPart = sanitizeFileName(sale.customerName).slice(0, 10);
+  const invoicePart = sale.id.slice(0, 8).toUpperCase();
+  const fileName = `${customerPart}_${invoicePart}.pdf`;
+  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+  try {
+    await FileSystem.moveAsync({ from: uri, to: newUri });
+  } catch {
+    // If move fails, share from the original temp path
+    try { await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' }); } catch { /* cancelled */ }
+    return;
+  }
+
+  try {
+    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+  } catch {
+    // User cancelled share — not an error
   }
 };
 
@@ -353,21 +368,23 @@ export const buildSalesReportHtml = (sales: Sale[], filters: SalesReportFilters)
 
   const rowsHtml = sales.map((sale, idx) => {
     const isCash = sale.paymentMethod === 'cash';
+    const items = sale.items ?? [];
+    const subItems = sale.subscriptionItems ?? [];
     const itemNames = [
-      ...sale.items.map(i => i.itemName),
-      ...sale.subscriptionItems.map(si => `${si.planName} (sub)`),
+      ...items.map(i => escapeHtml(i.itemName)),
+      ...subItems.map(si => `${escapeHtml(si.planName)} (sub)`),
     ].join(', ');
 
     return `
       <tr${idx % 2 === 1 ? ' class="alt"' : ''}>
         <td class="num">${idx + 1}</td>
-        <td>${sale.customerName}</td>
-        <td class="items-col">${itemNames}</td>
+        <td>${escapeHtml(sale.customerName)}</td>
+        <td class="items-col">${itemNames || '–'}</td>
         <td class="right">${formatCurrency(sale.subtotal)}</td>
         <td class="right discount-col">${sale.discountAmount > 0 ? '- ' + formatCurrency(sale.discountAmount) : '–'}</td>
         <td class="right bold">${formatCurrency(sale.total)}</td>
         <td><span class="pay-badge ${isCash ? 'cash' : 'online'}">${isCash ? 'Cash' : 'UPI'}</span></td>
-        <td class="meta-col">${sale.employeeName}</td>
+        <td class="meta-col">${escapeHtml(sale.employeeName)}</td>
         <td class="meta-col">${formatDateTime(sale.createdAt)}</td>
       </tr>
     `;
@@ -377,9 +394,11 @@ export const buildSalesReportHtml = (sales: Sale[], filters: SalesReportFilters)
     <html>
       <head>
         <style>
+          @page { margin: 24px 0; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Roboto, sans-serif; background: #FFF5F7; color: #1A1A2E; padding: 0; margin: 0; }
-          .wrapper { max-width: 1100px; margin: 0 auto; background: #FFF; }
+          html, body { height: auto; min-height: 0; }
+          body { font-family: 'Segoe UI', Roboto, sans-serif; background: #FFF; color: #1A1A2E; padding: 0; margin: 0; }
+          .wrapper { max-width: 1100px; margin: 0 auto; background: #FFF; min-height: 0; overflow: visible; }
 
           .header {
             background: linear-gradient(135deg, #E91E63, #AD1457);
@@ -410,19 +429,21 @@ export const buildSalesReportHtml = (sales: Sale[], filters: SalesReportFilters)
           .summary-card .val { font-size: 18px; font-weight: 800; color: #1A1A2E; margin-top: 2px; }
           .summary-card .sub { font-size: 10px; color: #9CA3AF; margin-top: 2px; }
 
-          .table-section { padding: 0 32px 20px; }
-          table { width: 100%; border-collapse: collapse; }
+          .table-section { padding: 0 32px 20px; overflow-x: hidden; overflow: visible; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; page-break-inside: auto; }
           thead th {
             background: linear-gradient(135deg, #FCE4EC, #FFF0F5);
             color: #AD1457; font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
             font-weight: 700; padding: 8px 6px; text-align: left; white-space: nowrap;
           }
           thead th.right { text-align: right; }
+          thead tr { page-break-inside: avoid; }
           tbody td {
             padding: 7px 6px; font-size: 11px; color: #1A1A2E;
             border-bottom: 1px solid #FFF0F5; vertical-align: top;
           }
           tbody tr.alt td { background: #FEFBFC; }
+          tbody tr { page-break-inside: avoid; }
           tbody td.num { color: #9CA3AF; font-weight: 500; width: 28px; }
           tbody td.right { text-align: right; }
           tbody td.bold { font-weight: 700; }
@@ -438,8 +459,9 @@ export const buildSalesReportHtml = (sales: Sale[], filters: SalesReportFilters)
           .pay-badge.online { background: #EDE9FE; color: #7C3AED; }
 
           .footer {
-            text-align: center; padding: 16px 32px 24px;
+            text-align: center; padding: 10px 32px 12px;
             border-top: 1px solid #FFF0F5;
+            page-break-inside: avoid;
           }
           .footer .thanks { font-size: 13px; font-weight: 700; color: #E91E63; }
           .footer .sub { font-size: 10px; color: #9CA3AF; margin-top: 2px; }
@@ -510,17 +532,35 @@ export const buildSalesReportHtml = (sales: Sale[], filters: SalesReportFilters)
 
 export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilters) => {
   const html = buildSalesReportHtml(sales, filters);
+
+  // Generate PDF — use A4 landscape width so the 9-column table fits
+  let uri: string;
   try {
-    const { uri } = await Print.printToFileAsync({ html });
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const fileName = `SalesReport_${timestamp}.pdf`;
-    const newUri = `${FileSystem.cacheDirectory}${fileName}`;
-    await FileSystem.moveAsync({ from: uri, to: newUri });
-    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    const result = await Print.printToFileAsync({ html, width: 842, height: 595 });
+    uri = result.uri;
   } catch (error) {
-    console.error('Failed to share sales report:', error);
-    throw new Error('Could not share sales report.');
+    console.error('PDF generation failed:', error);
+    throw new Error('Could not generate PDF. Please try with fewer sales.');
+  }
+
+  // Rename to a friendly file name
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const fileName = `SalesReport_${timestamp}.pdf`;
+  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+  try {
+    await FileSystem.moveAsync({ from: uri, to: newUri });
+  } catch {
+    // If move fails, share from the original temp path
+    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    return;
+  }
+
+  try {
+    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+  } catch {
+    // User cancelled share — not an error
   }
 };

@@ -258,7 +258,7 @@ export default function InventoryScreen() {
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
-              <ScrollView>
+              <ScrollView keyboardShouldPersistTaps="handled">
                 <Text style={styles.label}>Name *</Text>
                 <TextInput
                   style={styles.input}

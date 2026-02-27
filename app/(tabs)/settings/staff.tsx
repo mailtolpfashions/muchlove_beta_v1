@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { Trash2, X, Search, Users, Shield, UserCheck } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -177,6 +178,7 @@ export default function StaffScreen() {
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
+              <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Name *</Text>
               <TextInput
                 style={styles.input}
@@ -203,6 +205,7 @@ export default function StaffScreen() {
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveStaff}>
                 <Text style={styles.saveBtnText}>Save Changes</Text>
               </TouchableOpacity>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </View>

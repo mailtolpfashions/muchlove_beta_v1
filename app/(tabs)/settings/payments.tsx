@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { Plus, Trash2, X, Wallet } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -130,6 +131,7 @@ export default function PaymentsScreen() {
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
+              <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Payee Name *</Text>
               <TextInput
                 style={styles.input}
@@ -150,6 +152,7 @@ export default function PaymentsScreen() {
               <TouchableOpacity style={styles.saveBtn} onPress={handleAdd}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add UPI'}</Text>
               </TouchableOpacity>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </View>
