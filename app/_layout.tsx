@@ -42,7 +42,9 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (isAuthenticated && user?.id) {
+      console.log('[Push] Auth ready, registering for push notifications…');
       registerForNotifications().then((granted) => {
+        console.log('[Push] Permission granted:', granted);
         if (granted) registerPushToken(user.id);
       });
     }

@@ -26,7 +26,10 @@ try {
 }
 
 export async function registerForNotifications(): Promise<boolean> {
-  if (isExpoGo) return false;
+  if (isExpoGo) {
+    console.warn('[Push] Running in Expo Go — notifications not supported');
+    return false;
+  }
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -62,16 +65,21 @@ export async function registerForNotifications(): Promise<boolean> {
  * The Edge Function uses these tokens to send background push notifications.
  */
 export async function registerPushToken(userId: string): Promise<void> {
-  if (isExpoGo) return;
+  if (isExpoGo) {
+    console.warn('[Push] Running in Expo Go — push token registration skipped');
+    return;
+  }
   try {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) {
-      console.warn('No EAS projectId found, skipping push token registration');
+      console.warn('[Push] No EAS projectId found, skipping push token registration');
       return;
     }
 
+    console.log('[Push] Requesting push token with projectId:', projectId);
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data; // e.g. "ExponentPushToken[xxxx]"
+    console.log('[Push] Got token:', token);
 
     // Upsert: insert or update if this user+token combo already exists
     const { error } = await supabase
@@ -82,10 +90,12 @@ export async function registerPushToken(userId: string): Promise<void> {
       );
 
     if (error) {
-      console.error('Failed to save push token:', error.message);
+      console.error('[Push] Failed to save push token:', error.message);
+    } else {
+      console.log('[Push] Token saved to push_tokens table successfully');
     }
   } catch (error) {
-    console.error('Failed to register push token:', error);
+    console.error('[Push] Failed to register push token:', error);
   }
 }
 
