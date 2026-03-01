@@ -72,6 +72,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           await supabase.auth.signOut();
           setSession(null);
           setUser(null);
+          await clearCachedProfile();
           return;
         }
 
@@ -93,6 +94,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         } else {
           setSession(null);
           setUser(null);
+          await clearCachedProfile();
         }
       }
     );
@@ -133,9 +135,16 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
         if (cancelled) return;
 
-        // If the stored refresh token is invalid/expired, sign out and clear stale session
+        // If the stored refresh token is invalid/expired:
+        // - With cached profile: keep it — network may be slow after phone reboot.
+        //   onAuthStateChange will handle TOKEN_REFRESHED or SIGNED_OUT.
+        // - Without cached profile: genuinely not logged in.
         if (sessionError) {
-          console.log('Session retrieval error (clearing stale session):', sessionError.message);
+          console.log('Session retrieval error:', sessionError.message);
+          if (cached) {
+            console.log('Keeping cached profile while session recovers');
+            return;
+          }
           try { await supabase.auth.signOut(); } catch (_) {}
           setUser(null);
           await clearCachedProfile();
@@ -171,9 +180,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             try { await supabase.auth.signOut(); } catch (_) {}
           }
         } else if (!existingSession) {
-          // No session at all — clear cached profile too
-          setUser(null);
-          await clearCachedProfile();
+          if (cached) {
+            // Session not available yet (token refresh pending).
+            // Keep cached profile — onAuthStateChange will resolve.
+            console.log('No session yet, keeping cached profile');
+          } else {
+            // No session AND no cache — genuinely not logged in
+            setUser(null);
+            await clearCachedProfile();
+          }
         }
       } catch (e: any) {
         console.log('Auth init error:', e?.message || e);
@@ -330,7 +345,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     session,
     isLoading,
     isInitialized,
-    isAuthenticated: !!user && !!session,
+    isAuthenticated: !!user,
     isAdmin: user?.role === 'admin',
     login,
     signUp,
