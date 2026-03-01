@@ -7,9 +7,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ActivityIndicator,
   ScrollView,
@@ -23,6 +20,7 @@ import { formatCurrency, capitalizeWords, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SortPills, { SortOption } from '@/components/SortPills';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 const FILTERS = ['All', 'Services', 'Products'];
 
@@ -79,7 +77,7 @@ export default function InventoryScreen() {
     setLoading(true);
     try {
       const serviceData = {
-        name: name.trim(),
+        name: capitalizeWords(name.trim()),
         code: code.trim().toUpperCase(),
         price: priceNum,
         mrp: mrpNum,
@@ -251,13 +249,7 @@ export default function InventoryScreen() {
         }
       />
 
-      <Modal visible={showForm} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKav}
-          >
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showForm} onRequestClose={() => setShowForm(false)}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Item' : 'Add Item'}</Text>
                 <TouchableOpacity onPress={() => setShowForm(false)}>
@@ -330,10 +322,7 @@ export default function InventoryScreen() {
                   <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Item'}</Text>
                 )}
               </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -495,21 +484,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '70%',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
   },
   modalHeader: {
     flexDirection: 'row',

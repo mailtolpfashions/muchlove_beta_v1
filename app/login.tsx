@@ -11,15 +11,13 @@ import {
   Animated,
   ScrollView,
   Keyboard,
-  Dimensions,
+  useWindowDimensions,
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles, UserPlus } from 'lucide-react-native';
 import { APP_NAME } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
-
-const { width } = Dimensions.get('window');
 
 // Elegant salon palette
 const Salon = {
@@ -41,8 +39,10 @@ const Salon = {
 };
 
 export default function LoginScreen() {
-  const { login, signUp } = useAuth();
+  const { login, signUp, resetPassword } = useAuth();
+  const { width } = useWindowDimensions();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgot, setIsForgot] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -50,6 +50,12 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [lockCountdown, setLockCountdown] = useState(0);
+
+  const MAX_ATTEMPTS = 5;
+  const LOCK_DURATION = 2 * 60 * 1000; // 2 minutes
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -84,17 +90,41 @@ export default function LoginScreen() {
 
     // Sparkle animations
     const sparkleLoop = (anim: Animated.Value, delay: number) => {
-      Animated.loop(
+      return Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
           Animated.timing(anim, { toValue: 1, duration: 1500, useNativeDriver: true }),
           Animated.timing(anim, { toValue: 0.3, duration: 1500, useNativeDriver: true }),
         ])
-      ).start();
+      );
     };
-    sparkleLoop(sparkle1, 0);
-    sparkleLoop(sparkle2, 750);
+    const loop1 = sparkleLoop(sparkle1, 0);
+    const loop2 = sparkleLoop(sparkle2, 750);
+    loop1.start();
+    loop2.start();
+
+    return () => {
+      loop1.stop();
+      loop2.stop();
+    };
   }, []);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (!lockedUntil) { setLockCountdown(0); return; }
+    const tick = () => {
+      const remaining = Math.max(0, lockedUntil - Date.now());
+      setLockCountdown(Math.ceil(remaining / 1000));
+      if (remaining <= 0) {
+        setLockedUntil(null);
+        setFailedAttempts(0);
+        setLockCountdown(0);
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
 
   const shake = () => {
     Animated.sequence([
@@ -109,6 +139,33 @@ export default function LoginScreen() {
     Keyboard.dismiss();
     setError('');
     setSuccessMsg('');
+
+    // Lockout check
+    if (lockedUntil && Date.now() < lockedUntil) {
+      setError(`Too many failed attempts. Try again in ${lockCountdown}s`);
+      shake();
+      return;
+    }
+
+    // Forgot password flow
+    if (isForgot) {
+      if (!email.trim()) {
+        setError('Please enter your email');
+        shake();
+        return;
+      }
+      setLoading(true);
+      const result = await resetPassword(email);
+      if (result.success) {
+        setSuccessMsg('Password reset link sent! Check your email, reset your password, then come back and sign in.');
+        setIsForgot(false);
+      } else {
+        setError(result.error || 'Failed to send reset email');
+        shake();
+      }
+      setLoading(false);
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       setError('Please enter both email and password');
@@ -140,7 +197,14 @@ export default function LoginScreen() {
           setSuccessMsg(result.error || 'Your account is pending approval.');
           setError('');
         } else {
-          setError(result.error || 'Login failed');
+          const newAttempts = failedAttempts + 1;
+          setFailedAttempts(newAttempts);
+          if (newAttempts >= MAX_ATTEMPTS) {
+            setLockedUntil(Date.now() + LOCK_DURATION);
+            setError('Too many failed attempts. Locked for 2 minutes.');
+          } else {
+            setError(`${result.error || 'Login failed'} (${MAX_ATTEMPTS - newAttempts} attempts left)`);
+          }
         }
         shake();
       }
@@ -151,8 +215,11 @@ export default function LoginScreen() {
 
   const toggleMode = () => {
     setIsSignUp(!isSignUp);
+    setIsForgot(false);
     setError('');
     setSuccessMsg('');
+    setFailedAttempts(0);
+    setLockedUntil(null);
   };
 
   return (
@@ -185,10 +252,10 @@ export default function LoginScreen() {
             ]}
           >
             {/* Decorative sparkles */}
-            <Animated.View style={[styles.sparkleTopLeft, { opacity: sparkle1 }]}>
+            <Animated.View style={[styles.sparkleTopLeft, { opacity: sparkle1, left: width * 0.15 }]}>
               <Sparkles size={16} color={Salon.gold} />
             </Animated.View>
-            <Animated.View style={[styles.sparkleTopRight, { opacity: sparkle2 }]}>
+            <Animated.View style={[styles.sparkleTopRight, { opacity: sparkle2, right: width * 0.18 }]}>
               <Sparkles size={12} color={Salon.goldLight} />
             </Animated.View>
 
@@ -296,6 +363,7 @@ export default function LoginScreen() {
             )}
 
             {/* Password */}
+            {!isForgot && (
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Password</Text>
               <View style={styles.inputContainer}>
@@ -329,11 +397,23 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+            )}
 
-            {/* Sign In / Sign Up Button */}
+            {/* Forgot Password Link */}
+            {!isSignUp && !isForgot && (
+              <TouchableOpacity
+                onPress={() => { setIsForgot(true); setError(''); setSuccessMsg(''); }}
+                style={styles.forgotBtn}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.forgotText}>Forgot Password?</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Sign In / Sign Up / Reset Button */}
             <TouchableOpacity
               onPress={handleSubmit}
-              disabled={loading}
+              disabled={loading || !!lockedUntil}
               activeOpacity={0.85}
               testID="login-button"
               style={styles.loginBtnWrapper}
@@ -342,17 +422,31 @@ export default function LoginScreen() {
                 colors={[Salon.rose, Salon.roseDeep]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+                style={[styles.loginBtn, (loading || !!lockedUntil) && styles.loginBtnDisabled]}
               >
                 {loading ? (
                   <ActivityIndicator color={Salon.white} size="small" />
+                ) : lockedUntil ? (
+                  <Text style={styles.loginBtnText}>Locked ({lockCountdown}s)</Text>
                 ) : (
-                  <Text style={styles.loginBtnText}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>
+                  <Text style={styles.loginBtnText}>{isForgot ? 'Send Reset Link' : isSignUp ? 'Create Account' : 'Sign In'}</Text>
                 )}
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Toggle Sign In / Sign Up */}
+            {/* Toggle Sign In / Sign Up / Back from Forgot */}
+            {isForgot ? (
+              <TouchableOpacity
+                onPress={() => { setIsForgot(false); setError(''); setSuccessMsg(''); }}
+                style={styles.toggleBtn}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.toggleText}>
+                  Remember your password?{' '}
+                  <Text style={styles.toggleTextBold}>Sign In</Text>
+                </Text>
+              </TouchableOpacity>
+            ) : (
             <TouchableOpacity
               onPress={toggleMode}
               style={styles.toggleBtn}
@@ -365,6 +459,7 @@ export default function LoginScreen() {
                 </Text>
               </Text>
             </TouchableOpacity>
+            )}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -393,12 +488,10 @@ const styles = StyleSheet.create({
   sparkleTopLeft: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 75 : 55,
-    left: width * 0.15,
   },
   sparkleTopRight: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 85 : 65,
-    right: width * 0.18,
   },
   logoOuter: {
     marginBottom: 20,
@@ -575,5 +668,15 @@ const styles = StyleSheet.create({
   toggleTextBold: {
     color: Salon.rose,
     fontWeight: '700',
+  },
+  forgotBtn: {
+    alignSelf: 'flex-end',
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  forgotText: {
+    fontSize: 13,
+    color: Salon.rose,
+    fontWeight: '500',
   },
 });

@@ -22,7 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { generateId } from '@/utils/hash';
 import { useAuth } from '@/providers/AuthProvider';
 import { startHeartbeat, stopHeartbeat } from '@/utils/heartbeat';
-import { startShadowRetry, stopShadowRetry } from '@/utils/saleShadow';
+import { startShadowRetry, stopShadowRetry, flushShadowQueue, reconcileShadows } from '@/utils/saleShadow';
 import {
   getPendingSales,
   getPendingCount,
@@ -302,6 +302,12 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
       // 1. Verify chain integrity — flag corrupted but still try to sync them
       result.corruptedIds = await verifyIntegrity();
 
+      // 1b. Flush queued shadows FIRST so they're on the server before
+      //     sales arrive (prevents the trigger from finding nothing to mark)
+      try {
+        await flushShadowQueue();
+      } catch { /* best effort */ }
+
       // 2. Get all pending sales
       const pending = await getPendingSales();
 
@@ -330,6 +336,11 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
         await queryClient.invalidateQueries({ queryKey: ['sales'] });
         await queryClient.invalidateQueries({ queryKey: ['customers'] });
         await queryClient.invalidateQueries({ queryKey: ['customerSubscriptions'] });
+
+        // 4b. Reconcile shadows — mark any that matched a now-synced sale
+        try {
+          await reconcileShadows();
+        } catch { /* best effort */ }
       }
 
       // 5. Sync generic entity mutations

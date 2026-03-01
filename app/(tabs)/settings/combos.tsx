@@ -7,8 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   RefreshControl,
 } from 'react-native';
@@ -18,13 +16,16 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Combo, ComboItem, Service } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords } from '@/utils/format';
 import { generateId } from '@/utils/hash';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function CombosScreen() {
   const { combos, services, addCombo, updateCombo, deleteCombo, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const { isAdmin } = useAuth();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -76,7 +77,7 @@ export default function CombosScreen() {
 
     try {
       const comboData = {
-        name: name.trim(),
+        name: capitalizeWords(name.trim()),
         comboPrice: Number(comboPrice),
         items: selectedItems,
       };
@@ -167,7 +168,7 @@ export default function CombosScreen() {
 
     return (
       <View style={styles.card}>
-        <TouchableOpacity style={styles.cardContent} activeOpacity={0.7} onPress={() => openEdit(item)}>
+        <TouchableOpacity style={styles.cardContent} activeOpacity={isAdmin ? 0.7 : 1} onPress={() => { if (isAdmin) openEdit(item); }}>
           <View style={styles.cardHeader}>
             <Text style={styles.comboName}>{capitalizeWords(item.name)}</Text>
             <View style={[styles.typeBadge, { backgroundColor: Colors.successLight }]}>
@@ -202,9 +203,11 @@ export default function CombosScreen() {
             </View>
           )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.deleteBtn} onPress={() => handleRemove(item)}>
-          <Trash2 size={16} color={Colors.danger} />
-        </TouchableOpacity>
+        {isAdmin && (
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => handleRemove(item)}>
+            <Trash2 size={16} color={Colors.danger} />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -222,9 +225,11 @@ export default function CombosScreen() {
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAdd(true); }}>
-          <Plus size={18} color={Colors.surface} />
-        </TouchableOpacity>
+        {isAdmin && (
+          <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAdd(true); }}>
+            <Plus size={18} color={Colors.surface} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <FlatList
@@ -247,10 +252,7 @@ export default function CombosScreen() {
       />
 
       {/* Add / Edit Combo Modal */}
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior="padding" style={styles.modalKav}>
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showAdd} onRequestClose={() => { setShowAdd(false); resetForm(); }} maxHeight="80%">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Combo' : 'New Combo'}</Text>
                 <TouchableOpacity onPress={() => { setShowAdd(false); resetForm(); }}>
@@ -340,12 +342,7 @@ export default function CombosScreen() {
                   <Text style={styles.saveBtnText}>{isEditing ? 'Update Combo' : 'Create Combo'}</Text>
                 </TouchableOpacity>
               </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-
-      {/* Service Picker Modal */}
+      </BottomSheetModal>
       <Modal visible={showServicePicker} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.pickerContent}>
@@ -580,17 +577,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.overlay,
     justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '90%',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
-    maxHeight: '100%',
   },
   pickerContent: {
     backgroundColor: Colors.surface,

@@ -45,3 +45,6 @@ rork-eslint.config.js
 core
 node_modules
 .expo
+dist-test/
+AUDIT_REPORT.md
+AUDIT_REPORT.md

@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   name TEXT NOT NULL,
   duration_months INTEGER NOT NULL,
   price NUMERIC NOT NULL,
+  discount_percent NUMERIC NOT NULL DEFAULT 30,
+  max_cart_value NUMERIC NOT NULL DEFAULT 2000,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -314,3 +316,9 @@ BEGIN
     END;
   END LOOP;
 END $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MIGRATION: Add discount fields to subscription_plans (for existing databases)
+-- ═══════════════════════════════════════════════════════════════════════════════
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS discount_percent NUMERIC NOT NULL DEFAULT 30;
+ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS max_cart_value NUMERIC NOT NULL DEFAULT 2000;

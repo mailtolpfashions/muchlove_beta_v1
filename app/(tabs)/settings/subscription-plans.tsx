@@ -6,9 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ScrollView,
 } from 'react-native';
@@ -20,6 +17,7 @@ import { SubscriptionPlan } from '@/types';
 import { formatCurrency, capitalizeWords } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function SubscriptionPlansScreen() {
   const { subscriptions, addSubscription, updateSubscription, deleteSubscription, reload } = useData();
@@ -37,6 +35,8 @@ export default function SubscriptionPlansScreen() {
   const [name, setName] = useState<string>('');
   const [duration, setDuration] = useState<string>('');
   const [price, setPrice] = useState<string>('');
+  const [discountPercent, setDiscountPercent] = useState<string>('30');
+  const [maxCartValue, setMaxCartValue] = useState<string>('2000');
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -47,15 +47,23 @@ export default function SubscriptionPlansScreen() {
     }
     const durationNum = parseInt(duration);
     const priceNum = parseFloat(price || '0');
+    const discountNum = parseFloat(discountPercent || '0');
+    const maxCartNum = parseFloat(maxCartValue || '0');
     if (isNaN(durationNum) || durationNum <= 0) {
       showAlert('Error', 'Please enter a valid duration');
       return;
     }
+    if (discountNum < 0 || discountNum > 100) {
+      showAlert('Error', 'Discount must be between 0 and 100');
+      return;
+    }
     try {
       const subscriptionData = {
-        name: name.trim(),
+        name: capitalizeWords(name.trim()),
         durationMonths: durationNum,
         price: priceNum,
+        discountPercent: discountNum,
+        maxCartValue: maxCartNum,
       };
 
       if (isEditing && editingId) {
@@ -72,6 +80,8 @@ export default function SubscriptionPlansScreen() {
       setName('');
       setDuration('');
       setPrice('');
+      setDiscountPercent('30');
+      setMaxCartValue('2000');
     } catch (e) {
       console.error(e);
       showAlert('Error', 'Failed to save plan');
@@ -98,6 +108,8 @@ export default function SubscriptionPlansScreen() {
           setName(item.name);
           setDuration(String(item.durationMonths));
           setPrice(String(item.price));
+          setDiscountPercent(String(item.discountPercent));
+          setMaxCartValue(String(item.maxCartValue));
           setshowPlanForm(true);
         }}
       >
@@ -111,7 +123,7 @@ export default function SubscriptionPlansScreen() {
           </Text>
         </View>
         <Text style={styles.discountHint}>
-          Student: 30% off • {item.price < 2000 ? 'Under ₹2000: 30% off' : 'Over ₹2000: 20% off'}
+          {item.discountPercent}% off on services • Up to {formatCurrency(item.maxCartValue)} cart
         </Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePlan(item)}>
@@ -151,18 +163,15 @@ export default function SubscriptionPlansScreen() {
           setName('');
           setDuration('');
           setPrice('');
+          setDiscountPercent('30');
+          setMaxCartValue('2000');
           setshowPlanForm(true);
         }}
       >
         <Plus size={24} color={Colors.surface} />
       </TouchableOpacity>
 
-      <Modal visible={showPlanForm} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKav}
-          >
+      <BottomSheetModal visible={showPlanForm} onRequestClose={() => setshowPlanForm(false)}>
             <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Plan' : 'Add Plan'}</Text>
@@ -195,13 +204,29 @@ export default function SubscriptionPlansScreen() {
                 onChangeText={setPrice}
                 keyboardType="numeric"
               />
+              <Text style={styles.label}>Discount on Services (%)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 30"
+                placeholderTextColor={Colors.textTertiary}
+                value={discountPercent}
+                onChangeText={setDiscountPercent}
+                keyboardType="numeric"
+              />
+              <Text style={styles.label}>Max Cart Value (₹) for discount</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 2000"
+                placeholderTextColor={Colors.textTertiary}
+                value={maxCartValue}
+                onChangeText={setMaxCartValue}
+                keyboardType="numeric"
+              />
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSavePlan}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Plan'}</Text>
               </TouchableOpacity>
             </ScrollView>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -301,20 +326,13 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     color: Colors.textSecondary,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '80%',
-  },
   modalContent: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,
     padding: Spacing.modal,
     paddingBottom: Spacing.modalBottom,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',

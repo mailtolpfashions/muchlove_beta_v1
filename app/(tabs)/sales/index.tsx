@@ -430,20 +430,22 @@ export default function SalesScreen() {
               ))}
             </View>
 
-            {isAdmin && <>
-              <Text style={styles.filterSectionTitle}>Employee</Text>
-              <View style={styles.filterGroup}>
-                {employeeFilters.map(f => (
-                  <TouchableOpacity
-                    key={f.value}
-                    style={[styles.filterBtn, tempEmployeeFilter === f.value && styles.filterBtnActive]}
-                    onPress={() => setTempEmployeeFilter(f.value)}
-                  >
-                    <Text style={[styles.filterBtnText, tempEmployeeFilter === f.value && styles.filterBtnTextActive]}>{f.label}</Text>
-                  </TouchableOpacity>
-                ))}
+            {isAdmin && (
+              <View>
+                <Text style={styles.filterSectionTitle}>Employee</Text>
+                <View style={styles.filterGroup}>
+                  {employeeFilters.map(f => (
+                    <TouchableOpacity
+                      key={f.value}
+                      style={[styles.filterBtn, tempEmployeeFilter === f.value && styles.filterBtnActive]}
+                      onPress={() => setTempEmployeeFilter(f.value)}
+                    >
+                      <Text style={[styles.filterBtnText, tempEmployeeFilter === f.value && styles.filterBtnTextActive]}>{f.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-            </>}
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={handleCancelFilters}>

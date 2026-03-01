@@ -10,8 +10,8 @@ import {
   ScrollView,
   Modal,
   KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import {
   Search,
   Users,
@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   RefreshCw,
+  Trash2,
 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
@@ -34,7 +35,6 @@ import { useData } from '@/providers/DataProvider';
 import { Customer, Sale, Service, SubscriptionPlan, Offer, CustomerSubscription, Combo } from '@/types';
 import CustomerPicker from '@/components/CustomerPicker';
 import SubscriptionPicker from '@/components/SubscriptionPicker';
-import BillSummary from '@/components/BillSummary';
 import QuickPayment from '@/components/QuickPayment';
 import SaleComplete from '@/components/SaleComplete';
 import { useAuth } from '@/providers/AuthProvider';
@@ -45,6 +45,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBilling } from '@/providers/BillingProvider';
 
 type FilterTab = 'services' | 'products' | 'combos' | null;
 type ListItem = { type: 'service'; data: Service } | { type: 'combo'; data: Combo };
@@ -65,6 +66,7 @@ const getDaysUntilExpiry = (sub: CustomerSubscription): number => {
 
 export default function BillingScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useAuth();
   const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError, offlineSalesEnabled, isOffline } = useData();
   const { upiList } = usePayment();
@@ -78,10 +80,20 @@ export default function BillingScreen() {
     setRefreshing(false);
   }, [reload]);
 
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const {
+    items, setItems,
+    subs, setSubs,
+    addedCombos,
+    selectedCustomer, setSelectedCustomer,
+    handleAddQuantity, handleSubtractQuantity,
+    handleAddCombo, handleRemoveCombo,
+    resetBill,
+  } = useBilling();
+
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [showSubscriptionPicker, setShowSubscriptionPicker] = useState(false);
   const [showQuickPayment, setShowQuickPayment] = useState(false);
+  const [quickPaySale, setQuickPaySale] = useState<any>(null);
 
   // Service picker overlay state
   const [showServiceList, setShowServiceList] = useState(false);
@@ -89,19 +101,6 @@ export default function BillingScreen() {
   const [activeTab, setActiveTab] = useState<FilterTab>(null);
   const [serviceSort, setServiceSort] = useState<SortOption>('recent');
   const searchRef = useRef<TextInput>(null);
-
-  // Bill state
-  const [items, setItems] = useState<Service[]>([]);
-  const [subs, setSubs] = useState<SubscriptionPlan[]>([]);
-  const [addedCombos, setAddedCombos] = useState<Combo[]>([]);
-  const [completedSale, setCompletedSale] = useState<any>(null);
-
-  const resetBill = () => {
-    setSelectedCustomer(null);
-    setItems([]);
-    setSubs([]);
-    setAddedCombos([]);
-  };
 
   const confirmClearAll = () => {
     showConfirm(
@@ -123,96 +122,6 @@ export default function BillingScreen() {
     setSearchQuery('');
   };
 
-  const handleAddQuantity = (service: Service) => {
-    setItems((prev) => [...prev, service]);
-  };
-
-  const handleSubtractQuantity = (service: Service) => {
-    setItems((prev) => {
-      const index = prev.findIndex((s) => s.id === service.id);
-      if (index > -1) {
-        const newItems = [...prev];
-        newItems.splice(index, 1);
-        return newItems;
-      }
-      return prev;
-    });
-  };
-
-  const handleAddCombo = (combo: Combo) => {
-    setAddedCombos(prev => [...prev, combo]);
-  };
-
-  const handleRemoveCombo = (index: number) => {
-    setAddedCombos(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handlePlaceOrder = async (total: number, discountAmt: number, discountPercent: number, upiId?: string) => {
-    if (!user || !selectedCustomer) {
-      showAlert('Error', 'Something went wrong');
-      return;
-    }
-    const comboTotal = addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
-    const subtotal = items.reduce((acc, i: Service) => acc + i.price, 0) + subs.reduce((acc, s: SubscriptionPlan) => acc + s.price, 0) + comboTotal;
-
-    // Build combo items with proportionally adjusted prices
-    const comboSaleItems = addedCombos.flatMap(combo => {
-      const origTotal = combo.items.reduce((s, ci) => s + ci.originalPrice, 0);
-      return combo.items.map(ci => ({
-        id: randomUUID(),
-        itemId: ci.serviceId,
-        itemName: `${ci.serviceName} (${combo.name})`,
-        itemCode: 'COMBO',
-        price: origTotal > 0 ? Math.round((ci.originalPrice / origTotal) * combo.comboPrice) : combo.comboPrice,
-        originalPrice: ci.originalPrice,
-        quantity: 1,
-        kind: ci.serviceKind,
-      }));
-    });
-
-    const sale = {
-      customer_id: selectedCustomer.id,
-      customer_name: selectedCustomer.name,
-      employee_id: user.id,
-      employee_name: user.name,
-      total,
-      subtotal,
-      discount_amount: discountAmt,
-      discount_percent: discountPercent,
-      items: [
-        ...items.map(i => ({
-          id: randomUUID(),
-          itemId: i.id,
-          itemName: i.name,
-          itemCode: i.code,
-          price: i.price,
-          quantity: 1,
-          kind: i.kind,
-        })),
-        ...comboSaleItems,
-      ],
-      subscription_items: subs.map(s => ({
-        id: randomUUID(),
-        plan_id: s.id,
-        plan_name: s.name,
-        price: s.price,
-        discounted_price: s.price,
-      })),
-      payment_method: upiId ? 'gpay' : 'cash',
-      type: subs.length > 0 ? 'subscription' : 'service',
-    };
-
-    try {
-      const result = await addSale(sale as any);
-      resetBill();
-      setCompletedSale(result);
-      if (result?._offline) refreshPendingCount();
-    } catch (error) {
-      console.error(error);
-      showAlert('Error', 'Failed to place order');
-    }
-  };
-
   const handleQuickPayment = async (amount: number, upiId: string, note: string, method: 'cash' | 'gpay') => {
     if (!user) {
       showAlert('Error', 'You must be logged in to do this.');
@@ -232,7 +141,7 @@ export default function BillingScreen() {
         {
           id: randomUUID(),
           itemId: null,
-          itemName: note || 'Quick Payment',
+          itemName: note ? capitalizeWords(note.trim()) : 'Quick Payment',
           itemCode: 'QUICKPAY',
           price: amount,
           quantity: 1,
@@ -247,7 +156,7 @@ export default function BillingScreen() {
     try {
       const result = await addSale(sale as any);
       setShowQuickPayment(false);
-      setCompletedSale(result);
+      setQuickPaySale(result);
       if (result?._offline) refreshPendingCount();
     } catch (error) {
       console.error(error);
@@ -255,16 +164,20 @@ export default function BillingScreen() {
     }
   };
 
-  // Service popularity map — ranked by how often they appear in past sales
+  // Service popularity map — ranked by how often they appear in recent sales (last 100)
   const popularityMap = useMemo(() => {
     const counts: Record<string, number> = {};
-    sales.forEach((s: Sale) => {
-      s.items?.forEach((item: any) => {
+    const recentSales = sales.length > 100 ? sales.slice(-100) : sales;
+    for (let i = 0; i < recentSales.length; i++) {
+      const items = recentSales[i].items;
+      if (!items) continue;
+      for (let j = 0; j < items.length; j++) {
+        const item = items[j];
         if (item.itemId && (item.kind === 'service' || item.kind === 'product')) {
           counts[item.itemId] = (counts[item.itemId] || 0) + item.quantity;
         }
-      });
-    });
+      }
+    }
     return counts;
   }, [sales]);
 
@@ -372,9 +285,9 @@ export default function BillingScreen() {
   const getQty = useCallback((serviceId: string) => items.filter(i => i.id === serviceId).length, [items]);
 
   const tabs: { key: FilterTab; label: string; icon: React.ReactNode }[] = [
+    ...(combos.length > 0 ? [{ key: 'combos' as FilterTab, label: 'Combos', icon: <ShoppingBag size={14} /> }] : []),
     { key: 'services', label: 'Services', icon: <Scissors size={14} /> },
     { key: 'products', label: 'Products', icon: <Package size={14} /> },
-    ...(combos.length > 0 ? [{ key: 'combos' as FilterTab, label: 'Combos', icon: <ShoppingBag size={14} /> }] : []),
   ];
 
   const handleTabPress = (key: FilterTab) => {
@@ -424,7 +337,7 @@ export default function BillingScreen() {
           </View>
           <View style={styles.itemActions}>
             {alreadyAdded > 0 ? (
-              <>
+              <View style={styles.itemActions}>
                 <TouchableOpacity
                   style={styles.qtyBtn}
                   onPress={() => {
@@ -441,7 +354,7 @@ export default function BillingScreen() {
                 >
                   <Plus size={14} color={Colors.primary} />
                 </TouchableOpacity>
-              </>
+              </View>
             ) : (
               <TouchableOpacity
                 style={[styles.qtyBtn, styles.qtyBtnAdd]}
@@ -473,7 +386,7 @@ export default function BillingScreen() {
         </View>
         <View style={styles.itemActions}>
           {qty > 0 ? (
-            <>
+            <View style={styles.itemActions}>
               <TouchableOpacity
                 style={styles.qtyBtn}
                 onPress={() => handleSubtractQuantity(service)}
@@ -487,7 +400,7 @@ export default function BillingScreen() {
               >
                 <Plus size={14} color={Colors.primary} />
               </TouchableOpacity>
-            </>
+            </View>
           ) : (
             <TouchableOpacity
               style={[styles.qtyBtn, styles.qtyBtnAdd]}
@@ -520,7 +433,7 @@ export default function BillingScreen() {
 
       <ScrollView
         style={styles.mainScroll}
-        contentContainerStyle={styles.mainContent}
+        contentContainerStyle={totalItems === 0 ? styles.mainContentEmpty : styles.mainContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing || (dataLoading && !customers.length)}
@@ -633,6 +546,47 @@ export default function BillingScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Quick Combos */}
+        {combos.length > 0 && (
+          <View style={styles.quickCombosSection}>
+            <Text style={styles.quickCombosLabel}>🔥 HOT COMBOS</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickCombosScroll}>
+              {combos.map(combo => {
+                const origTotal = combo.items.reduce((s: number, ci: any) => s + ci.originalPrice, 0);
+                const savedPercent = origTotal > 0 ? Math.round(((origTotal - combo.comboPrice) / origTotal) * 100) : 0;
+                return (
+                  <TouchableOpacity
+                    key={combo.id}
+                    style={styles.quickComboCard}
+                    activeOpacity={0.7}
+                    onPress={() => handleAddCombo(combo)}
+                  >
+                    <View style={styles.quickComboTop}>
+                      <Package size={16} color='#8B5CF6' />
+                      <Text style={styles.quickComboName} numberOfLines={1}>{capitalizeWords(combo.name)}</Text>
+                    </View>
+                    <View style={styles.quickComboPriceRow}>
+                      <Text style={styles.quickComboPrice}>{formatCurrency(combo.comboPrice)}</Text>
+                      {origTotal > combo.comboPrice && (
+                        <Text style={styles.quickComboOrig}>{formatCurrency(origTotal)}</Text>
+                      )}
+                    </View>
+                    {savedPercent > 0 && (
+                      <View style={styles.quickComboSaveBadge}>
+                        <Text style={styles.quickComboSaveText}>{savedPercent}% OFF</Text>
+                      </View>
+                    )}
+                    <View style={styles.quickComboAddRow}>
+                      <Plus size={12} color={Colors.primary} />
+                      <Text style={styles.quickComboAddText}>Add</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Cart items */}
         {totalItems > 0 && (
           <View style={styles.cartSection}>
@@ -714,35 +668,39 @@ export default function BillingScreen() {
                     )}
                   </View>
                   <TouchableOpacity onPress={() => handleRemoveCombo(idx)}>
-                    <X size={16} color={Colors.danger} />
+                    <Trash2 size={16} color={Colors.danger} />
                   </TouchableOpacity>
                 </View>
                 );
               })}
+
+              {/* Select Customer — inside cart card */}
+              {!selectedCustomer && (
+                <View style={styles.cartFooterRow}>
+                  <View style={styles.footerInfo}>
+                    <View style={styles.footerBadge}>
+                      <ShoppingBag size={14} color={Colors.surface} />
+                      <Text style={styles.footerBadgeText}>{totalItems}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.footerItemCount}>{totalItems} item{totalItems !== 1 ? 's' : ''}</Text>
+                      <Text style={styles.footerTotal}>{formatCurrency(runningTotal)}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.footerBtn}
+                    onPress={() => setShowCustomerPicker(true)}
+                  >
+                    <Text style={styles.footerBtnText}>Select Customer</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
         )}
 
-        {/* Bill summary inline */}
-        {totalItems > 0 && selectedCustomer && (
-          <View style={styles.summarySection}>
-            <BillSummary
-              items={items}
-              subs={subs}
-              addedCombos={addedCombos}
-              customer={selectedCustomer}
-              offers={offers || []}
-              customerSubscriptions={selectedCustomerSubscriptions}
-              onAddQuantity={handleAddQuantity}
-              onSubtractQuantity={handleSubtractQuantity}
-              onRemoveItem={(index: number) => setItems(items.filter((_, i) => i !== index))}
-              onRemoveSub={(index: number) => setSubs(subs.filter((_, i) => i !== index))}
-              onRemoveCombo={handleRemoveCombo}
-              onPlaceOrder={handlePlaceOrder}
-              upiList={upiList}
-            />
-          </View>
-        )}
+        {/* Spacer so sticky checkout bar doesn't overlap content */}
+        {totalItems > 0 && selectedCustomer && <View style={{ height: 64 }} />}
 
         {/* Empty state */}
         {totalItems === 0 && (
@@ -754,24 +712,21 @@ export default function BillingScreen() {
         )}
       </ScrollView>
 
-      {/* Sticky footer when items selected but no customer yet */}
-      {totalItems > 0 && !selectedCustomer && (
-        <View style={[styles.stickyFooter, { paddingBottom: Spacing.md + insets.bottom }]}>
-          <View style={styles.footerInfo}>
-            <View style={styles.footerBadge}>
-              <ShoppingBag size={14} color={Colors.surface} />
-              <Text style={styles.footerBadgeText}>{totalItems}</Text>
-            </View>
-            <View>
-              <Text style={styles.footerItemCount}>{totalItems} item{totalItems !== 1 ? 's' : ''}</Text>
-              <Text style={styles.footerTotal}>{formatCurrency(runningTotal)}</Text>
-            </View>
+      {/* Sticky Checkout Footer */}
+      {totalItems > 0 && selectedCustomer && (
+        <View style={[styles.checkoutBar, { paddingBottom: Spacing.md }]}>
+          <View style={styles.checkoutBarInfo}>
+            <ShoppingBag size={18} color={Colors.surface} />
+            <Text style={styles.checkoutBarItems}>{totalItems} item{totalItems !== 1 ? 's' : ''}</Text>
+            <Text style={styles.checkoutBarTotal}>{formatCurrency(runningTotal)}</Text>
           </View>
           <TouchableOpacity
-            style={styles.footerBtn}
-            onPress={() => setShowCustomerPicker(true)}
+            style={styles.checkoutBarBtn}
+            activeOpacity={0.85}
+            onPress={() => router.push('/billing/checkout')}
           >
-            <Text style={styles.footerBtnText}>Select Customer</Text>
+            <Text style={styles.checkoutBarBtnText}>Checkout</Text>
+            <ChevronRight size={18} color={Colors.primary} />
           </TouchableOpacity>
         </View>
       )}
@@ -779,7 +734,7 @@ export default function BillingScreen() {
       {/* Quick Payment FAB */}
       {upiList.length > 0 && totalItems === 0 && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: 20 + insets.bottom }]}
+          style={styles.fab}
           onPress={() => setShowQuickPayment(true)}
           activeOpacity={0.85}
         >
@@ -921,8 +876,8 @@ export default function BillingScreen() {
       />
 
       <SaleComplete
-        sale={completedSale}
-        onClose={() => setCompletedSale(null)}
+        sale={quickPaySale}
+        onClose={() => setQuickPaySale(null)}
       />
 
       <QuickPayment
@@ -945,8 +900,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mainContent: {
+    paddingBottom: Spacing.lg,
+  },
+  mainContentEmpty: {
     flexGrow: 1,
-    paddingBottom: 100,
+    paddingBottom: Spacing.lg,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -1245,7 +1203,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 80,
     gap: 10,
   },
   emptyTitle: {
@@ -1259,20 +1216,15 @@ const styles = StyleSheet.create({
   },
 
   /* Footer */
-  stickyFooter: {
+  cartFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.surface,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.borderLight,
-    elevation: 8,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    backgroundColor: Colors.primaryLight,
   },
   footerInfo: {
     flexDirection: 'row',
@@ -1331,6 +1283,55 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+
+  /* ===== CHECKOUT BAR ===== */
+  checkoutBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.primary,
+    paddingTop: Spacing.md,
+    paddingHorizontal: Spacing.screen,
+    elevation: 10,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+  },
+  checkoutBarInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checkoutBarItems: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.surface,
+  },
+  checkoutBarTotal: {
+    fontSize: FontSize.heading,
+    fontWeight: '800',
+    color: Colors.surface,
+    marginLeft: 4,
+  },
+  checkoutBarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: BorderRadius.md,
+    gap: 4,
+  },
+  checkoutBarBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.primary,
   },
 
   /* ===== SERVICE PICKER MODAL STYLES ===== */
@@ -1538,5 +1539,91 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
     textDecorationLine: 'line-through',
+  },
+
+  /* Quick Combos */
+  quickCombosSection: {
+    paddingTop: Spacing.md,
+    paddingLeft: Spacing.screen,
+  },
+  quickCombosLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    letterSpacing: 1,
+    marginBottom: Spacing.sm,
+  },
+  quickCombosScroll: {
+    gap: 10,
+    paddingRight: Spacing.screen,
+  },
+  quickComboCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: 12,
+    width: 140,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    elevation: 1,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+  },
+  quickComboTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  quickComboName: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.text,
+    flex: 1,
+  },
+  quickComboPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  quickComboPrice: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  quickComboOrig: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+    textDecorationLine: 'line-through' as const,
+  },
+  quickComboSaveBadge: {
+    backgroundColor: '#EDE9FE',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  quickComboSaveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#8B5CF6',
+  },
+  quickComboAddRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: Colors.primaryLight,
+    borderRadius: BorderRadius.sm,
+    paddingVertical: 5,
+    marginTop: 2,
+  },
+  quickComboAddText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });

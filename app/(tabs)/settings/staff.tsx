@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ScrollView,
   Switch,
@@ -24,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords, isValidName } from '@/utils/format';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/lib/supabase';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function StaffScreen() {
   const { users, updateUser, deleteUser, reload } = useData();
@@ -90,7 +88,7 @@ export default function StaffScreen() {
       if (isEditing && editingId) {
         await updateUser({
           id: editingId,
-          name: name.trim(),
+          name: capitalizeWords(name.trim()),
           role,
           approved,
         });
@@ -206,13 +204,7 @@ export default function StaffScreen() {
         }
       />
 
-      <Modal visible={showStaffForm} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKav}
-          >
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showStaffForm} onRequestClose={() => setshowStaffForm(false)}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Edit Employee</Text>
                 <TouchableOpacity onPress={() => setshowStaffForm(false)}>
@@ -264,7 +256,10 @@ export default function StaffScreen() {
               )}
 
               {/* Fraud Logs Section */}
-              {fraudLogs.length > 0 && (
+              {loadingFraudLogs && (
+                <ActivityIndicator size="small" color={Colors.primary} style={{ marginTop: 12 }} />
+              )}
+              {!loadingFraudLogs && fraudLogs.length > 0 && (
                 <View style={styles.fraudSection}>
                   <View style={styles.fraudHeader}>
                     <AlertTriangle size={16} color={Colors.danger} />
@@ -289,18 +284,11 @@ export default function StaffScreen() {
                   ))}
                 </View>
               )}
-              {loadingFraudLogs && (
-                <ActivityIndicator size="small" color={Colors.primary} style={{ marginTop: 12 }} />
-              )}
-
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSaveStaff}>
                 <Text style={styles.saveBtnText}>Save Changes</Text>
               </TouchableOpacity>
               </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -445,21 +433,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '60%',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
   },
   modalHeader: {
     flexDirection: 'row',

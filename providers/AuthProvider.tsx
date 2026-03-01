@@ -314,6 +314,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     }
   }, [session, fetchProfile]);
 
+  /** Send a password-reset email via Supabase */
+  const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Failed to send reset email.' };
+    }
+  }, []);
+
   return {
     user,
     session,
@@ -325,5 +336,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     signUp,
     logout,
     refreshProfile,
+    resetPassword,
   };
 });

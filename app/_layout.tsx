@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
@@ -10,11 +10,16 @@ import { PaymentProvider } from '@/providers/PaymentProvider';
 import { AlertProvider } from '@/providers/AlertProvider';
 import { OfflineSyncProvider } from '@/providers/OfflineSyncProvider';
 import { Colors } from '@/constants/colors';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
 import { useFonts } from 'expo-font';
 import { HeaderRight } from '@/components/HeaderRight';
-import OfflineBanner from '@/components/OfflineBanner';
 import { registerForNotifications, registerPushToken } from '@/utils/notifications';
+
+// Suppress known Expo Router warning — it internally configures linking
+// and the duplicate-linking guard fires as a false positive in dev mode.
+LogBox.ignoreLogs([
+  'Looks like you have configured linking in multiple places',
+]);
 
 SplashScreen.preventAutoHideAsync();
 
@@ -65,17 +70,38 @@ function RootLayoutNav() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Track whether a navigation is already in-flight to avoid
+  // double-firing during the same auth transition.
+  const navigatingRef = useRef(false);
+
   useEffect(() => {
     if (!isInitialized || !fontsLoaded) return;
 
     const inTabsGroup = segmentKey.startsWith('(tabs)');
     const onLoginPage = segmentKey.startsWith('login');
 
-    if (isAuthenticated && !inTabsGroup) {
-      router.replace('/(tabs)/');
-    } else if (!isAuthenticated && !onLoginPage) {
-      router.replace('/login');
+    const shouldGoToTabs = isAuthenticated && !inTabsGroup;
+    const shouldGoToLogin = !isAuthenticated && !onLoginPage;
+
+    if (!shouldGoToTabs && !shouldGoToLogin) {
+      navigatingRef.current = false;
+      return;
     }
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
+
+    // Delay navigation so Fabric finishes the current mount batch.
+    // InteractionManager fires too early; a real timeout lets the
+    // SurfaceMountingManager settle before we swap screens.
+    const timer = setTimeout(() => {
+      if (shouldGoToTabs) {
+        router.replace('/(tabs)/');
+      } else if (shouldGoToLogin) {
+        router.replace('/login');
+      }
+      navigatingRef.current = false;
+    }, 100);
+    return () => { clearTimeout(timer); navigatingRef.current = false; };
   }, [isAuthenticated, isInitialized, segmentKey, fontsLoaded]);
 
   const renderHeaderRight = useCallback(() => <HeaderRight />, []);
@@ -89,8 +115,6 @@ function RootLayoutNav() {
   }
 
   return (
-    <>
-    <OfflineBanner />
     <Stack
       screenOptions={{
         headerBackTitle: 'Back',
@@ -102,7 +126,6 @@ function RootLayoutNav() {
         headerTitleStyle: {
           fontWeight: '700',
           fontSize: 18,
-          letterSpacing: 0.3,
         },
         headerRight: renderHeaderRight,
       }}
@@ -111,7 +134,6 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />
     </Stack>
-    </>
   );
 }
 

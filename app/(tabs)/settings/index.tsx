@@ -49,6 +49,7 @@ export default function SettingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
   const [togglingOffline, setTogglingOffline] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -112,7 +113,7 @@ export default function SettingsScreen() {
     },
   ] : [], [isAdmin, subscriptions.length, subscribedCount]);
 
-  const offersMenuItems = useMemo(() => isAdmin ? [
+  const offersMenuItems = useMemo(() => [
     {
       title: 'Offers',
       subtitle: `${offers.length} visit & promo offers`,
@@ -129,7 +130,7 @@ export default function SettingsScreen() {
       bg: '#EDE9FE',
       route: '/settings/combos' as const,
     },
-  ] : [], [isAdmin, offers.length, combos.length]);
+  ], [offers.length, combos.length]);
 
   const paymentsMenuItems = [
     {
@@ -146,15 +147,18 @@ export default function SettingsScreen() {
     showConfirm(
       'Logout',
       'Are you sure you want to logout?',
-      logout,
+      async () => {
+        setLoggingOut(true);
+        await logout();
+      },
       'Logout',
     );
   };
 
-  const renderSection = useCallback((label: string, items: typeof menuItems) => {
+  const renderSection = useCallback((label: string, items: { title: string; subtitle: string; icon: any; color: string; bg: string; route: string }[]) => {
     if (items.length === 0) return null;
     return (
-      <>
+      <View>
         <Text style={styles.sectionLabel}>{label}</Text>
         <View style={styles.menuCard}>
           {items.map((item, index) => {
@@ -180,9 +184,18 @@ export default function SettingsScreen() {
             );
           })}
         </View>
-      </>
+      </View>
     );
   }, [router]);
+
+  if (loggingOut) {
+    return (
+      <View style={styles.loggingOutContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loggingOutText}>Logging out…</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -226,7 +239,7 @@ export default function SettingsScreen() {
 
       {/* System — Admin Only */}
       {isAdmin && (
-        <>
+        <View>
           <Text style={styles.sectionLabel}>SYSTEM</Text>
           <View style={styles.menuCard}>
             <View style={[styles.menuItem, { paddingVertical: 14 }]}>
@@ -268,7 +281,7 @@ export default function SettingsScreen() {
               )}
             </View>
           </View>
-        </>
+        </View>
       )}
 
       {/* App Info */}
@@ -504,6 +517,20 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  /* Logging out overlay */
+  loggingOutContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  loggingOutText: {
+    marginTop: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    fontWeight: '500',
   },
 
   /* Logout */

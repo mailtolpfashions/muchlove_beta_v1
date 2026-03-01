@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions
+  View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, useWindowDimensions
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft, CheckCircle } from 'lucide-react-native';
@@ -23,13 +23,9 @@ interface BillSummaryProps {
   onRemoveItem: (index: number) => void;
   onRemoveSub: (index: number) => void;
   onRemoveCombo?: (index: number) => void;
-  onAddQuantity?: (service: Service) => void;
-  onSubtractQuantity?: (service: Service) => void;
   onPlaceOrder: (total: number, discountAmount: number, discountPercent: number, upiId?: string) => void;
   upiList: UpiData[];
 }
-
-const modalWidth = Dimensions.get('window').width * 0.8;
 
 function BillSummary({
   items,
@@ -41,13 +37,15 @@ function BillSummary({
   onRemoveItem,
   onRemoveSub,
   onRemoveCombo,
-  onAddQuantity,
-  onSubtractQuantity,
   onPlaceOrder,
   upiList,
 }: BillSummaryProps) {
   const { showAlert } = useAlert();
+  const { width: screenWidth } = useWindowDimensions();
+  const modalWidth = screenWidth * 0.8;
   const insets = useSafeAreaInsets();
+  const { isOffline } = useOfflineSync();
+  const { offlineSalesEnabled, subscriptions } = useData();
   const [paymentStep, setPaymentStep] = useState<'closed' | 'method' | 'qr'>('closed');
   const [activeUpiIndex, setActiveUpiIndex] = useState(0);
   const [selectedMethod, setSelectedMethod] = useState<'cash' | 'upi'>('upi');
@@ -75,11 +73,21 @@ function BillSummary({
       // ── Service discounts ──
       if (items.length > 0) {
         if (hasActiveSubscription) {
-          const studentDiscount = customer.isStudent ? 30 : 0;
-          const priceDiscount = subtotalActualServices < 2000 ? 30 : 20;
-          serviceDiscountPercent = Math.max(studentDiscount, priceDiscount);
+          // Look up the active subscription's plan for discount settings
+          const activeSub = customerSubscriptions.find((sub: CustomerSubscription) => sub.status === 'active');
+          const activePlan = activeSub ? subscriptions.find((p: SubscriptionPlan) => p.id === activeSub.planId) : null;
+          const planDiscountPercent = activePlan?.discountPercent ?? 30;
+          const planMaxCartValue = activePlan?.maxCartValue ?? 2000;
+
+          if (subtotalActualServices <= planMaxCartValue) {
+            serviceDiscountPercent = planDiscountPercent;
+          } else {
+            serviceDiscountPercent = 0;
+          }
           serviceDiscount = subtotalActualServices * (serviceDiscountPercent / 100);
-          serviceDiscountLabel = `Subscription Discount (${serviceDiscountPercent}%)`;
+          serviceDiscountLabel = serviceDiscountPercent > 0
+            ? `Subscription Discount (${serviceDiscountPercent}%)`
+            : '';
         } else {
           // Find best visit-based or student offer that applies to services
           const serviceOffers = offers.filter(o => {
@@ -130,7 +138,7 @@ function BillSummary({
     const totalDiscount = serviceDiscount + subsDiscount;
     const total = subtotalServices - serviceDiscount + subtotalCombos + subtotalSubs - subsDiscount;
     return { serviceDiscount, serviceDiscountPercent, serviceDiscountLabel, subsDiscount, subsDiscountPercent, subsDiscountLabel, total, totalDiscount };
-  }, [items, subs, addedCombos, customer, offers]);
+  }, [items, subs, addedCombos, customer, offers, customerSubscriptions, subscriptions]);
 
   const subtotal = items.reduce((acc, i) => acc + i.price, 0) + subs.reduce((acc, s) => acc + s.price, 0) + addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
 
@@ -172,8 +180,6 @@ function BillSummary({
     onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent), upiList[activeUpiIndex]?.id);
   };
 
-  const { isOffline } = useOfflineSync();
-  const { offlineSalesEnabled } = useData();
   const salesBlockedOffline = isOffline && !offlineSalesEnabled;
 
   const handleMethodConfirm = () => {
@@ -225,20 +231,7 @@ function BillSummary({
             <View style={[styles.itemRow, index === groupedItems.length - 1 && subs.length === 0 && styles.itemRowLast]} key={`${item.service.id}-${index}`}>
               <View style={styles.itemNameContainer}>
                 <Text style={styles.itemName}>{capitalizeWords(item.service.name)}</Text>
-
-                <View style={styles.qtyContainer}>
-                  {onSubtractQuantity && (
-                    <TouchableOpacity onPress={() => onSubtractQuantity(item.service)} style={styles.qtyBtn}>
-                      <Text style={styles.qtyBtnText}>-</Text>
-                    </TouchableOpacity>
-                  )}
-                  <Text style={styles.qtyText}>{item.quantity}</Text>
-                  {onAddQuantity && (
-                    <TouchableOpacity onPress={() => onAddQuantity(item.service)} style={[styles.qtyBtn, styles.qtyBtnAdd]}>
-                      <Text style={[styles.qtyBtnText, styles.qtyBtnTextAdd]}>+</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                <Text style={styles.qtyText}> ×{item.quantity}</Text>
               </View>
               <Text style={styles.itemPrice}>{formatCurrency(item.service.price * item.quantity)}</Text>
             </View>
@@ -256,9 +249,6 @@ function BillSummary({
                 </View>
               </View>
               <Text style={styles.itemPrice}>{formatCurrency(item.price)}</Text>
-              <TouchableOpacity onPress={() => onRemoveSub(index)} style={styles.removeBtn}>
-                <Trash2 size={14} color={Colors.danger} />
-              </TouchableOpacity>
             </View>
           ))
         ) : (
@@ -284,11 +274,6 @@ function BillSummary({
                 <Text style={styles.comboOrigPrice}>{formatCurrency(origTotal)}</Text>
               )}
             </View>
-            {onRemoveCombo && (
-              <TouchableOpacity onPress={() => onRemoveCombo(index)} style={styles.removeBtn}>
-                <Trash2 size={14} color={Colors.danger} />
-              </TouchableOpacity>
-            )}
           </View>
           );
         })}
@@ -461,8 +446,9 @@ const styles = StyleSheet.create({
   },
   itemNameContainer: {
     flex: 1,
-    flexDirection: 'column',
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 4,
   },
   itemName: {
@@ -507,34 +493,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
   },
-  qtyContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  qtyBtn: {
-    backgroundColor: Colors.background,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  qtyBtnAdd: {
-    backgroundColor: Colors.primaryLight,
-  },
-  qtyBtnText: {
-    fontSize: FontSize.title,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  qtyBtnTextAdd: {
-    color: Colors.primary,
-  },
   qtyText: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.text,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   itemPrice: {
     fontSize: FontSize.md,

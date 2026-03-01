@@ -6,9 +6,6 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   RefreshControl,
 } from 'react-native';
@@ -18,9 +15,11 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Offer } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords, formatDateDDMMYYYY, parseDDMMYYYY } from '@/utils/format';
 import DatePickerModal from '@/components/DatePickerModal';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 /** Convert any stored date string (YYYY-MM-DD or DD-MM-YYYY) to DD-MM-YYYY */
 function toDisplayDate(str: string): string {
@@ -36,6 +35,7 @@ function toDisplayDate(str: string): string {
 export default function OffersScreen() {
   const { offers, addOffer, updateOffer, deleteOffer, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const { isAdmin } = useAuth();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -92,7 +92,7 @@ export default function OffersScreen() {
 
     try {
       let offerData: Partial<Offer> = {
-        name: name.trim(),
+        name: capitalizeWords(name.trim()),
         percent: parseFloat(discount),
         appliesTo: type === 'student' ? appliesTo : 'both',
         studentOnly: type === 'student',
@@ -182,8 +182,9 @@ export default function OffersScreen() {
       <View style={styles.card}>
         <TouchableOpacity
           style={styles.cardContent}
-          activeOpacity={0.7}
+          activeOpacity={isAdmin ? 0.7 : 1}
           onPress={() => {
+            if (!isAdmin) return;
             setIsEditing(true);
             setEditingId(item.id);
             setName(item.name);
@@ -215,7 +216,7 @@ export default function OffersScreen() {
           {isPromo && item.name && <Text style={styles.offerDetail}>Code: {capitalizeWords(item.name)}</Text>}
           {(isPromo && (item.startDate || item.endDate)) && (
             <Text style={styles.offerDetail}>
-              Active: {item.startDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.startDate) || item.startDate) : '...'} to {item.endDate ? formatDateDDMMYYYY(parseDDMMYYYY(item.endDate) || item.endDate) : '...'}
+              Active: {item.startDate ? toDisplayDate(item.startDate) : '...'} to {item.endDate ? toDisplayDate(item.endDate) : '...'}
             </Text>
           )}
           <View style={styles.offerTagsRow}>
@@ -232,9 +233,11 @@ export default function OffersScreen() {
             )}
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.deleteBtn} onPress={() => handleRemove(item)}>
-          <Trash2 size={16} color={Colors.danger} />
-        </TouchableOpacity>
+        {isAdmin && (
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => handleRemove(item)}>
+            <Trash2 size={16} color={Colors.danger} />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -252,9 +255,11 @@ export default function OffersScreen() {
             onChangeText={setSearch}
           />
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAdd(true); }}>
-          <Plus size={18} color={Colors.surface} />
-        </TouchableOpacity>
+        {isAdmin && (
+          <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAdd(true); }}>
+            <Plus size={18} color={Colors.surface} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.filterBar}>
@@ -316,9 +321,7 @@ export default function OffersScreen() {
         onClose={() => setShowEndPicker(false)}
       />
 
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKav}>
+      <BottomSheetModal visible={showAdd} onRequestClose={() => setShowAdd(false)} maxHeight="85%">
             <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Offer' : 'Add Offer'}</Text>
@@ -346,38 +349,38 @@ export default function OffersScreen() {
                 <TextInput style={styles.input} placeholder="e.g. Diwali Discount, Student Offer" placeholderTextColor={Colors.textTertiary} value={name} onChangeText={setName} />
 
                 {type === 'promo' && (
-                  <>
+                  <View>
                     <Text style={styles.label}>Promo Code *</Text>
                     <TextInput style={styles.input} placeholder="e.g. DIWALI20" placeholderTextColor={Colors.textTertiary} value={promoCode} onChangeText={setPromoCode} autoCapitalize="characters" />
                     <Text style={styles.label}>Start Date (Optional)</Text>
                     <TouchableOpacity style={styles.dateBtn} onPress={() => setShowStartPicker(true)}>
                       <CalendarDays size={16} color={startDate ? Colors.primary : Colors.textTertiary} />
                       <Text style={[styles.dateBtnText, !startDate && styles.dateBtnPlaceholder]}>
-                        {startDate ? formatDateDDMMYYYY(parseDDMMYYYY(startDate) || startDate) : 'DD-MM-YYYY'}
+                        {startDate ? toDisplayDate(startDate) : 'DD-MM-YYYY'}
                       </Text>
                     </TouchableOpacity>
                     <Text style={styles.label}>End Date (Optional)</Text>
                     <TouchableOpacity style={styles.dateBtn} onPress={() => setShowEndPicker(true)}>
                       <CalendarDays size={16} color={endDate ? Colors.primary : Colors.textTertiary} />
                       <Text style={[styles.dateBtnText, !endDate && styles.dateBtnPlaceholder]}>
-                        {endDate ? formatDateDDMMYYYY(parseDDMMYYYY(endDate) || endDate) : 'DD-MM-YYYY'}
+                        {endDate ? toDisplayDate(endDate) : 'DD-MM-YYYY'}
                       </Text>
                     </TouchableOpacity>
-                  </>
+                  </View>
                 )}
                 
                 {type === 'visit' && (
-                  <>
+                  <View>
                     <Text style={styles.label}>Visit Threshold *</Text>
                     <TextInput style={styles.input} placeholder="e.g. 0 for new customers, 10 for regulars" placeholderTextColor={Colors.textTertiary} value={visitThreshold} onChangeText={setVisitThreshold} keyboardType="numeric" />
-                  </>
+                  </View>
                 )}
                 
                 <Text style={styles.label}>Discount (%) *</Text>
                 <TextInput style={styles.input} placeholder="e.g. 20 for 20%" placeholderTextColor={Colors.textTertiary} value={discount} onChangeText={setDiscount} keyboardType="numeric" />
 
                 {type === 'student' && (
-                  <>
+                  <View>
                     <Text style={styles.label}>Applies To</Text>
                     <View style={styles.switchContainer}>
                       <TouchableOpacity style={[styles.switchButton, appliesTo === 'services' && styles.switchButtonActive]} onPress={() => setAppliesTo('services')}>
@@ -390,7 +393,7 @@ export default function OffersScreen() {
                         <Text style={[styles.switchButtonText, appliesTo === 'both' && styles.switchButtonTextActive]}>Both</Text>
                       </TouchableOpacity>
                     </View>
-                  </>
+                  </View>
                 )}
               
               </View>
@@ -398,9 +401,7 @@ export default function OffersScreen() {
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Offer'}</Text>
               </TouchableOpacity>
             </ScrollView>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -558,20 +559,13 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     color: Colors.textSecondary,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '85%',
-  },
   modalContent: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,
     padding: Spacing.modal,
     paddingBottom: Spacing.modalBottom,
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',

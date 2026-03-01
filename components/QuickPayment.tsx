@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Modal,
   KeyboardAvoidingView,
-  Platform,
   Dimensions,
   ScrollView,
 } from 'react-native';
@@ -15,7 +14,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { UpiData } from '@/types';
-import { Sparkles, X, Wallet, Smartphone, ArrowLeft, CheckCircle } from 'lucide-react-native';
+import { X, Wallet, Smartphone, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';

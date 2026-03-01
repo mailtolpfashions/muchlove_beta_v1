@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,11 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   Switch,
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { Plus, X, Search, Users } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -24,6 +22,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SortPills, { SortOption, SortPillOption, visitSortOptions } from '@/components/SortPills';
 import { ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function CustomersScreen() {
   const { customers, addCustomer, updateCustomer, reload } = useData();
@@ -31,6 +30,13 @@ export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [kbHeight, setKbHeight] = useState(0);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -71,8 +77,7 @@ export default function CustomersScreen() {
       return;
     }
     if (
-      !isEditing &&
-      customers.some(c => c.mobile.trim() === mobile.trim())
+      customers.some(c => c.id !== editingId && c.mobile.trim() === mobile.trim())
     ) {
       showAlert('Error', 'A customer with this mobile already exists');
       return;
@@ -207,13 +212,7 @@ export default function CustomersScreen() {
         }
       />
 
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKav}
-          >
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showAdd} onRequestClose={() => setShowAdd(false)}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Customer' : 'Add Customer'}</Text>
                 <TouchableOpacity onPress={() => setShowAdd(false)}>
@@ -256,10 +255,7 @@ export default function CustomersScreen() {
                   <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Customer'}</Text>
                 )}
               </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -375,21 +371,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '60%',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
   },
   modalHeader: {
     flexDirection: 'row',

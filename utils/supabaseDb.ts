@@ -23,7 +23,7 @@ import { generateId } from '@/utils/hash';
 function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, email: r.email as string, name: r.name as string, role: r.role as User['role'], approved: (r.approved as boolean) ?? false, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapCustomer(r: Record<string, unknown>): Customer { return { id: r.id as string, name: r.name as string, age: (r.age as string) ?? '', mobile: r.mobile as string, altNumber: (r.alt_number as string) ?? '', location: (r.location as string) ?? '', isStudent: (r.is_student as boolean) ?? false, visitCount: (r.visit_count as number) ?? 0, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapService(r: Record<string, unknown>): Service { return { id: r.id as string, name: r.name as string, code: r.code as string, price: Number(r.price), kind: ((r.kind as string) ?? 'service') as Service['kind'], mrp: r.mrp != null ? Number(r.mrp) : undefined, offerPrice: r.offer_price != null ? Number(r.offer_price) : undefined, createdAt: (r.created_at as string) ?? new Date().toISOString(), paymentMethod: r.payment_method as Service['paymentMethod'] }; }
-function mapSubscriptionPlan(r: Record<string, unknown>): SubscriptionPlan { return { id: r.id as string, name: r.name as string, durationMonths: Number(r.duration_months), price: Number(r.price), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
+function mapSubscriptionPlan(r: Record<string, unknown>): SubscriptionPlan { return { id: r.id as string, name: r.name as string, durationMonths: Number(r.duration_months), price: Number(r.price), discountPercent: r.discount_percent != null ? Number(r.discount_percent) : 30, maxCartValue: r.max_cart_value != null ? Number(r.max_cart_value) : 2000, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapCustomerSubscription(r: Record<string, unknown>): CustomerSubscription { return { id: r.id as string, customerId: r.customer_id as string, customerName: r.customer_name as string, planId: r.plan_id as string, planName: r.plan_name as string, planDurationMonths: Number(r.plan_duration_months), planPrice: Number(r.plan_price), status: r.status as CustomerSubscription['status'], startDate: r.start_date as string, assignedByUserId: r.assigned_by_user_id as string, assignedByName: r.assigned_by_name as string, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapOffer(r: Record<string, unknown>): Offer { return { id: r.id as string, name: r.name as string, percent: Number(r.percent), visitCount: r.visit_count != null ? Number(r.visit_count) : undefined, startDate: r.start_date as string | undefined, endDate: r.end_date as string | undefined, appliesTo: (r.applies_to as Offer['appliesTo']) || 'both', studentOnly: !!r.student_only, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapUpiData(r: Record<string, unknown>): UpiData { return { id: r.id as string, upiId: r.upi_id as string, payeeName: r.payee_name as string }; }
@@ -205,7 +205,9 @@ export const subscriptions = {
           created_at: new Date().toISOString(),
           name: plan.name,
           price: plan.price,
-          duration_months: plan.durationMonths
+          duration_months: plan.durationMonths,
+          discount_percent: plan.discountPercent,
+          max_cart_value: plan.maxCartValue,
         };
         const { data, error } = await supabase.from('subscription_plans').insert(newPlan).select().single();
         if (error) throw error;
@@ -218,7 +220,7 @@ export const subscriptions = {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (plan: SubscriptionPlan) => {
-        const { error } = await supabase.from('subscription_plans').update({ name: plan.name, duration_months: plan.durationMonths, price: plan.price }).eq('id', plan.id);
+        const { error } = await supabase.from('subscription_plans').update({ name: plan.name, duration_months: plan.durationMonths, price: plan.price, discount_percent: plan.discountPercent, max_cart_value: plan.maxCartValue }).eq('id', plan.id);
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['subscriptions'] }); if (onSuccess) await onSuccess(); }
@@ -275,20 +277,26 @@ export const sales = {
         const { error: saleError } = await supabase.from('sales').insert(saleToInsert);
         if (saleError) throw saleError;
 
-        // Increment customer visit count (only if valid customer)
-        if (saleToInsert.customer_id) {
-          const { data: customerData, error: customerFetchError } = await supabase
-            .from('customers')
-            .select('visit_count')
-            .eq('id', saleToInsert.customer_id)
-            .single();
+        // Run item inserts and customer visit update in parallel
+        const parallelOps: Promise<any>[] = [];
 
-          if (!customerFetchError && customerData) {
-            await supabase
+        // Increment customer visit count (fire in parallel)
+        if (saleToInsert.customer_id) {
+          parallelOps.push(
+            supabase
               .from('customers')
-              .update({ visit_count: (customerData.visit_count || 0) + 1 })
-              .eq('id', saleToInsert.customer_id);
-          }
+              .select('visit_count')
+              .eq('id', saleToInsert.customer_id)
+              .single()
+              .then(({ data: customerData, error: customerFetchError }) => {
+                if (!customerFetchError && customerData) {
+                  return supabase
+                    .from('customers')
+                    .update({ visit_count: (customerData.visit_count || 0) + 1 })
+                    .eq('id', saleToInsert.customer_id);
+                }
+              })
+          );
         }
 
         if (items && items.length > 0) {
@@ -303,55 +311,58 @@ export const sales = {
             quantity: item.quantity,
             kind: item.kind,
           }));
-          const { error: itemsError } = await supabase.from('sale_items').insert(saleItemsToInsert);
-          if (itemsError) throw itemsError;
+          parallelOps.push(
+            supabase.from('sale_items').insert(saleItemsToInsert).then(({ error }) => { if (error) throw error; })
+          );
         }
 
         if (subscription_items && subscription_items.length > 0) {
           const subItemsToInsert = subscription_items.map((item: any) => ({ ...item, sale_id: newSaleId }));
-          const { error: subItemsError } = await supabase.from('subscription_sale_items').insert(subItemsToInsert);
-          if (subItemsError) throw subItemsError;
+          parallelOps.push(
+            supabase.from('subscription_sale_items').insert(subItemsToInsert).then(({ error }) => { if (error) throw error; })
+          );
 
-          // Fetch plan durations
-          const planIds = subscription_items.map((item: any) => item.plan_id);
-          const { data: plans, error: plansError } = await supabase
-            .from('subscription_plans')
-            .select('id, duration_months')
-            .in('id', planIds);
-
-          if (plansError) throw plansError;
-
-          const planDurations = plans.reduce<Record<string, number>>((acc, plan) => {
-            acc[plan.id] = plan.duration_months;
-            return acc;
-          }, {});
-
-          const customerSubscriptionsToInsert = subscription_items.map((item: any) => ({
-            id: generateId(),
-            customer_id: saleToInsert.customer_id,
-            customer_name: saleToInsert.customer_name,
-            plan_id: item.plan_id,
-            plan_name: item.plan_name,
-            plan_duration_months: planDurations[item.plan_id],
-            plan_price: item.price,
-            status: 'active',
-            start_date: new Date().toISOString(),
-            assigned_by_user_id: saleToInsert.employee_id,
-            assigned_by_name: saleToInsert.employee_name,
-            created_at: new Date().toISOString(),
-          }));
-
-          const { error: csError } = await supabase.from('customer_subscriptions').insert(customerSubscriptionsToInsert);
-          if (csError) throw csError;
+          // Subscription customer records — run after sub items insert
+          parallelOps.push(
+            supabase
+              .from('subscription_plans')
+              .select('id, duration_months')
+              .in('id', subscription_items.map((item: any) => item.plan_id))
+              .then(({ data: plans, error: plansError }) => {
+                if (plansError) throw plansError;
+                const planDurations = (plans || []).reduce<Record<string, number>>((acc, plan) => {
+                  acc[plan.id] = plan.duration_months;
+                  return acc;
+                }, {});
+                const customerSubscriptionsToInsert = subscription_items.map((item: any) => ({
+                  id: generateId(),
+                  customer_id: saleToInsert.customer_id,
+                  customer_name: saleToInsert.customer_name,
+                  plan_id: item.plan_id,
+                  plan_name: item.plan_name,
+                  plan_duration_months: planDurations[item.plan_id],
+                  plan_price: item.price,
+                  status: 'active',
+                  start_date: new Date().toISOString(),
+                  assigned_by_user_id: saleToInsert.employee_id,
+                  assigned_by_name: saleToInsert.employee_name,
+                  created_at: new Date().toISOString(),
+                }));
+                return supabase.from('customer_subscriptions').insert(customerSubscriptionsToInsert).then(({ error: csError }) => { if (csError) throw csError; });
+              })
+          );
         }
+
+        await Promise.all(parallelOps);
 
         return { ...saleToInsert, items, subscription_items };
       },
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: ['sales'] });
-        await queryClient.invalidateQueries({ queryKey: ['customers'] });
-        await queryClient.invalidateQueries({ queryKey: ['customerSubscriptions'] });
-        if (onSuccess) await onSuccess();
+      onSuccess: () => {
+        // Fire cache invalidation in background — don't block the UI
+        queryClient.invalidateQueries({ queryKey: ['sales'] });
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        queryClient.invalidateQueries({ queryKey: ['customerSubscriptions'] });
+        if (onSuccess) onSuccess();
       }
     });
   }

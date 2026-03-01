@@ -9,8 +9,27 @@ import { useAlert } from '@/providers/AlertProvider';
 import { capitalizeWords } from '@/utils/format';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/** Raw sale record shape returned from Supabase / offline queue */
+interface RawSaleRecord {
+    id: string;
+    customer_id?: string;
+    customer_name?: string;
+    employee_id?: string;
+    employee_name?: string;
+    type?: string;
+    payment_method?: 'cash' | 'gpay';
+    subtotal: number;
+    discount_percent?: number;
+    discount_amount?: number;
+    total: number;
+    created_at?: string;
+    items?: Array<{ id?: string; itemId?: string; service_id?: string; itemName?: string; service_name?: string; name?: string; itemCode?: string; service_code?: string; price: number; quantity?: number; kind?: string }>;
+    subscription_items?: Array<{ id?: string; plan_id?: string; plan_name?: string; price: number; discounted_price?: number }>;
+    _offline?: boolean;
+}
+
 interface SaleCompleteProps {
-    sale: any;
+    sale: RawSaleRecord | null;
     onClose: () => void;
 }
 

@@ -7,8 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ScrollView,
 } from 'react-native';
@@ -21,6 +19,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatCurrency } from '@/utils/format';
 import DatePickerModal from '@/components/DatePickerModal';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function ExpensesScreen() {
   const {
@@ -335,10 +334,7 @@ export default function ExpensesScreen() {
       </View>
 
       {/* ── Add/Edit Expense Modal ── */}
-      <Modal visible={showExpenseForm} animationType="slide" transparent>
-        <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -200} style={styles.modalOverlay}>
-          <View style={styles.modalKav}>
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showExpenseForm} onRequestClose={() => setShowExpenseForm(false)} maxHeight="80%">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{editingExpense ? 'Edit Expense' : 'Add Expense'}</Text>
                 <TouchableOpacity onPress={() => setShowExpenseForm(false)}>
@@ -393,10 +389,7 @@ export default function ExpensesScreen() {
                   <Text style={styles.saveBtnText}>{editingExpense ? 'Update' : 'Add Expense'}</Text>
                 </TouchableOpacity>
               </ScrollView>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      </BottomSheetModal>
 
       {/* ── Category Management Modal ── */}
       <Modal visible={showCategoryModal} animationType="slide" transparent>
@@ -659,15 +652,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.overlay,
     justifyContent: 'flex-end',
   },
-  modalKav: {
-    maxHeight: '70%',
-  },
   modalContent: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,
     padding: Spacing.modal,
     paddingBottom: Spacing.modalBottom,
+    maxHeight: '70%',
   },
   modalHeader: {
     flexDirection: 'row',

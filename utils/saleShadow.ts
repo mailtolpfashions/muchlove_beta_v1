@@ -88,7 +88,7 @@ export async function sendSaleShadow(
 // ── Retry loop ────────────────────────────────────────────────────────────────
 
 /** Attempt to sync all queued shadows */
-async function flushShadowQueue(): Promise<void> {
+export async function flushShadowQueue(): Promise<void> {
   const queue = await getQueue();
   if (queue.length === 0) return;
 
@@ -130,5 +130,46 @@ export function stopShadowRetry(): void {
   if (retryTimer) {
     clearInterval(retryTimer);
     retryTimer = null;
+  }
+}
+
+/**
+ * Reconcile shadows with sales already on the server.
+ * Marks any shadow as synced if its sale_id exists in the sales table.
+ * This prevents false fraud alerts from timing gaps.
+ */
+export async function reconcileShadows(): Promise<void> {
+  try {
+    // Find unsynced shadows
+    const { data: unsynced } = await supabase
+      .from('sale_shadows')
+      .select('id, sale_id')
+      .eq('full_sale_synced', false)
+      .limit(100);
+
+    if (!unsynced || unsynced.length === 0) return;
+
+    // Check which of those sale_ids actually exist in the sales table
+    const saleIds = unsynced.map(s => s.sale_id);
+    const { data: existingSales } = await supabase
+      .from('sales')
+      .select('id')
+      .in('id', saleIds);
+
+    if (!existingSales || existingSales.length === 0) return;
+
+    const existingIds = new Set(existingSales.map(s => s.id));
+    const shadowIdsToMark = unsynced
+      .filter(s => existingIds.has(s.sale_id))
+      .map(s => s.id);
+
+    if (shadowIdsToMark.length > 0) {
+      await supabase
+        .from('sale_shadows')
+        .update({ full_sale_synced: true })
+        .in('id', shadowIdsToMark);
+    }
+  } catch {
+    // Best effort — don't break anything
   }
 }

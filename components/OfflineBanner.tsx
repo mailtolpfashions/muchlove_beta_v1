@@ -96,6 +96,7 @@ function OfflineBanner() {
     );
   }
 
+  // Fallback
   return null;
 }
 

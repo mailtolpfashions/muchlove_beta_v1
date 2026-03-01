@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import {
   TrendingUp,
@@ -25,7 +25,6 @@ import {
   Scissors,
   UserRoundPlus,
   AlertTriangle,
-  Star,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BarChart } from 'react-native-chart-kit';
@@ -46,8 +45,7 @@ export default function DashboardScreen() {
   const { user, logout, isAdmin } = useAuth();
   const { stats, sales, allExpenses, customerSubscriptions, customers, reload, dataLoading, loadError } = useData();
   const [refreshing, setRefreshing] = React.useState(false);
-
-  const SCREEN_WIDTH = Dimensions.get('window').width;
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
 
   const chartConfig = useMemo(() => ({
     backgroundColor: Colors.surface,
@@ -73,7 +71,7 @@ export default function DashboardScreen() {
       month: 'long',
       year: 'numeric',
     }),
-  []);
+  [sales]);
 
   const last7DaysChart = useMemo(() => {
     if (!isAdmin || !sales.length) return null;
@@ -168,32 +166,29 @@ export default function DashboardScreen() {
     return customers.filter((c: Customer) => isThisCalendarMonth(c.createdAt)).length;
   }, [customers, isAdmin]);
 
-  // Most popular services (by frequency) this month
-  const popularServices = useMemo(() => {
-    if (!isAdmin) return [];
+  // Top service by count (most sold) and top service by revenue (most income)
+  const { topServiceByCount, topServiceByRevenue } = useMemo(() => {
+    if (!isAdmin) return { topServiceByCount: null, topServiceByRevenue: null };
     const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
-    const map: Record<string, { name: string; count: number }> = {};
-    monthSales.forEach((s: Sale) => {
-      s.items.forEach((item: SaleItem) => {
-        if (!map[item.itemId]) map[item.itemId] = { name: item.itemName, count: 0 };
+    const map: Record<string, { name: string; count: number; revenue: number }> = {};
+    for (let i = 0; i < monthSales.length; i++) {
+      const s = monthSales[i];
+      for (let j = 0; j < s.items.length; j++) {
+        const item = s.items[j];
+        if (!map[item.itemId]) map[item.itemId] = { name: item.itemName, count: 0, revenue: 0 };
         map[item.itemId].count += item.quantity;
-      });
-    });
-    return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [sales, isAdmin]);
-
-  // Top revenue items this month
-  const topRevenueItems = useMemo(() => {
-    if (!isAdmin) return [];
-    const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
-    const map: Record<string, { name: string; revenue: number }> = {};
-    monthSales.forEach((s: Sale) => {
-      s.items.forEach((item: SaleItem) => {
-        if (!map[item.itemId]) map[item.itemId] = { name: item.itemName, revenue: 0 };
         map[item.itemId].revenue += item.price * item.quantity;
-      });
-    });
-    return Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+      }
+    }
+    const list = Object.values(map);
+    if (list.length === 0) return { topServiceByCount: null, topServiceByRevenue: null };
+    let byCount = list[0];
+    let byRevenue = list[0];
+    for (let i = 1; i < list.length; i++) {
+      if (list[i].count > byCount.count) byCount = list[i];
+      if (list[i].revenue > byRevenue.revenue) byRevenue = list[i];
+    }
+    return { topServiceByCount: byCount, topServiceByRevenue: byRevenue };
   }, [sales, isAdmin]);
 
   const employeeRevenue = useMemo(() => {
@@ -302,175 +297,170 @@ export default function DashboardScreen() {
         })}
       </View>
 
-      {/* Chart */}
-      {isAdmin && last7DaysChart && last7DaysChart.data.some(v => v > 0) && (
+      {/* 7-day revenue chart (admin only) */}
+      {isAdmin && last7DaysChart && (
         <View style={styles.chartCard}>
           <View style={styles.chartHeader}>
             <View style={styles.chartTitleRow}>
-              <BarChart3 size={16} color={Colors.primary} />
-              <Text style={styles.chartTitle}>Last 7 Days Revenue</Text>
+              <BarChart3 size={18} color={Colors.primary} />
+              <Text style={styles.chartTitle}>Last 7 Days</Text>
             </View>
             <Text style={styles.chartTotal}>{formatCurrency(last7DaysChart.total)}</Text>
           </View>
           <BarChart
             data={{
               labels: last7DaysChart.labels,
-              datasets: [{ data: last7DaysChart.data }],
+              datasets: [{ data: last7DaysChart.data.length ? last7DaysChart.data : [0] }],
             }}
-            width={SCREEN_WIDTH - Spacing.screen * 2 - Spacing.screen * 2}
-            height={200}
-            yAxisLabel="₹"
-            yAxisSuffix=""
-            withInnerLines={false}
-            fromZero
-            showBarTops={false}
+            width={SCREEN_WIDTH - Spacing.screen * 2 - Spacing.screen * 2 + 16}
+            height={180}
             chartConfig={chartConfig}
             style={styles.chart}
+            fromZero
+            showValuesOnTopOfBars
+            withInnerLines={false}
+            yAxisLabel=""
+            yAxisSuffix=""
           />
         </View>
       )}
 
-      {/* Quick overview */}
+      {/* Quick Overview (admin only) */}
       {isAdmin && (
-      <View style={styles.quickInfo}>
-        <View style={styles.quickInfoHeader}>
-          <Sparkles size={14} color={Colors.accent} />
-          <Text style={styles.quickInfoTitle}>Quick Overview</Text>
-        </View>
-
-        {/* Active Subscriptions */}
-        <View style={styles.overviewRow}>
-          <View style={[styles.overviewIconCircle, { backgroundColor: '#FDF6E3' }]}>
-            <Crown size={14} color="#D4AF37" />
+        <View style={styles.quickInfo}>
+          <View style={styles.quickInfoHeader}>
+            <Sparkles size={18} color={Colors.primary} />
+            <Text style={styles.quickInfoTitle}>Quick Overview</Text>
           </View>
-          <Text style={styles.infoLabel}>Active Subscriptions</Text>
-          <Text style={styles.infoValue}>{activeSubsCount}</Text>
-        </View>
-        <View style={styles.divider} />
 
-        {/* New Customers */}
-        <View style={styles.overviewRow}>
-          <View style={[styles.overviewIconCircle, { backgroundColor: '#E0F2FE' }]}>
-            <UserRoundPlus size={14} color="#0EA5E9" />
+          {/* Active Subscriptions */}
+          <View style={styles.overviewRow}>
+            <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
+              <Crown size={16} color="#8B5CF6" />
+            </View>
+            <Text style={styles.infoLabel}>Active Subscriptions</Text>
+            <Text style={styles.infoValue}>{activeSubsCount}</Text>
           </View>
-          <Text style={styles.infoLabel}>New Customers (Month)</Text>
-          <Text style={styles.infoValue}>{newCustomersMonth}</Text>
-        </View>
+          <View style={styles.divider} />
 
-        {/* Expiring Subscriptions */}
-        {expiringSubs.length > 0 && <>
-          {expiringSubs.map((sub: CustomerSubscription, idx: number) => {
-            const endDate = new Date(sub.startDate);
-            endDate.setMonth(endDate.getMonth() + sub.planDurationMonths);
-            const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-            return (
-              <React.Fragment key={sub.id}>
-                <View style={styles.divider} />
+          {/* New Customers */}
+          <View style={styles.overviewRow}>
+            <View style={[styles.overviewIconCircle, { backgroundColor: '#DBEAFE' }]}>
+              <UserRoundPlus size={16} color="#3B82F6" />
+            </View>
+            <Text style={styles.infoLabel}>New Customers (Month)</Text>
+            <Text style={styles.infoValue}>{newCustomersMonth}</Text>
+          </View>
+          <View style={styles.divider} />
+
+          {/* Total Customers */}
+          <View style={styles.overviewRow}>
+            <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
+              <UsersRound size={16} color="#10B981" />
+            </View>
+            <Text style={styles.infoLabel}>Total Customers</Text>
+            <Text style={styles.infoValue}>{stats.totalCustomers}</Text>
+          </View>
+
+          {/* Expiring Subscriptions */}
+          {expiringSubs.length > 0 && (
+            <>
+              <View style={styles.sectionDivider} />
+              <Text style={styles.sectionLabel}>Expiring Soon</Text>
+              {expiringSubs.map((sub: CustomerSubscription) => {
+                const end = new Date(sub.startDate);
+                end.setMonth(end.getMonth() + sub.planDurationMonths);
+                return (
+                  <View key={sub.id} style={styles.overviewRow}>
+                    <View style={[styles.overviewIconCircle, { backgroundColor: '#FEF3C7' }]}>
+                      <AlertTriangle size={14} color="#F59E0B" />
+                    </View>
+                    <Text style={styles.infoLabel} numberOfLines={1}>
+                      {sub.customerName} — {sub.planName}
+                    </Text>
+                    <Text style={[styles.infoValue, { color: '#F59E0B', fontSize: FontSize.sm }]}>
+                      {end.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </Text>
+                  </View>
+                );
+              })}
+            </>
+          )}
+
+          {/* Top Service & Top Revenue */}
+          {(topServiceByCount || topServiceByRevenue) && (
+            <>
+              <View style={styles.sectionDivider} />
+              {topServiceByCount && (
                 <View style={styles.overviewRow}>
-                  <View style={[styles.overviewIconCircle, { backgroundColor: '#FEE2E2' }]}>
-                    <AlertTriangle size={14} color="#EF4444" />
+                  <View style={[styles.overviewIconCircle, { backgroundColor: '#FCE4EC' }]}>
+                    <Scissors size={14} color={Colors.primary} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.infoLabel}>{sub.customerName}</Text>
-                    <Text style={{ fontSize: 10, color: Colors.textTertiary }}>{sub.planName}</Text>
+                  <Text style={styles.infoLabel} numberOfLines={1}>Top Service</Text>
+                  <Text style={styles.infoValue}>{topServiceByCount.name} ({topServiceByCount.count}×)</Text>
+                </View>
+              )}
+              {topServiceByRevenue && (
+                <>
+                  <View style={styles.divider} />
+                  <View style={styles.overviewRow}>
+                    <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
+                      <IndianRupee size={14} color="#10B981" />
+                    </View>
+                    <Text style={styles.infoLabel} numberOfLines={1}>Top Revenue</Text>
+                    <Text style={styles.infoValue}>{topServiceByRevenue.name} ({formatCurrency(topServiceByRevenue.revenue)})</Text>
                   </View>
-                  <Text style={[styles.infoValue, { color: daysLeft <= 2 ? '#EF4444' : '#F59E0B' }]}>
-                    {daysLeft <= 0 ? 'Today' : `${daysLeft}d left`}
+                </>
+              )}
+            </>
+          )}
+
+          {/* Staff Revenue */}
+          {employeeRevenue.length > 0 && (
+            <>
+              <View style={styles.sectionDivider} />
+              <Text style={styles.sectionLabel}>Staff Revenue</Text>
+              {employeeRevenue.map((emp, i) => (
+                <View key={i} style={styles.overviewRow}>
+                  <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
+                    <Users size={14} color="#8B5CF6" />
+                  </View>
+                  <Text style={styles.infoLabel} numberOfLines={1}>
+                    {emp.name} ({emp.count} sales)
                   </Text>
+                  <Text style={styles.infoValue}>{formatCurrency(emp.total)}</Text>
                 </View>
-              </React.Fragment>
-            );
-          })}
-        </>}
-
-        {/* Most Popular Services */}
-        {popularServices.length > 0 && <>
-          {popularServices.map((svc, idx) => (
-            <React.Fragment key={idx}>
-              <View style={styles.divider} />
-              <View style={styles.overviewRow}>
-                <View style={[styles.overviewIconCircle, { backgroundColor: '#FEF3C7' }]}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#F59E0B' }}>#{idx + 1}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.infoLabel}>{svc.name}</Text>
-                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Most Popular</Text>
-                </View>
-                <Text style={styles.infoValue}>{svc.count}x</Text>
-              </View>
-            </React.Fragment>
-          ))}
-        </>}
-
-        {/* Top Revenue Items */}
-        {topRevenueItems.length > 0 && <>
-          {topRevenueItems.map((item, idx) => (
-            <React.Fragment key={idx}>
-              <View style={styles.divider} />
-              <View style={styles.overviewRow}>
-                <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>#{idx + 1}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.infoLabel}>{item.name}</Text>
-                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Top Revenue</Text>
-                </View>
-                <Text style={[styles.infoValue, { color: Colors.success }]}>{formatCurrency(item.revenue)}</Text>
-              </View>
-            </React.Fragment>
-          ))}
-        </>}
-
-        {/* Staff Revenue */}
-        {employeeRevenue.length > 0 && <>
-          {employeeRevenue.map((emp, idx) => (
-            <React.Fragment key={idx}>
-              <View style={styles.divider} />
-              <View style={styles.overviewRow}>
-                <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#7C3AED' }}>{emp.name?.charAt(0)?.toUpperCase()}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.infoLabel}>{emp.name}</Text>
-                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Staff Revenue</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.infoValue, { color: Colors.success }]}>{formatCurrency(emp.total)}</Text>
-                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>{emp.count} sales</Text>
-                </View>
-              </View>
-            </React.Fragment>
-          ))}
-        </>}
-      </View>
+              ))}
+            </>
+          )}
+        </View>
       )}
 
-      {/* Employee Quick Overview */}
-      {!isAdmin && displayStats && (
-      <View style={styles.quickInfo}>
-        <View style={styles.quickInfoHeader}>
-          <Sparkles size={14} color={Colors.accent} />
-          <Text style={styles.quickInfoTitle}>My Overview</Text>
-        </View>
-        <View style={styles.overviewRow}>
-          <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
-            <Clock size={14} color="#7C3AED" />
+      {/* Employee overview (non-admin) */}
+      {!isAdmin && employeeStats && (
+        <View style={styles.quickInfo}>
+          <View style={styles.quickInfoHeader}>
+            <Clock size={18} color={Colors.info} />
+            <Text style={styles.quickInfoTitle}>My Performance</Text>
           </View>
-          <Text style={styles.infoLabel}>My Transactions</Text>
-          <Text style={styles.infoValue}>{displayStats.todaySalesCount}</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.overviewRow}>
-          <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
-            <IndianRupee size={14} color="#10B981" />
+          <View style={styles.overviewRow}>
+            <View style={[styles.overviewIconCircle, { backgroundColor: '#DBEAFE' }]}>
+              <Zap size={16} color="#3B82F6" />
+            </View>
+            <Text style={styles.infoLabel}>Total Sales</Text>
+            <Text style={styles.infoValue}>{employeeStats.totalSalesCount}</Text>
           </View>
-          <Text style={styles.infoLabel}>My Revenue</Text>
-          <Text style={[styles.infoValue, { color: Colors.success }]}>
-            {formatCurrency(displayStats.todaySalesTotal)}
-          </Text>
+          <View style={styles.divider} />
+          <View style={styles.overviewRow}>
+            <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
+              <IndianRupee size={16} color="#10B981" />
+            </View>
+            <Text style={styles.infoLabel}>Total Revenue</Text>
+            <Text style={styles.infoValue}>{formatCurrency(employeeStats.totalSalesAmount)}</Text>
+          </View>
         </View>
-      </View>
       )}
+
     </ScrollView>
   );
 }

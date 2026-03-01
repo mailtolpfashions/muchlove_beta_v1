@@ -6,19 +6,18 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ScrollView,
 } from 'react-native';
 import { Plus, Trash2, X, Wallet } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
+import { capitalizeWords } from '@/utils/format';
 import { usePayment } from '@/providers/PaymentProvider';
 import { UpiData } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function PaymentsScreen() {
   const { upiList, addUpi, updateUpi, removeUpi, reloadUpi, upiLoading } = usePayment();
@@ -45,9 +44,9 @@ export default function PaymentsScreen() {
     }
     try {
       if (isEditing && editingId) {
-        await updateUpi({ id: editingId, upiId: upiId.trim(), payeeName: payeeName.trim() });
+        await updateUpi({ id: editingId, upiId: upiId.trim(), payeeName: capitalizeWords(payeeName.trim()) });
       } else {
-        await addUpi({ upiId: upiId.trim(), payeeName: payeeName.trim() });
+        await addUpi({ upiId: upiId.trim(), payeeName: capitalizeWords(payeeName.trim()) });
       }
       setShowAdd(false);
       resetForm();
@@ -124,13 +123,7 @@ export default function PaymentsScreen() {
         }
       />
 
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKav}
-          >
-            <View style={styles.modalContent}>
+      <BottomSheetModal visible={showAdd} onRequestClose={() => setShowAdd(false)}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit UPI' : 'Add UPI'}</Text>
                 <TouchableOpacity onPress={() => setShowAdd(false)}>
@@ -159,10 +152,7 @@ export default function PaymentsScreen() {
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add UPI'}</Text>
               </TouchableOpacity>
               </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -239,21 +229,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalKav: {
-    maxHeight: '60%',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
   },
   modalHeader: {
     flexDirection: 'row',

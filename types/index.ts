@@ -43,6 +43,8 @@ export interface SubscriptionPlan {
   name: string;
   durationMonths: number;
   price: number;
+  discountPercent: number;
+  maxCartValue: number;
   createdAt: string;
   _offline?: boolean;
 }
