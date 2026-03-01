@@ -21,6 +21,7 @@ import { useData } from '@/providers/DataProvider';
 import { Service } from '@/types';
 import { formatCurrency, capitalizeWords, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SortPills, { SortOption } from '@/components/SortPills';
 
 const FILTERS = ['All', 'Services', 'Products'];
@@ -28,6 +29,7 @@ const FILTERS = ['All', 'Services', 'Products'];
 export default function InventoryScreen() {
   const { services, addService, updateService, deleteService, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -321,7 +323,7 @@ export default function InventoryScreen() {
                   </TouchableOpacity>
                 </View>
               </ScrollView>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loading}>
+              <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSave} disabled={loading}>
                 {loading ? (
                   <ActivityIndicator color={Colors.surface} />
                 ) : (

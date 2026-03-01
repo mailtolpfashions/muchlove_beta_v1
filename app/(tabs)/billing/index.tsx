@@ -66,7 +66,7 @@ const getDaysUntilExpiry = (sub: CustomerSubscription): number => {
 export default function BillingScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError } = useData();
+  const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError, offlineSalesEnabled, isOffline } = useData();
   const { upiList } = usePayment();
   const { showAlert, showConfirm } = useAlert();
   const { refreshPendingCount } = useOfflineSync();
@@ -512,6 +512,12 @@ export default function BillingScreen() {
         </View>
       )}
 
+      {isOffline && !offlineSalesEnabled && (
+        <View style={[styles.errorBanner, { backgroundColor: '#FFF3E0' }]}>
+          <Text style={[styles.errorBannerText, { color: '#E65100' }]}>Offline sales disabled by admin. Connect to the internet to make sales.</Text>
+        </View>
+      )}
+
       <ScrollView
         style={styles.mainScroll}
         contentContainerStyle={styles.mainContent}
@@ -750,7 +756,7 @@ export default function BillingScreen() {
 
       {/* Sticky footer when items selected but no customer yet */}
       {totalItems > 0 && !selectedCustomer && (
-        <View style={styles.stickyFooter}>
+        <View style={[styles.stickyFooter, { paddingBottom: Spacing.md + insets.bottom }]}>
           <View style={styles.footerInfo}>
             <View style={styles.footerBadge}>
               <ShoppingBag size={14} color={Colors.surface} />
@@ -773,7 +779,7 @@ export default function BillingScreen() {
       {/* Quick Payment FAB */}
       {upiList.length > 0 && totalItems === 0 && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: 20 + insets.bottom }]}
           onPress={() => setShowQuickPayment(true)}
           activeOpacity={0.85}
         >

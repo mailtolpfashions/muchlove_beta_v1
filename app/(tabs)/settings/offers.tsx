@@ -18,6 +18,7 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Offer } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords, formatDateDDMMYYYY, parseDDMMYYYY } from '@/utils/format';
 import DatePickerModal from '@/components/DatePickerModal';
 
@@ -35,6 +36,7 @@ function toDisplayDate(str: string): string {
 export default function OffersScreen() {
   const { offers, addOffer, updateOffer, deleteOffer, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -392,7 +394,7 @@ export default function OffersScreen() {
                 )}
               
               </View>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAdd}>
+              <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Offer'}</Text>
               </TouchableOpacity>
             </ScrollView>

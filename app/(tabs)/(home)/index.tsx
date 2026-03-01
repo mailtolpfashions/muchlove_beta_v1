@@ -21,6 +21,11 @@ import {
   BarChart3,
   Clock,
   Zap,
+  UsersRound,
+  Scissors,
+  UserRoundPlus,
+  AlertTriangle,
+  Star,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BarChart } from 'react-native-chart-kit';
@@ -29,7 +34,7 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { formatCurrency, isToday } from '@/utils/format';
-import { Sale } from '@/types';
+import { Sale, Expense, CustomerSubscription, Customer, SaleItem } from '@/types';
 
 const isThisCalendarMonth = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -39,7 +44,7 @@ const isThisCalendarMonth = (dateStr: string) => {
 
 export default function DashboardScreen() {
   const { user, logout, isAdmin } = useAuth();
-  const { stats, sales, reload, dataLoading, loadError } = useData();
+  const { stats, sales, allExpenses, customerSubscriptions, customers, reload, dataLoading, loadError } = useData();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -120,18 +125,97 @@ export default function DashboardScreen() {
   }, [reload]);
 
   const displayStats = isAdmin ? stats : employeeStats;
+
+  const { monthRevenue, monthCount, monthExpensesTotal } = useMemo(() => {
+    const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
+    return {
+      monthRevenue: monthSales.reduce((sum: number, s: Sale) => sum + s.total, 0),
+      monthCount: monthSales.length,
+      monthExpensesTotal: allExpenses
+        .filter((e: Expense) => isThisCalendarMonth(e.expenseDate))
+        .reduce((sum: number, e: Expense) => sum + e.amount, 0),
+    };
+  }, [sales, allExpenses]);
+
+  const activeSubsCount = useMemo(() =>
+    customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length,
+  [customerSubscriptions]);
+
+  // Subscriptions expiring within 7 days
+  const expiringSubs = useMemo(() => {
+    if (!isAdmin) return [];
+    const now = new Date();
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 7);
+    return customerSubscriptions
+      .filter((s: CustomerSubscription) => {
+        if (s.status !== 'active') return false;
+        const start = new Date(s.startDate);
+        const end = new Date(start);
+        end.setMonth(end.getMonth() + s.planDurationMonths);
+        return end >= now && end <= soon;
+      })
+      .sort((a: CustomerSubscription, b: CustomerSubscription) => {
+        const endA = new Date(a.startDate); endA.setMonth(endA.getMonth() + a.planDurationMonths);
+        const endB = new Date(b.startDate); endB.setMonth(endB.getMonth() + b.planDurationMonths);
+        return endA.getTime() - endB.getTime();
+      });
+  }, [customerSubscriptions, isAdmin]);
+
+  // New customers this month
+  const newCustomersMonth = useMemo(() => {
+    if (!isAdmin) return 0;
+    return customers.filter((c: Customer) => isThisCalendarMonth(c.createdAt)).length;
+  }, [customers, isAdmin]);
+
+  // Most popular services (by frequency) this month
+  const popularServices = useMemo(() => {
+    if (!isAdmin) return [];
+    const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
+    const map: Record<string, { name: string; count: number }> = {};
+    monthSales.forEach((s: Sale) => {
+      s.items.forEach((item: SaleItem) => {
+        if (!map[item.itemId]) map[item.itemId] = { name: item.itemName, count: 0 };
+        map[item.itemId].count += item.quantity;
+      });
+    });
+    return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 5);
+  }, [sales, isAdmin]);
+
+  // Top revenue items this month
+  const topRevenueItems = useMemo(() => {
+    if (!isAdmin) return [];
+    const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
+    const map: Record<string, { name: string; revenue: number }> = {};
+    monthSales.forEach((s: Sale) => {
+      s.items.forEach((item: SaleItem) => {
+        if (!map[item.itemId]) map[item.itemId] = { name: item.itemName, revenue: 0 };
+        map[item.itemId].revenue += item.price * item.quantity;
+      });
+    });
+    return Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  }, [sales, isAdmin]);
+
+  const employeeRevenue = useMemo(() => {
+    if (!isAdmin) return [];
+    const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));
+    const map: Record<string, { name: string; total: number; count: number }> = {};
+    monthSales.forEach((s: Sale) => {
+      if (!map[s.employeeId]) map[s.employeeId] = { name: s.employeeName, total: 0, count: 0 };
+      map[s.employeeId].total += s.total;
+      map[s.employeeId].count += 1;
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [sales, isAdmin]);
+
   const cards = useMemo(() => {
     if (isAdmin) {
       if (!stats) return [];
-      const monthRevenue = sales
-        .filter((s: Sale) => isThisCalendarMonth(s.createdAt))
-        .reduce((sum: number, s: Sale) => sum + s.total, 0);
-      const monthCount = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt)).length;
       return [
         { title: "Today's Sales", value: formatCurrency(stats.todaySalesTotal), subtitle: `${stats.todaySalesCount} transactions`, icon: IndianRupee, color: '#10B981', bg: '#D1FAE5' },
         { title: 'This Month', value: formatCurrency(monthRevenue), subtitle: `${monthCount} sales this month`, icon: TrendingUp, color: '#E91E63', bg: '#FCE4EC' },
-        { title: 'Total Customers', value: stats.totalCustomers.toString(), subtitle: 'Registered customers', icon: Users, color: '#0EA5E9', bg: '#E0F2FE' },
-        { title: 'Subscriptions', value: stats.activeSubscriptions.toString(), subtitle: 'Active subscriptions', icon: Crown, color: '#D4AF37', bg: '#FDF6E3' },
+        { title: 'Month Expenses', value: formatCurrency(monthExpensesTotal), subtitle: `${monthCount} sales this month`, icon: CalendarDays, color: '#EF4444', bg: '#FEE2E2' },
+        { title: 'Net Profit', value: formatCurrency(monthRevenue - monthExpensesTotal), subtitle: monthCount > 0 ? `Avg: ${formatCurrency(monthRevenue / monthCount)}` : 'No sales yet', icon: TrendingUp, color: monthRevenue - monthExpensesTotal >= 0 ? '#10B981' : '#EF4444', bg: monthRevenue - monthExpensesTotal >= 0 ? '#D1FAE5' : '#FEE2E2' },
       ];
     }
     
@@ -140,7 +224,7 @@ export default function DashboardScreen() {
       { title: "My Today's Sales", value: formatCurrency(employeeStats.todaySalesTotal), subtitle: `${employeeStats.todaySalesCount} transactions today`, icon: IndianRupee, color: '#10B981', bg: '#D1FAE5' },
       { title: 'My Transactions', value: employeeStats.todaySalesCount.toString(), subtitle: 'Today', icon: Zap, color: '#8B5CF6', bg: '#EDE9FE' },
     ];
-  }, [isAdmin, stats, employeeStats, sales]);
+  }, [isAdmin, stats, employeeStats, sales, allExpenses, monthRevenue, monthCount, monthExpensesTotal]);
 
   // Only show full-screen spinner on very first load when no cached data exists.
   // Once cache is hydrated (or data arrives), render the dashboard immediately.
@@ -247,17 +331,132 @@ export default function DashboardScreen() {
       )}
 
       {/* Quick overview */}
-      {displayStats && (
+      {isAdmin && (
       <View style={styles.quickInfo}>
         <View style={styles.quickInfoHeader}>
           <Sparkles size={14} color={Colors.accent} />
-          <Text style={styles.quickInfoTitle}>{isAdmin ? 'Quick Overview' : 'My Overview'}</Text>
+          <Text style={styles.quickInfoTitle}>Quick Overview</Text>
+        </View>
+
+        {/* Active Subscriptions */}
+        <View style={styles.overviewRow}>
+          <View style={[styles.overviewIconCircle, { backgroundColor: '#FDF6E3' }]}>
+            <Crown size={14} color="#D4AF37" />
+          </View>
+          <Text style={styles.infoLabel}>Active Subscriptions</Text>
+          <Text style={styles.infoValue}>{activeSubsCount}</Text>
+        </View>
+        <View style={styles.divider} />
+
+        {/* New Customers */}
+        <View style={styles.overviewRow}>
+          <View style={[styles.overviewIconCircle, { backgroundColor: '#E0F2FE' }]}>
+            <UserRoundPlus size={14} color="#0EA5E9" />
+          </View>
+          <Text style={styles.infoLabel}>New Customers (Month)</Text>
+          <Text style={styles.infoValue}>{newCustomersMonth}</Text>
+        </View>
+
+        {/* Expiring Subscriptions */}
+        {expiringSubs.length > 0 && <>
+          {expiringSubs.map((sub: CustomerSubscription, idx: number) => {
+            const endDate = new Date(sub.startDate);
+            endDate.setMonth(endDate.getMonth() + sub.planDurationMonths);
+            const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            return (
+              <React.Fragment key={sub.id}>
+                <View style={styles.divider} />
+                <View style={styles.overviewRow}>
+                  <View style={[styles.overviewIconCircle, { backgroundColor: '#FEE2E2' }]}>
+                    <AlertTriangle size={14} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>{sub.customerName}</Text>
+                    <Text style={{ fontSize: 10, color: Colors.textTertiary }}>{sub.planName}</Text>
+                  </View>
+                  <Text style={[styles.infoValue, { color: daysLeft <= 2 ? '#EF4444' : '#F59E0B' }]}>
+                    {daysLeft <= 0 ? 'Today' : `${daysLeft}d left`}
+                  </Text>
+                </View>
+              </React.Fragment>
+            );
+          })}
+        </>}
+
+        {/* Most Popular Services */}
+        {popularServices.length > 0 && <>
+          {popularServices.map((svc, idx) => (
+            <React.Fragment key={idx}>
+              <View style={styles.divider} />
+              <View style={styles.overviewRow}>
+                <View style={[styles.overviewIconCircle, { backgroundColor: '#FEF3C7' }]}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#F59E0B' }}>#{idx + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoLabel}>{svc.name}</Text>
+                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Most Popular</Text>
+                </View>
+                <Text style={styles.infoValue}>{svc.count}x</Text>
+              </View>
+            </React.Fragment>
+          ))}
+        </>}
+
+        {/* Top Revenue Items */}
+        {topRevenueItems.length > 0 && <>
+          {topRevenueItems.map((item, idx) => (
+            <React.Fragment key={idx}>
+              <View style={styles.divider} />
+              <View style={styles.overviewRow}>
+                <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>#{idx + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoLabel}>{item.name}</Text>
+                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Top Revenue</Text>
+                </View>
+                <Text style={[styles.infoValue, { color: Colors.success }]}>{formatCurrency(item.revenue)}</Text>
+              </View>
+            </React.Fragment>
+          ))}
+        </>}
+
+        {/* Staff Revenue */}
+        {employeeRevenue.length > 0 && <>
+          {employeeRevenue.map((emp, idx) => (
+            <React.Fragment key={idx}>
+              <View style={styles.divider} />
+              <View style={styles.overviewRow}>
+                <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#7C3AED' }}>{emp.name?.charAt(0)?.toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoLabel}>{emp.name}</Text>
+                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>Staff Revenue</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.infoValue, { color: Colors.success }]}>{formatCurrency(emp.total)}</Text>
+                  <Text style={{ fontSize: 10, color: Colors.textTertiary }}>{emp.count} sales</Text>
+                </View>
+              </View>
+            </React.Fragment>
+          ))}
+        </>}
+      </View>
+      )}
+
+      {/* Employee Quick Overview */}
+      {!isAdmin && displayStats && (
+      <View style={styles.quickInfo}>
+        <View style={styles.quickInfoHeader}>
+          <Sparkles size={14} color={Colors.accent} />
+          <Text style={styles.quickInfoTitle}>My Overview</Text>
         </View>
         <View style={styles.overviewRow}>
           <View style={[styles.overviewIconCircle, { backgroundColor: '#EDE9FE' }]}>
             <Clock size={14} color="#7C3AED" />
           </View>
-          <Text style={styles.infoLabel}>{isAdmin ? "Today's Transactions" : "My Transactions"}</Text>
+          <Text style={styles.infoLabel}>My Transactions</Text>
           <Text style={styles.infoValue}>{displayStats.todaySalesCount}</Text>
         </View>
         <View style={styles.divider} />
@@ -265,25 +464,11 @@ export default function DashboardScreen() {
           <View style={[styles.overviewIconCircle, { backgroundColor: '#D1FAE5' }]}>
             <IndianRupee size={14} color="#10B981" />
           </View>
-          <Text style={styles.infoLabel}>{isAdmin ? "Today's Revenue" : "My Revenue"}</Text>
+          <Text style={styles.infoLabel}>My Revenue</Text>
           <Text style={[styles.infoValue, { color: Colors.success }]}>
             {formatCurrency(displayStats.todaySalesTotal)}
           </Text>
         </View>
-        {isAdmin && <>
-          <View style={styles.divider} />
-          <View style={styles.overviewRow}>
-            <View style={[styles.overviewIconCircle, { backgroundColor: '#FCE4EC' }]}>
-              <TrendingUp size={14} color="#E91E63" />
-            </View>
-            <Text style={styles.infoLabel}>Avg Sale Value</Text>
-            <Text style={styles.infoValue}>
-              {displayStats.totalSalesCount > 0
-                ? formatCurrency(displayStats.totalSalesAmount / displayStats.totalSalesCount)
-                : '₹0.00'}
-            </Text>
-          </View>
-        </>}
       </View>
       )}
     </ScrollView>
@@ -297,7 +482,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: Spacing.screen,
-    paddingBottom: Spacing.screenBottom,
+    paddingBottom: 100,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -495,6 +680,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xxl,
     padding: Spacing.lg,
+    marginBottom: Spacing.md,
     shadowColor: Colors.shadow,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
@@ -540,6 +726,19 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.borderLight,
     marginLeft: 44,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Colors.borderLight,
+    marginVertical: Spacing.md,
+  },
+  sectionLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 
   /* Loading */

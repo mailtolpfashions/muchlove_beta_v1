@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   RefreshControl,
   Modal,
+  Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -26,6 +28,8 @@ import {
   Store,
   X,
   ShieldCheck,
+  WifiOff,
+  Receipt,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
@@ -34,16 +38,17 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { APP_AUTHOR, APP_NAME, APP_VERSION, BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
-import { CustomerSubscription } from '@/types';
+import { CustomerSubscription, Expense } from '@/types';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
   const { showConfirm } = useAlert();
-  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, loadError, reload } = useData();
+  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
+  const [togglingOffline, setTogglingOffline] = useState(false);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -76,7 +81,15 @@ export default function SettingsScreen() {
       bg: '#E0F2FE',
       route: '/settings/customers' as const,
     },
-  ], [services.length, users.length, customers.length]);
+    {
+      title: 'Expenses',
+      subtitle: `${allExpenses.length} entries`,
+      icon: Receipt,
+      color: '#EF4444',
+      bg: '#FEE2E2',
+      route: '/settings/expenses' as const,
+    },
+  ], [services.length, users.length, customers.length, allExpenses.length]);
 
   const menuItems = isAdmin ? adminMenuItems : [];
 
@@ -210,6 +223,53 @@ export default function SettingsScreen() {
       {renderSection('SUBSCRIPTIONS', subscriptionMenuItems)}
       {renderSection('OFFERS', offersMenuItems)}
       {isAdmin && renderSection('PAYMENTS', paymentsMenuItems)}
+
+      {/* System — Admin Only */}
+      {isAdmin && (
+        <>
+          <Text style={styles.sectionLabel}>SYSTEM</Text>
+          <View style={styles.menuCard}>
+            <View style={[styles.menuItem, { paddingVertical: 14 }]}>
+              <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
+                <WifiOff size={20} color="#E65100" strokeWidth={2} />
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>Offline Sales</Text>
+                <Text style={styles.menuSubtitle}>
+                  {offlineSalesEnabled
+                    ? 'Staff can make sales without internet'
+                    : 'Sales require internet connection'}
+                </Text>
+              </View>
+              {togglingOffline ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <Switch
+                  value={offlineSalesEnabled}
+                  onValueChange={(val) => {
+                    showConfirm(
+                      val ? 'Enable Offline Sales?' : 'Disable Offline Sales?',
+                      val
+                        ? 'Staff will be able to make sales without internet. Offline sales are synced when back online.'
+                        : 'Staff will NOT be able to make any sales without internet connection.',
+                      async () => {
+                        setTogglingOffline(true);
+                        try {
+                          await setOfflineSalesToggle(val);
+                        } catch {}
+                        setTogglingOffline(false);
+                      },
+                      val ? 'Enable' : 'Disable',
+                    );
+                  }}
+                  trackColor={{ false: Colors.danger, true: Colors.success ?? '#4CAF50' }}
+                  thumbColor={Colors.surface}
+                />
+              )}
+            </View>
+          </View>
+        </>
+      )}
 
       {/* App Info */}
       <Text style={styles.sectionLabel}>APP INFO</Text>

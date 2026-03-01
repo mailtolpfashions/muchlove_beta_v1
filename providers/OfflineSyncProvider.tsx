@@ -20,6 +20,9 @@ import createContextHook from '@nkzw/create-context-hook';
 
 import { supabase } from '@/lib/supabase';
 import { generateId } from '@/utils/hash';
+import { useAuth } from '@/providers/AuthProvider';
+import { startHeartbeat, stopHeartbeat } from '@/utils/heartbeat';
+import { startShadowRetry, stopShadowRetry } from '@/utils/saleShadow';
 import {
   getPendingSales,
   getPendingCount,
@@ -78,6 +81,7 @@ interface SyncResult {
 export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
   const netInfo = useNetInfo();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingMutationCount, setPendingMutationCount] = useState(0);
@@ -117,6 +121,11 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
 
     const { error: saleError } = await supabase.from('sales').insert(saleToInsert);
     if (saleError) throw new Error(`Sale insert: ${saleError.message}`);
+
+    // Mark the sale shadow as synced (server trigger also does this, but belt-and-suspenders)
+    try {
+      await supabase.from('sale_shadows').update({ full_sale_synced: true }).eq('sale_id', saleId);
+    } catch { /* best effort */ }
 
     // Increment customer visit count
     if (saleToInsert.customer_id) {
@@ -295,9 +304,6 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
 
       // 2. Get all pending sales
       const pending = await getPendingSales();
-      if (pending.length === 0) {
-        return result;
-      }
 
       // 3. Upload each sale sequentially (ordering matters for visit counts)
       for (const entry of pending) {
@@ -402,6 +408,18 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
     const sub = AppState.addEventListener('change', handler);
     return () => sub.remove();
   }, [isOffline, syncNow, pendingCount, pendingMutationCount]);
+
+  // ── Heartbeat + Shadow retry ──────────────────────────────────────────────
+  useEffect(() => {
+    if (user?.id) {
+      startHeartbeat(user.id);
+      startShadowRetry();
+    }
+    return () => {
+      stopHeartbeat();
+      stopShadowRetry();
+    };
+  }, [user?.id]);
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
