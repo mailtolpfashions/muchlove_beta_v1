@@ -16,7 +16,6 @@ import { useData } from '@/providers/DataProvider';
 import { Sale, SaleItem, SubscriptionSaleItem } from '@/types';
 import {
   formatCurrency,
-  formatDate,
   formatDateTime,
   formatDateDDMMYYYY,
   isThisMonth,
@@ -158,7 +157,7 @@ export default function SalesScreen() {
     try {
       await openInvoice(sale);
     } catch (e) {
-      console.error(e);
+      // handled by caller
     }
   }, []);
 
@@ -166,7 +165,7 @@ export default function SalesScreen() {
     try {
       await shareInvoice(sale);
     } catch (e) {
-      console.error(e);
+      // handled by caller
     }
   }, []);
 
@@ -186,7 +185,6 @@ export default function SalesScreen() {
       const typeLabel = typeFilters.find(f => f.value === typeFilter)?.label || 'All';
       await shareSalesReport(filteredSales, { dateLabel, paymentLabel, typeLabel });
     } catch (e) {
-      console.error(e);
       showAlert('Error', 'Failed to generate sales report PDF.');
     } finally {
       setDownloading(false);

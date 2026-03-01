@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '@/types';
@@ -69,7 +69,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
-        console.log('[Auth] onAuthStateChange:', event, !!newSession);
 
         // ── TOKEN_REFRESHED ──
         // Success → silently update session, keep user as-is.
@@ -93,7 +92,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // ── SIGNED_OUT ── only honour it when we triggered it.
         if (event === 'SIGNED_OUT') {
           if (explicitLogoutRef.current) {
-            console.log('[Auth] Explicit logout — clearing state');
             setSession(null);
             setUser(null);
             await clearCachedProfile();
@@ -143,7 +141,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           // Token will auto-refresh via onAuthStateChange.
         } catch {
           // Timeout or network error — keep cached profile
-          console.log('[Auth] Session retrieval failed, keeping cached profile');
         }
 
         if (cancelled) return;
@@ -166,13 +163,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             // handle it — don't flash to login on cold start.
           } catch {
             // Profile fetch timed out — keep cached profile
-            console.log('[Auth] Profile fetch failed, keeping cached profile');
           }
         }
         // If no session AND no cache → user truly never logged in → login screen.
         // If no session BUT cache exists → keep showing app (token will refresh).
       } catch (e: any) {
-        console.log('[Auth] Init error:', e?.message || e);
+        // Init error — will show login screen
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -203,7 +199,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         const profile = await fetchProfile(session.user.id, session.user.email ?? '');
         if (!profile || !profile.approved) {
           // Account has been locked by admin / fraud system
-          console.log('Account locked detected during periodic re-check');
           setUser(null);
           setSession(null);
           await clearCachedProfile();
@@ -297,7 +292,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       if (uid) await unregisterPushToken(uid);
       await supabase.auth.signOut();
     } catch (e) {
-      console.log('Logout error:', e);
+      // Logout cleanup error — ignore
     }
   }, [user?.id, clearCachedProfile]);
 

@@ -15,7 +15,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles, UserPlus } from 'lucide-react-native';
+import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles } from 'lucide-react-native';
 import { APP_NAME } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 

@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function PaymentsScreen() {
-  const { upiList, addUpi, updateUpi, removeUpi, reloadUpi, upiLoading } = usePayment();
+  const { upiList, addUpi, updateUpi, removeUpi, reloadUpi } = usePayment();
   const { showAlert, showConfirm } = useAlert();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);

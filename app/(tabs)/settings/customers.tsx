@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,8 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
-  Keyboard,
 } from 'react-native';
-import { Plus, X, Search, Users } from 'lucide-react-native';
+import { Plus, X, Search, Users, ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
@@ -20,8 +19,7 @@ import { Customer } from '@/types';
 import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import SortPills, { SortOption, SortPillOption, visitSortOptions } from '@/components/SortPills';
-import { ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
+import SortPills, { SortOption, visitSortOptions } from '@/components/SortPills';
 import BottomSheetModal from '@/components/BottomSheetModal';
 
 export default function CustomersScreen() {
@@ -30,13 +28,6 @@ export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [kbHeight, setKbHeight] = useState(0);
-
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
-    return () => { show.remove(); hide.remove(); };
-  }, []);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);

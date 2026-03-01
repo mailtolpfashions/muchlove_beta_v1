@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
@@ -47,9 +47,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (isAuthenticated && user?.id) {
-      console.log('[Push] Auth ready, registering for push notifications…');
       registerForNotifications().then((granted) => {
-        console.log('[Push] Permission granted:', granted);
         if (granted) registerPushToken(user.id);
       });
     }

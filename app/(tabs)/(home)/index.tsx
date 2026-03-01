@@ -33,7 +33,7 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { formatCurrency, isToday } from '@/utils/format';
-import { Sale, Expense, CustomerSubscription, Customer, SaleItem } from '@/types';
+import { Sale, Expense, CustomerSubscription, Customer } from '@/types';
 
 const isThisCalendarMonth = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -121,8 +121,6 @@ export default function DashboardScreen() {
     await reload();
     setRefreshing(false);
   }, [reload]);
-
-  const displayStats = isAdmin ? stats : employeeStats;
 
   const { monthRevenue, monthCount, monthExpensesTotal } = useMemo(() => {
     const monthSales = sales.filter((s: Sale) => isThisCalendarMonth(s.createdAt));

@@ -83,7 +83,6 @@ export default function SubscriptionPlansScreen() {
       setDiscountPercent('30');
       setMaxCartValue('2000');
     } catch (e) {
-      console.error(e);
       showAlert('Error', 'Failed to save plan');
     }
   };

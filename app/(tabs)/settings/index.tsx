@@ -38,7 +38,7 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { APP_AUTHOR, APP_NAME, APP_VERSION, BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
-import { CustomerSubscription, Expense } from '@/types';
+import { CustomerSubscription } from '@/types';
 
 export default function SettingsScreen() {
   const router = useRouter();

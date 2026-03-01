@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { ArrowDownAZ, ArrowUpZA, Clock, TrendingUp, TrendingDown, Flame } from 'lucide-react-native';
+import { ArrowDownAZ, ArrowUpZA, TrendingUp, TrendingDown, Flame } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
-import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
+import { FontSize } from '@/constants/typography';
 
 export type SortOption = 'a-z' | 'z-a' | 'recent' | 'visits-high' | 'visits-low';
 

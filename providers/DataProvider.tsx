@@ -1,4 +1,4 @@
-import { PropsWithChildren, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -6,7 +6,7 @@ import { useOfflineQuery } from '@/hooks/useOfflineQuery';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
-import { CustomerSubscription, Sale, Expense, ExpenseCategory } from '@/types';
+import { CustomerSubscription, Sale } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 import { enqueueSale } from '@/utils/offlineQueue';
 import { generateId } from '@/utils/hash';
@@ -15,10 +15,8 @@ import { supabase } from '@/lib/supabase';
 import {
   enqueueMutation,
   getPendingMutations,
-  getPendingMutationCount,
   MutationEntity,
   MutationOperation,
-  OfflineMutation,
 } from '@/utils/offlineMutationQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

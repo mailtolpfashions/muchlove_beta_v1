@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Check, Download, WifiOff } from 'lucide-react-native';

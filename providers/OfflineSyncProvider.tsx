@@ -12,7 +12,7 @@
  * - Integrity verification on each sync cycle
  */
 
-import React, { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { useQueryClient } from '@tanstack/react-query';

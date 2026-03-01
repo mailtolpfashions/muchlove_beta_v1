@@ -320,7 +320,6 @@ export const shareInvoice = async (sale: Sale) => {
     const result = await Print.printToFileAsync({ html });
     uri = result.uri;
   } catch (error) {
-    console.error('Failed to generate invoice PDF:', error);
     throw new Error('Could not generate invoice PDF.');
   }
 
@@ -539,7 +538,6 @@ export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilter
     const result = await Print.printToFileAsync({ html, width: 842, height: 595 });
     uri = result.uri;
   } catch (error) {
-    console.error('PDF generation failed:', error);
     throw new Error('Could not generate PDF. Please try with fewer sales.');
   }
 

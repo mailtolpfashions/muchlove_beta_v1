@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, useWindowDimensions
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Trash2, CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft, CheckCircle } from 'lucide-react-native';
+import { CreditCard, X, Wallet, Smartphone, Percent, Star, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, FontSize, Spacing } from '@/constants/typography';
 import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscription, Combo } from '@/types';

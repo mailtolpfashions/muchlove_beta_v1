@@ -90,7 +90,6 @@ export default function CombosScreen() {
       setShowAdd(false);
       resetForm();
     } catch (e) {
-      console.error(e);
       showAlert('Error', 'Failed to save combo');
     }
   };

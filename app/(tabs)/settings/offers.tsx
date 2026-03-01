@@ -130,7 +130,6 @@ export default function OffersScreen() {
       setShowAdd(false);
       resetForm();
     } catch (e) {
-      console.error(e);
       showAlert('Error', 'Failed to save offer');
     }
   };

@@ -18,17 +18,9 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 import { CustomerSubscription } from '@/types';
 import { randomUUID } from 'expo-crypto';
-import { capitalizeWords, formatCurrency } from '@/utils/format';
+import { capitalizeWords } from '@/utils/format';
 import BillSummary from '@/components/BillSummary';
 import SaleComplete from '@/components/SaleComplete';
-
-// ── Subscription date helpers ──
-const getSubscriptionEndDate = (sub: CustomerSubscription): Date => {
-  const start = new Date(sub.startDate);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + sub.planDurationMonths);
-  return end;
-};
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -58,12 +50,6 @@ export default function CheckoutScreen() {
 
   const comboItemCount = addedCombos.reduce((acc, c) => acc + c.items.length, 0);
   const totalItems = items.length + subs.length + comboItemCount;
-
-  const runningTotal = useMemo(() => {
-    return items.reduce((acc, i) => acc + i.price, 0) +
-      subs.reduce((acc, s) => acc + s.price, 0) +
-      addedCombos.reduce((acc, c) => acc + c.comboPrice, 0);
-  }, [items, subs, addedCombos]);
 
   const handlePlaceOrder = async (total: number, discountAmt: number, discountPercent: number, upiId?: string) => {
     if (!user || !selectedCustomer) {
@@ -126,7 +112,6 @@ export default function CheckoutScreen() {
       resetBill();
       if (result?._offline) refreshPendingCount();
     } catch (error) {
-      console.error(error);
       showAlert('Error', 'Failed to place order');
     }
   };

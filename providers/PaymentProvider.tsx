@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { UpiData } from '@/types';
 import * as supabaseDb from '@/utils/supabaseDb';

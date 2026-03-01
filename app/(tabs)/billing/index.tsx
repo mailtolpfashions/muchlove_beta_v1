@@ -32,7 +32,7 @@ import {
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
-import { Customer, Sale, Service, SubscriptionPlan, Offer, CustomerSubscription, Combo } from '@/types';
+import { Customer, Sale, Service, SubscriptionPlan, CustomerSubscription, Combo } from '@/types';
 import CustomerPicker from '@/components/CustomerPicker';
 import SubscriptionPicker from '@/components/SubscriptionPicker';
 import QuickPayment from '@/components/QuickPayment';
@@ -68,7 +68,7 @@ export default function BillingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { customers, services, subscriptions, offers, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError, offlineSalesEnabled, isOffline } = useData();
+  const { customers, services, subscriptions, combos, customerSubscriptions, sales, addSale, reload, dataLoading, loadError, offlineSalesEnabled, isOffline } = useData();
   const { upiList } = usePayment();
   const { showAlert, showConfirm } = useAlert();
   const { refreshPendingCount } = useOfflineSync();
@@ -81,7 +81,7 @@ export default function BillingScreen() {
   }, [reload]);
 
   const {
-    items, setItems,
+    items,
     subs, setSubs,
     addedCombos,
     selectedCustomer, setSelectedCustomer,
@@ -159,7 +159,6 @@ export default function BillingScreen() {
       setQuickPaySale(result);
       if (result?._offline) refreshPendingCount();
     } catch (error) {
-      console.error(error);
       showAlert('Error', 'Failed to record quick payment');
     }
   };

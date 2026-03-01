@@ -10,10 +10,6 @@ const isExpoGo =
   Constants.appOwnership === 'expo' ||
   (Constants as any).executionEnvironment === 'storeClient';
 
-console.log('[Push] appOwnership:', Constants.appOwnership,
-  '| executionEnvironment:', (Constants as any).executionEnvironment,
-  '| isExpoGo:', isExpoGo);
-
 // Configure how notifications appear when app is in foreground
 try {
   if (!isExpoGo) {
@@ -32,26 +28,17 @@ try {
 }
 
 export async function registerForNotifications(): Promise<boolean> {
-  if (isExpoGo) {
-    console.warn('[Push] Running in Expo Go — notifications not supported');
-    return false;
-  }
+  if (isExpoGo) return false;
   try {
-    console.log('[Push] Requesting notification permissions…');
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
-    console.log('[Push] Existing permission status:', existingStatus);
 
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
-      console.log('[Push] Requested permission, new status:', status);
     }
 
-    if (finalStatus !== 'granted') {
-      console.warn('[Push] Permission not granted:', finalStatus);
-      return false;
-    }
+    if (finalStatus !== 'granted') return false;
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('sales', {
@@ -60,12 +47,10 @@ export async function registerForNotifications(): Promise<boolean> {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#E91E63',
       });
-      console.log('[Push] Android notification channel created');
     }
 
     return true;
-  } catch (error) {
-    console.error('[Push] Failed to register for notifications:', error);
+  } catch {
     return false;
   }
 }
@@ -76,37 +61,23 @@ export async function registerForNotifications(): Promise<boolean> {
  * The Edge Function uses these tokens to send background push notifications.
  */
 export async function registerPushToken(userId: string): Promise<void> {
-  if (isExpoGo) {
-    console.warn('[Push] Running in Expo Go — push token registration skipped');
-    return;
-  }
+  if (isExpoGo) return;
   try {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-    if (!projectId) {
-      console.warn('[Push] No EAS projectId found, skipping push token registration');
-      return;
-    }
+    if (!projectId) return;
 
-    console.log('[Push] Requesting push token with projectId:', projectId);
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-    const token = tokenData.data; // e.g. "ExponentPushToken[xxxx]"
-    console.log('[Push] Got token:', token);
+    const token = tokenData.data;
 
     // Upsert: insert or update if this user+token combo already exists
-    const { error } = await supabase
+    await supabase
       .from('push_tokens')
       .upsert(
         { id: generateId(), user_id: userId, token },
         { onConflict: 'user_id,token' }
       );
-
-    if (error) {
-      console.error('[Push] Failed to save push token:', error.message);
-    } else {
-      console.log('[Push] Token saved to push_tokens table successfully');
-    }
-  } catch (error) {
-    console.error('[Push] Failed to register push token:', error);
+  } catch {
+    // Push token registration failed — non-critical
   }
 }
 
@@ -121,8 +92,8 @@ export async function unregisterPushToken(userId: string): Promise<void> {
       .from('push_tokens')
       .delete()
       .eq('user_id', userId);
-  } catch (error) {
-    console.error('Failed to remove push token:', error);
+  } catch {
+    // Push token removal failed — non-critical
   }
 }
 
@@ -142,7 +113,7 @@ export async function sendSaleNotification(
       },
       trigger: null, // immediate
     });
-  } catch (error) {
-    console.error('Failed to send notification:', error);
+  } catch {
+    // Notification delivery failed — non-critical
   }
 }

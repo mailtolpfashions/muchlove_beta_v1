@@ -85,7 +85,7 @@ function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProp
       await onPayment(parsedAmount, '', note.trim(), 'cash');
       reset();
     } catch (error) {
-      console.error('Payment failed', error);
+      // error propagated to caller
     } finally {
       setLoading(false);
     }
@@ -121,7 +121,7 @@ function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProp
       await onPayment(parsedAmount, upiList[activeUpiIndex]?.id || '', note.trim(), 'gpay');
       reset();
     } catch (error) {
-      console.error('Payment failed', error);
+      // error propagated to caller
     } finally {
       setLoading(false);
     }
