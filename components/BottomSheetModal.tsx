@@ -1,8 +1,12 @@
 import React from 'react';
-import { View, Modal, StyleSheet, ModalProps, DimensionValue } from 'react-native';
+import { View, Modal, StyleSheet, ModalProps, DimensionValue, Dimensions } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, Spacing } from '@/constants/typography';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+/** Minimum gap between the top of the screen and the sheet */
+const TOP_INSET = 44;
 
 interface BottomSheetModalProps extends Omit<ModalProps, 'transparent' | 'animationType'> {
   children: React.ReactNode;
@@ -24,10 +28,17 @@ interface BottomSheetModalProps extends Omit<ModalProps, 'transparent' | 'animat
 export default function BottomSheetModal({ children, maxHeight = '70%', ...rest }: BottomSheetModalProps) {
   const kbHeight = useKeyboardHeight();
 
+  // When keyboard is open, allow the sheet to use all available space above it
+  // instead of being limited by the percentage-based maxHeight.
+  const effectiveMaxHeight: DimensionValue =
+    kbHeight > 0
+      ? SCREEN_HEIGHT - kbHeight - TOP_INSET
+      : maxHeight;
+
   return (
     <Modal animationType="slide" transparent {...rest}>
       <View style={[styles.overlay, kbHeight > 0 && { paddingBottom: kbHeight }]}>
-        <View style={[styles.content, { maxHeight }]}>
+        <View style={[styles.content, { maxHeight: effectiveMaxHeight }]}>
           {children}
         </View>
       </View>

@@ -16,6 +16,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const recheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** True only when the user explicitly taps "Logout". Prevents any
+   *  background event from accidentally clearing UI state. */
+  const explicitLogoutRef = useRef(false);
 
   /** Save profile to AsyncStorage for instant restore on next launch */
   const cacheProfile = useCallback(async (profile: User) => {
@@ -66,35 +69,50 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
-        // Handle invalid refresh token during token refresh
-        if (event === 'TOKEN_REFRESHED' && !newSession) {
-          console.log('Token refresh failed, signing out');
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          await clearCachedProfile();
+        console.log('[Auth] onAuthStateChange:', event, !!newSession);
+
+        // ── TOKEN_REFRESHED ──
+        // Success → silently update session, keep user as-is.
+        // Failure → only log out if the user explicitly triggered it.
+        if (event === 'TOKEN_REFRESHED') {
+          if (newSession) {
+            setSession(newSession);
+          }
+          // If no session, don't kick user out — the cached profile
+          // keeps the UI logged in. The 5-min recheck will catch
+          // truly dead sessions eventually.
           return;
         }
 
-        // Skip profile fetch for SIGNED_IN — login() already handles it.
-        // This avoids a double-fetch that blocks signInWithPassword return.
+        // ── SIGNED_IN ── login() already handles user + session,
+        // so skip to avoid a double profile fetch.
         if (event === 'SIGNED_IN') {
           return;
         }
 
+        // ── SIGNED_OUT ── only honour it when we triggered it.
+        if (event === 'SIGNED_OUT') {
+          if (explicitLogoutRef.current) {
+            console.log('[Auth] Explicit logout — clearing state');
+            setSession(null);
+            setUser(null);
+            await clearCachedProfile();
+            explicitLogoutRef.current = false;
+          }
+          // Ignore SIGNED_OUT from background token failures.
+          return;
+        }
+
+        // ── INITIAL_SESSION / USER_UPDATED / PASSWORD_RECOVERY ──
+        // Only update if we actually have a session + approved profile.
         if (newSession?.user) {
           const profile = await fetchProfile(newSession.user.id, newSession.user.email ?? '');
           if (profile && profile.approved) {
             setSession(newSession);
             setUser(profile);
-          } else {
-            setSession(null);
-            setUser(null);
+            await cacheProfile(profile);
           }
-        } else {
-          setSession(null);
-          setUser(null);
-          await clearCachedProfile();
+          // If profile not approved, don't clear — cached state stays.
         }
       }
     );
@@ -105,16 +123,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         initializeDatabase().catch(() => {});
 
         // ── 1. Instant restore: load cached profile for zero-delay launch ──
+        //    Like FB/Instagram — if we have a cached profile, the user is
+        //    "logged in" immediately. Everything else happens silently.
         const cached = await loadCachedProfile();
         if (!cancelled && cached) {
           setUser(cached);
-          // Don't set isInitialized yet — we'll verify in background
         }
 
-        // ── 2. Get the real session from Supabase Auth ──
+        // ── 2. Try to get the real session from Supabase ──
         let existingSession: Session | null = null;
-        let sessionError: any = null;
-
         try {
           const result = await withTimeout(
             supabase.auth.getSession(),
@@ -122,78 +139,40 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             'Session retrieval',
           );
           existingSession = result.data?.session ?? null;
-          sessionError = result.error;
-        } catch (timeoutErr: any) {
-          // Timeout: if we have a cached profile, let user continue.
-          // Otherwise they'll see the login screen.
-          console.log('Session retrieval slow, proceeding with cached profile:', timeoutErr?.message);
-          if (cached) {
-            // Keep using cached profile
-          }
-          return;
+          // Ignore sessionError — if we have a cache, user stays in.
+          // Token will auto-refresh via onAuthStateChange.
+        } catch {
+          // Timeout or network error — keep cached profile
+          console.log('[Auth] Session retrieval failed, keeping cached profile');
         }
 
         if (cancelled) return;
 
-        // If the stored refresh token is invalid/expired:
-        // - With cached profile: keep it — network may be slow after phone reboot.
-        //   onAuthStateChange will handle TOKEN_REFRESHED or SIGNED_OUT.
-        // - Without cached profile: genuinely not logged in.
-        if (sessionError) {
-          console.log('Session retrieval error:', sessionError.message);
-          if (cached) {
-            console.log('Keeping cached profile while session recovers');
-            return;
-          }
-          try { await supabase.auth.signOut(); } catch (_) {}
-          setUser(null);
-          await clearCachedProfile();
-          return;
-        }
-
         if (existingSession?.user) {
           setSession(existingSession);
 
-          // ── 3. Background profile refresh ──
-          let profile: User | null = null;
+          // Background profile refresh — never blocks, never kicks out
           try {
-            profile = await withTimeout(
+            const profile = await withTimeout(
               fetchProfile(existingSession.user.id, existingSession.user.email ?? ''),
               8000,
               'Profile fetch',
             );
-          } catch (profileErr: any) {
-            // Profile fetch failed/timed out — keep cached profile so user isn't locked out.
-            console.log('Profile fetch slow, keeping cached profile:', profileErr?.message);
-            return;
-          }
-          if (cancelled) return;
-
-          if (profile && profile.approved) {
-            setUser(profile);
-            await cacheProfile(profile);
-          } else {
-            // Account locked or not approved — sign out immediately
-            setUser(null);
-            setSession(null);
-            await clearCachedProfile();
-            try { await supabase.auth.signOut(); } catch (_) {}
-          }
-        } else if (!existingSession) {
-          if (cached) {
-            // Session not available yet (token refresh pending).
-            // Keep cached profile — onAuthStateChange will resolve.
-            console.log('No session yet, keeping cached profile');
-          } else {
-            // No session AND no cache — genuinely not logged in
-            setUser(null);
-            await clearCachedProfile();
+            if (!cancelled && profile && profile.approved) {
+              setUser(profile);
+              await cacheProfile(profile);
+            }
+            // If profile is locked/unapproved, let the 5-min recheck
+            // handle it — don't flash to login on cold start.
+          } catch {
+            // Profile fetch timed out — keep cached profile
+            console.log('[Auth] Profile fetch failed, keeping cached profile');
           }
         }
+        // If no session AND no cache → user truly never logged in → login screen.
+        // If no session BUT cache exists → keep showing app (token will refresh).
       } catch (e: any) {
-        console.log('Auth init error:', e?.message || e);
-        // Don't sign out on unexpected errors — just let user proceed
-        // with cached profile if available
+        console.log('[Auth] Init error:', e?.message || e);
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -307,7 +286,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, []);
 
   const logout = useCallback(async () => {
-    // Unregister push token so this device stops receiving notifications
+    // Mark as explicit so onAuthStateChange honours the SIGNED_OUT event
+    explicitLogoutRef.current = true;
     const uid = user?.id;
     // Clear local state first so the UI navigates to login immediately
     setUser(null);

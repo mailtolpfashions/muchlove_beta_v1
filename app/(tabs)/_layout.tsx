@@ -8,15 +8,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
 import { HeaderRight } from '@/components/HeaderRight';
 import OfflineBanner from '@/components/OfflineBanner';
+import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { isOffline, totalPendingCount, isSyncing } = useOfflineSync();
+  const bannerVisible = isOffline || totalPendingCount > 0 || isSyncing;
 
   return (
     <View style={{ flex: 1 }}>
     <OfflineBanner />
     <Tabs
       screenOptions={{
+        headerStatusBarHeight: bannerVisible ? 0 : undefined,
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textTertiary,
         tabBarStyle: {

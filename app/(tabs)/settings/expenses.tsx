@@ -324,7 +324,7 @@ export default function ExpensesScreen() {
       />
 
       {/* FAB row */}
-      <View style={[styles.fabRow, { bottom: 24 + insets.bottom }]}>
+      <View style={styles.fabRow}>
         <TouchableOpacity style={styles.fabSecondary} onPress={() => setShowCategoryModal(true)}>
           <Tag size={18} color={Colors.primary} />
         </TouchableOpacity>
@@ -385,10 +385,10 @@ export default function ExpensesScreen() {
                   onChangeText={setDescription}
                 />
 
+              </ScrollView>
                 <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom + 12 }]} onPress={handleSaveExpense}>
                   <Text style={styles.saveBtnText}>{editingExpense ? 'Update' : 'Add Expense'}</Text>
                 </TouchableOpacity>
-              </ScrollView>
       </BottomSheetModal>
 
       {/* ── Category Management Modal ── */}

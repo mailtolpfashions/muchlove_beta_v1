@@ -3,12 +3,10 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TouchableOpacity,
   FlatList,
   TextInput,
   Switch,
-  KeyboardAvoidingView,
   ScrollView,
 } from 'react-native';
 import { X, Search, User, PlusCircle } from 'lucide-react-native';
@@ -20,6 +18,7 @@ import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 interface CustomerPickerProps {
   visible: boolean;
@@ -115,10 +114,7 @@ function CustomerPicker({
   }, [customers, searchQuery, sortBy]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <View style={[styles.modalContent, showAddForm && styles.modalContentCompact, { paddingBottom: Math.max(Spacing.modal, insets.bottom + Spacing.md) }]}>
+    <BottomSheetModal visible={visible} onRequestClose={onClose} maxHeight="85%">
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{showAddForm || addOnly ? 'Add Customer' : 'Select Customer'}</Text>
             <TouchableOpacity onPress={onClose}>
@@ -127,6 +123,7 @@ function CustomerPicker({
           </View>
 
           {showAddForm ? (
+            <>
             <ScrollView keyboardShouldPersistTaps="handled">
               <View>
                 <Text style={styles.label}>Name *</Text>
@@ -160,16 +157,17 @@ function CustomerPicker({
                 </View>
               </View>
 
-              <TouchableOpacity style={styles.addButton} onPress={handleAddCustomer}>
-                <Text style={styles.addButtonText}>Add Customer</Text>
-              </TouchableOpacity>
-
               {!addOnly && (
                 <TouchableOpacity style={styles.linkButton} onPress={() => setShowAddForm(false)}>
                   <Text style={styles.linkButtonText}>Or Select an Existing Customer</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
+
+            <TouchableOpacity style={[styles.addButton, { marginBottom: insets.bottom }]} onPress={handleAddCustomer}>
+              <Text style={styles.addButtonText}>Add Customer</Text>
+            </TouchableOpacity>
+            </>
           ) : (
             <>
               <View style={styles.searchBar}>
@@ -220,32 +218,13 @@ function CustomerPicker({
               />
             </>
           )}
-        </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+    </BottomSheetModal>
   );
 }
 
 export default React.memo(CustomerPicker);
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    height: '85%',
-    padding: Spacing.modal,
-  },
-  modalContentCompact: {
-    height: 'auto',
-    maxHeight: '85%',
-  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -75,6 +75,23 @@ export default function StaffScreen() {
     }
   };
 
+  /** Dismiss (delete) all fraud logs for the currently edited user */
+  const dismissFraudLogs = async () => {
+    if (!editingId) return;
+    showConfirm(
+      'Dismiss Alerts',
+      'Are you sure you want to dismiss all fraud alerts for this employee? This cannot be undone.',
+      async () => {
+        try {
+          await supabase.from('fraud_logs').delete().eq('user_id', editingId);
+          setFraudLogs([]);
+        } catch {
+          showAlert('Error', 'Failed to dismiss fraud alerts');
+        }
+      },
+    );
+  };
+
   const handleSaveStaff = async () => {
     if (!name.trim()) {
       showAlert('Error', 'Name is required');
@@ -264,6 +281,9 @@ export default function StaffScreen() {
                   <View style={styles.fraudHeader}>
                     <AlertTriangle size={16} color={Colors.danger} />
                     <Text style={styles.fraudTitle}>Fraud Alerts</Text>
+                    <TouchableOpacity onPress={dismissFraudLogs} style={styles.dismissBtn}>
+                      <Text style={styles.dismissBtnText}>Dismiss All</Text>
+                    </TouchableOpacity>
                   </View>
                   {fraudLogs.map((log, idx) => (
                     <View key={log.id || idx} style={styles.fraudItem}>
@@ -284,10 +304,10 @@ export default function StaffScreen() {
                   ))}
                 </View>
               )}
+              </ScrollView>
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSaveStaff}>
                 <Text style={styles.saveBtnText}>Save Changes</Text>
               </TouchableOpacity>
-              </ScrollView>
       </BottomSheetModal>
     </View>
   );
@@ -525,6 +545,18 @@ const styles = StyleSheet.create({
   },
   fraudTitle: {
     fontSize: FontSize.md,
+    fontWeight: '600' as const,
+    color: Colors.danger,
+    flex: 1,
+  },
+  dismissBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: '#FEE2E2',
+  },
+  dismissBtnText: {
+    fontSize: FontSize.xs ?? 11,
     fontWeight: '600' as const,
     color: Colors.danger,
   },

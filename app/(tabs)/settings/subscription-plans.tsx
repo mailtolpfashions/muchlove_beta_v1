@@ -156,7 +156,7 @@ export default function SubscriptionPlansScreen() {
       />
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: 24 + insets.bottom }]}
+        style={styles.fab}
         onPress={() => {
           setIsEditing(false);
           setEditingId(null);
@@ -172,13 +172,13 @@ export default function SubscriptionPlansScreen() {
       </TouchableOpacity>
 
       <BottomSheetModal visible={showPlanForm} onRequestClose={() => setshowPlanForm(false)}>
-            <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Plan' : 'Add Plan'}</Text>
                 <TouchableOpacity onPress={() => setshowPlanForm(false)}>
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Plan Name</Text>
               <TextInput
                 style={styles.input}
@@ -222,10 +222,10 @@ export default function SubscriptionPlansScreen() {
                 onChangeText={setMaxCartValue}
                 keyboardType="numeric"
               />
+            </ScrollView>
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSavePlan}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Plan'}</Text>
               </TouchableOpacity>
-            </ScrollView>
       </BottomSheetModal>
     </View>
   );
@@ -325,14 +325,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
-    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',

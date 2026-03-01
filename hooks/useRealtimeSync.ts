@@ -66,6 +66,7 @@ export function useRealtimeSync({ currentUserId, isAdmin }: RealtimeSyncOptions 
         { event: '*', schema: 'public' },
         (payload) => {
           const table = payload.table;
+          console.log('[Realtime] Change received:', table, payload.eventType);
           const queryKeys = TABLE_QUERY_MAP[table];
           if (queryKeys) {
             queryKeys.forEach((key) => pendingKeys.current.add(key));
@@ -93,7 +94,9 @@ export function useRealtimeSync({ currentUserId, isAdmin }: RealtimeSyncOptions 
           }
         },
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log('[Realtime] Channel status:', status, err ? `Error: ${err.message}` : '');
+      });
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

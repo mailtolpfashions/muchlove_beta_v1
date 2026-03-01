@@ -148,10 +148,10 @@ export default function PaymentsScreen() {
                 onChangeText={setUpiId}
                 autoCapitalize="none"
               />
+              </ScrollView>
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add UPI'}</Text>
               </TouchableOpacity>
-              </ScrollView>
       </BottomSheetModal>
     </View>
   );

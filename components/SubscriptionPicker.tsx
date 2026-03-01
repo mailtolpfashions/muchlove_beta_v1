@@ -7,8 +7,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Modal,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { Search, X, CheckCircle, Circle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -17,6 +15,7 @@ import { SubscriptionPlan } from '@/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords } from '@/utils/format';
 import { formatCurrency } from '@/utils/format';
+import BottomSheetModal from '@/components/BottomSheetModal';
 
 interface SubscriptionPickerProps {
   visible: boolean;
@@ -75,15 +74,7 @@ function SubscriptionPicker({
   };
 
   return (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={visible}
-      onRequestClose={handleClose}
-    >
-      <View style={styles.overlay}>
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
-      <View style={[styles.modalContainer, { paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md) }]}>
+    <BottomSheetModal visible={visible} onRequestClose={handleClose} maxHeight="80%">
         <View style={styles.header}>
           <Text style={styles.headerText}>Select Subscriptions</Text>
           <TouchableOpacity onPress={handleClose}>
@@ -123,34 +114,19 @@ function SubscriptionPicker({
           ListEmptyComponent={<Text style={styles.emptyText}>No subscriptions found.</Text>}
         />
         <TouchableOpacity
-          style={[styles.addButton, selectedSubs.length === 0 && styles.addButtonDisabled]}
+          style={[styles.addButton, { marginBottom: insets.bottom }, selectedSubs.length === 0 && styles.addButtonDisabled]}
           onPress={handleAdd}
           disabled={selectedSubs.length === 0}
         >
           <Text style={styles.addButtonText}>Add ({selectedSubs.length})</Text>
         </TouchableOpacity>
-      </View>
-      </KeyboardAvoidingView>
-      </View>
-    </Modal>
+    </BottomSheetModal>
   );
 }
 
 export default React.memo(SubscriptionPicker);
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    backgroundColor: Colors.background,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.lg,
-    maxHeight: '80%',
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -338,10 +338,10 @@ export default function CombosScreen() {
                   )}
                 </View>
 
+              </ScrollView>
                 <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                   <Text style={styles.saveBtnText}>{isEditing ? 'Update Combo' : 'Create Combo'}</Text>
                 </TouchableOpacity>
-              </ScrollView>
       </BottomSheetModal>
       <Modal visible={showServicePicker} animationType="slide" transparent>
         <View style={styles.modalOverlay}>

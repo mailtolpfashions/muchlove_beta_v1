@@ -322,13 +322,13 @@ export default function OffersScreen() {
       />
 
       <BottomSheetModal visible={showAdd} onRequestClose={() => setShowAdd(false)} maxHeight="85%">
-            <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Edit Offer' : 'Add Offer'}</Text>
                 <TouchableOpacity onPress={() => setShowAdd(false)}>
                   <X size={22} color={Colors.textSecondary} />
                 </TouchableOpacity>
               </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
               <View>
                 <View style={styles.switchRow}>
                   <Text style={styles.label}>Offer Type</Text>
@@ -397,10 +397,10 @@ export default function OffersScreen() {
                 )}
               
               </View>
+            </ScrollView>
               <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Offer'}</Text>
               </TouchableOpacity>
-            </ScrollView>
       </BottomSheetModal>
     </View>
   );
@@ -559,14 +559,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     color: Colors.textSecondary,
   },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xxl,
-    borderTopRightRadius: BorderRadius.xxl,
-    padding: Spacing.modal,
-    paddingBottom: Spacing.modalBottom,
-    maxHeight: '85%',
-  },
+
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
