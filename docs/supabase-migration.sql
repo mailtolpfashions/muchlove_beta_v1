@@ -322,3 +322,115 @@ END $$;
 -- ═══════════════════════════════════════════════════════════════════════════════
 ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS discount_percent NUMERIC NOT NULL DEFAULT 30;
 ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS max_cart_value NUMERIC NOT NULL DEFAULT 2000;
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- MIGRATION: Fix detect_reinstall() false-positive on innocent reinstalls
+-- The old trigger counted shadows as "unsynced" based solely on full_sale_synced.
+-- But for online sales, the shadow is inserted AFTER the sale, so the
+-- mark_shadow_synced trigger never fires. All online shadows stay unsynced.
+-- Fix: also check if the sale actually exists in the sales table.
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION public.detect_reinstall()
+RETURNS trigger AS $$
+DECLARE
+  prev_install_id TEXT;
+  unsynced_count INTEGER;
+  edge_url TEXT;
+  service_key TEXT;
+  user_name TEXT;
+  fraud_id TEXT;
+BEGIN
+  -- Get the previous heartbeat's install_id for this user
+  SELECT h.install_id INTO prev_install_id
+  FROM device_heartbeats h
+  WHERE h.user_id = NEW.user_id
+    AND h.id != NEW.id
+  ORDER BY h.created_at DESC
+  LIMIT 1;
+
+  -- No previous heartbeat = first time, skip
+  IF prev_install_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Same install_id = no reinstall, skip
+  IF prev_install_id = NEW.install_id THEN
+    RETURN NEW;
+  END IF;
+
+  -- Install ID changed! Check for truly unsynced sale shadows from old install.
+  -- A shadow is only suspicious if full_sale_synced is false AND the sale
+  -- doesn't actually exist in the sales table (handles timing gaps where
+  -- the shadow was sent after the sale INSERT so the trigger missed it).
+  SELECT COUNT(*) INTO unsynced_count
+  FROM sale_shadows s
+  WHERE s.user_id = NEW.user_id
+    AND s.install_id = prev_install_id
+    AND s.full_sale_synced = false
+    AND NOT EXISTS (SELECT 1 FROM sales WHERE sales.id = s.sale_id);
+
+  -- If there are truly unsynced shadows → fraud detected
+  IF unsynced_count > 0 THEN
+    -- Generate a fraud log ID
+    fraud_id := 'fraud_' || gen_random_uuid()::text;
+
+    -- Get user name
+    SELECT p.name INTO user_name
+    FROM profiles p WHERE p.id = NEW.user_id;
+
+    -- Log the fraud event
+    INSERT INTO fraud_logs (id, user_id, reason, details, auto_locked)
+    VALUES (
+      fraud_id,
+      NEW.user_id,
+      'reinstall_unsynced_sales',
+      jsonb_build_object(
+        'old_install_id', prev_install_id,
+        'new_install_id', NEW.install_id,
+        'unsynced_shadow_count', unsynced_count,
+        'user_name', user_name
+      ),
+      true
+    );
+
+    -- Auto-lock the account
+    UPDATE profiles SET approved = false WHERE id = NEW.user_id;
+
+    -- Call fraud alert Edge Function (async, non-blocking)
+    -- ⚠️ REPLACE these with your actual values:
+    edge_url := 'ddaptndonmardgqyemah/functions/v1/push-fraud-alert';
+    service_key := 'YOUR_SUPABASE_SERVICE_ROLE_KEY_HERE';
+
+    BEGIN
+      PERFORM net.http_post(
+        url := edge_url,
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer ' || service_key
+        ),
+        body := jsonb_build_object(
+          'user_id', NEW.user_id,
+          'user_name', user_name,
+          'reason', 'reinstall_unsynced_sales',
+          'unsynced_count', unsynced_count,
+          'old_install_id', prev_install_id,
+          'new_install_id', NEW.install_id
+        )
+      );
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  ELSE
+    -- Reinstall detected but all shadows are accounted for.
+    -- Also mark any remaining false-unsynced shadows as synced (cleanup).
+    UPDATE sale_shadows
+    SET full_sale_synced = true
+    WHERE user_id = NEW.user_id
+      AND install_id = prev_install_id
+      AND full_sale_synced = false
+      AND EXISTS (SELECT 1 FROM sales WHERE sales.id = sale_shadows.sale_id);
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

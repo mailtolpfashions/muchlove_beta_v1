@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { getInstallId } from '@/utils/deviceId';
 import { getPendingCount } from '@/utils/offlineQueue';
 import { getPendingMutationCount } from '@/utils/offlineMutationQueue';
+import { reconcileShadows } from '@/utils/saleShadow';
 
 const HEARTBEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const APP_VERSION = '1.1.5';
@@ -26,6 +27,13 @@ function hbId(): string {
 /** Send a single heartbeat ping */
 async function sendHeartbeat(userId: string): Promise<void> {
   try {
+    // Reconcile shadows before heartbeat so detect_reinstall sees correct state.
+    // This marks shadows as synced when their sale already exists in the sales table,
+    // preventing false-positive fraud detection on reinstall.
+    try {
+      await reconcileShadows();
+    } catch { /* best effort */ }
+
     const [installId, pendingSales, pendingMutations] = await Promise.all([
       getInstallId(),
       getPendingCount(),

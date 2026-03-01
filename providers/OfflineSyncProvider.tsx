@@ -423,6 +423,8 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
   // ── Heartbeat + Shadow retry ──────────────────────────────────────────────
   useEffect(() => {
     if (user?.id) {
+      // Reconcile any stale shadows at startup before first heartbeat
+      reconcileShadows().catch(() => {});
       startHeartbeat(user.id);
       startShadowRetry();
     }

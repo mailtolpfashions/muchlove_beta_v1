@@ -148,14 +148,18 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Install ID changed! Check for unsynced sale shadows from old install
+  -- Install ID changed! Check for truly unsynced sale shadows from old install
+  -- A shadow is only suspicious if full_sale_synced is false AND the sale
+  -- doesn't actually exist in the sales table (handles timing gaps where
+  -- the shadow was sent after the sale INSERT so the trigger missed it)
   SELECT COUNT(*) INTO unsynced_count
   FROM sale_shadows s
   WHERE s.user_id = NEW.user_id
     AND s.install_id = prev_install_id
-    AND s.full_sale_synced = false;
+    AND s.full_sale_synced = false
+    AND NOT EXISTS (SELECT 1 FROM sales WHERE sales.id = s.sale_id);
 
-  -- If there are unsynced shadows → fraud detected
+  -- If there are truly unsynced shadows → fraud detected
   IF unsynced_count > 0 THEN
     -- Generate a fraud log ID
     fraud_id := 'fraud_' || gen_random_uuid()::text;
@@ -207,6 +211,15 @@ BEGIN
       -- Don't fail the heartbeat insert if push notification fails
       NULL;
     END;
+  ELSE
+    -- Reinstall detected but all shadows are accounted for.
+    -- Also mark any remaining false-unsynced shadows as synced (cleanup).
+    UPDATE sale_shadows
+    SET full_sale_synced = true
+    WHERE user_id = NEW.user_id
+      AND install_id = prev_install_id
+      AND full_sale_synced = false
+      AND EXISTS (SELECT 1 FROM sales WHERE sales.id = sale_shadows.sale_id);
   END IF;
 
   RETURN NEW;
