@@ -123,8 +123,9 @@ app/
       _layout.tsx                 # Home stack layout
       index.tsx                   # Dashboard — stats cards, charts, quick overview
     billing/
-      _layout.tsx                 # Billing stack layout
-      index.tsx                   # Core billing flow — service picker, combos, subscriptions, cart, payment
+      _layout.tsx                 # Billing stack layout (wraps BillingProvider for shared cart state)
+      index.tsx                   # Cart screen — service picker, combos, subscriptions, Hot Combos, checkout bar
+      checkout.tsx                # Checkout screen — BillSummary, payment flow, SaleComplete
     sales/
       _layout.tsx                 # Sales stack layout
       index.tsx                   # Sales history — search, filters, invoice download/share
@@ -162,8 +163,11 @@ docs/
   seed-default-users.sql          # Legacy seed SQL (pre-Supabase Auth)
   SUPABASE_SETUP.md               # Supabase configuration guide
   PUSH_NOTIFICATIONS_SETUP.md     # Push notifications deployment guide
-  supabase-migration.sql          # Complete SQL schema (10 tables + RLS + realtime)
+  supabase-migration.sql          # Complete SQL schema (tables + RLS + realtime + fraud fix)
   push-notifications-migration.sql # Push tokens table + DB trigger for background push
+  anti-fraud-migration.sql        # Anti-fraud tables (heartbeats, shadows, fraud_logs) + triggers
+  offline-toggle-migration.sql    # App settings table for admin-controlled offline sales toggle
+  expenses-migration.sql          # Expense categories + expenses tables
 
 hooks/
   useOfflineQuery.ts              # Offline-first query wrapper (AsyncStorage cache)
@@ -175,6 +179,7 @@ lib/
 providers/
   AlertProvider.tsx               # Custom modal-based alert system
   AuthProvider.tsx                # Auth state management (login, signup, logout, session, profile)
+  BillingProvider.tsx             # Shared cart state context for billing tab (cart ↔ checkout)
   DataProvider.tsx                # Central data hub — all CRUD + stats + offline fallback
   OfflineSyncProvider.tsx         # Network-aware sync engine with integrity verification
   PaymentProvider.tsx             # UPI config management
@@ -187,12 +192,15 @@ types/
 
 utils/
   database.ts                     # DB initialization + timeout utility
+  deviceId.ts                     # Install-unique UUID (AsyncStorage, regenerated on reinstall)
   format.ts                       # Currency, date, name, mobile formatting/validation
   hash.ts                         # ID generation (timestamp + random)
+  heartbeat.ts                    # 5-minute device heartbeat to Supabase (fraud detection)
   invoice.ts                      # HTML invoice + sales report generation, PDF print/share, standardized file naming
   notifications.ts                # Push notification setup, local notifications, push token registration/unregistration
   offlineQueue.ts                 # Tamper-proof offline sale queue (blockchain-style hashing)
   offlineMutationQueue.ts          # Generic offline mutation queue for all entity CRUD
+  saleShadow.ts                   # Fire-and-forget sale shadow records (instant fraud proof)
   supabaseDb.ts                   # Complete CRUD for all entities (row mappers + mutations)
 
 supabase/
@@ -250,6 +258,8 @@ interface SubscriptionPlan {
   name: string;
   durationMonths: number;
   price: number;
+  discountPercent: number;  // configurable per-plan (default 30)
+  maxCartValue: number;     // threshold for discount tier (default ₹2000)
   createdAt: string;
 }
 
@@ -347,7 +357,7 @@ interface Combo {
 
 ## 5. Database Schema
 
-Full schema in `docs/supabase-migration.sql` + `docs/push-notifications-migration.sql`. **13 tables total** (10 primary + 2 child + 1 push tokens):
+Full schema in `docs/supabase-migration.sql` + `docs/push-notifications-migration.sql` + `docs/anti-fraud-migration.sql` + `docs/offline-toggle-migration.sql` + `docs/expenses-migration.sql`. **19 tables total**:
 
 ### Tables
 
@@ -395,6 +405,8 @@ id               TEXT PRIMARY KEY
 name             TEXT NOT NULL
 duration_months  INTEGER NOT NULL
 price            NUMERIC NOT NULL
+discount_percent NUMERIC NOT NULL DEFAULT 30   -- configurable per-plan
+max_cart_value   NUMERIC NOT NULL DEFAULT 2000 -- threshold for discount tier
 created_at       TIMESTAMPTZ DEFAULT now()
 ```
 
@@ -506,6 +518,77 @@ UNIQUE(user_id, token)
 - RLS: users manage own tokens; admins can read all
 - Trigger: `on_sale_insert_push` on `sales` INSERT calls `notify_sale_push()` which uses `pg_net` to invoke the Edge Function
 
+#### 14. `device_heartbeats` (anti-fraud)
+```sql
+id                    TEXT PRIMARY KEY
+user_id               UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE
+install_id            TEXT NOT NULL
+pending_sale_count    INTEGER DEFAULT 0
+pending_mutation_count INTEGER DEFAULT 0
+app_version           TEXT
+created_at            TIMESTAMPTZ DEFAULT now()
+```
+- 5-minute periodic pings from the app with install ID
+- Trigger `on_heartbeat_detect_reinstall` fires `detect_reinstall()` to detect install ID changes
+
+#### 15. `sale_shadows` (anti-fraud)
+```sql
+id               TEXT PRIMARY KEY
+sale_id          TEXT NOT NULL
+user_id          UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE
+amount           NUMERIC NOT NULL
+payment_method   TEXT CHECK (payment_method IN ('cash', 'gpay'))
+install_id       TEXT NOT NULL
+created_at       TIMESTAMPTZ DEFAULT now()
+full_sale_synced BOOLEAN DEFAULT false
+```
+- Minimal sale record sent instantly (fire-and-forget) for fraud detection
+- `full_sale_synced` marked `true` by `on_sale_mark_shadow` trigger when full sale arrives
+- Queued in AsyncStorage if offline, retried every 10 seconds
+
+#### 16. `fraud_logs` (anti-fraud)
+```sql
+id          TEXT PRIMARY KEY
+user_id     UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE
+reason      TEXT NOT NULL    -- 'reinstall_unsynced_sales' | 'shadow_mismatch'
+details     JSONB DEFAULT '{}'
+auto_locked BOOLEAN DEFAULT false
+reviewed    BOOLEAN DEFAULT false
+reviewed_by UUID
+reviewed_at TIMESTAMPTZ
+created_at  TIMESTAMPTZ DEFAULT now()
+```
+- Audit trail of all detected fraud events
+- RLS: admin-only access
+
+#### 17. `app_settings` (admin toggle)
+```sql
+key        TEXT PRIMARY KEY
+value      JSONB NOT NULL
+updated_by UUID
+updated_at TIMESTAMPTZ DEFAULT now()
+```
+- Stores admin-controlled settings (e.g., `offline_sales_enabled`)
+- Realtime subscription for instant toggle propagation
+
+#### 18. `expense_categories`
+```sql
+id         TEXT PRIMARY KEY
+name       TEXT NOT NULL
+created_at TIMESTAMPTZ DEFAULT now()
+```
+
+#### 19. `expenses`
+```sql
+id          TEXT PRIMARY KEY
+category_id TEXT REFERENCES expense_categories(id)
+amount      NUMERIC NOT NULL
+note        TEXT
+date        TIMESTAMPTZ DEFAULT now()
+created_by  UUID REFERENCES auth.users(id)
+created_at  TIMESTAMPTZ DEFAULT now()
+```
+
 ### Row Level Security (RLS)
 
 - **profiles**: SELECT for all authenticated users; UPDATE/DELETE for own profile or admin
@@ -514,14 +597,22 @@ UNIQUE(user_id, token)
 
 ### Realtime
 
-All 13 tables are added to the `supabase_realtime` publication for live updates.
+All 19 tables are added to the `supabase_realtime` publication for live updates.
 
 ### Database Triggers
 
 | Trigger | Table | Function | Description |
 |---|---|---|---|
 | `on_auth_user_created` | `auth.users` | `handle_new_user()` | Auto-creates profile on signup |
-| `on_sale_insert_push` | `sales` | `notify_sale_push()` | Calls Edge Function via `pg_net` to send push notifications to admins |
+| `on_sale_insert_push` | `sales` | `notify_sale_push()` | Calls Edge Function via `pg_net` to send push notifications |
+| `on_heartbeat_detect_reinstall` | `device_heartbeats` | `detect_reinstall()` | Detects install ID change, checks for unsynced shadows, auto-locks if fraud detected |
+| `on_sale_mark_shadow` | `sales` | `mark_shadow_synced()` | Marks matching sale shadow as `full_sale_synced = true` |
+
+### Server-side RPC
+
+| Function | Description |
+|---|---|
+| `detect_shadow_mismatch()` | Finds users with 3+ unsynced shadows older than 1 hour, auto-locks + logs fraud |
 
 ### Seed Data
 
@@ -545,6 +636,7 @@ QueryClientProvider
                            └── SafeAreaProvider
                                 └── GestureHandlerRootView
                                      └── <Stack />
+                                          └── billing/_layout wraps BillingProvider
 ```
 
 ### AuthProvider (`providers/AuthProvider.tsx`)
@@ -553,7 +645,7 @@ QueryClientProvider
 
 **State**: `user: User | null`, `session`, `isLoading`, `isInitialized`
 
-**Derived**: `isAuthenticated = !!user && !!session`, `isAdmin = user?.role === 'admin'`
+**Derived**: `isAuthenticated = !!user` (trusts cached profile for reboot resilience), `isAdmin = user?.role === 'admin'`
 
 **Key Functions**:
 
@@ -567,12 +659,16 @@ QueryClientProvider
 
 **Init Sequence**:
 1. Seeds database in background (non-blocking)
-2. Checks existing session with **15s timeout** (does NOT sign out on timeout — preserves valid session for slow networks)
-3. Fetches profile with **8s timeout** (separate try/catch — profile failure doesn't break session)
-4. Clears stale sessions
-5. `onAuthStateChange` — handles `TOKEN_REFRESHED` (signs out if no session), **skips `SIGNED_IN`** (login handles it directly to avoid double fetchProfile)
+2. **Instant restore**: loads cached profile from AsyncStorage for zero-delay launch
+3. Checks existing session with **15s timeout** (does NOT sign out on timeout — preserves valid session for slow networks)
+4. If session error: keeps cached profile (network may be slow after phone reboot); `onAuthStateChange` will handle eventual token refresh or definitive logout
+5. Fetches profile with **8s timeout** (separate try/catch — profile failure doesn’t break session)
+6. If no session AND no cache: genuinely not logged in → login screen
+7. `onAuthStateChange` — handles `TOKEN_REFRESHED` (signs out + clears cache if no session), **skips `SIGNED_IN`** (login handles it directly to avoid double fetchProfile), clears cache on `SIGNED_OUT`
 
-> **Session Resilience**: On timeout, the app stays on the login screen without invalidating the session. This prevents unnecessary logouts on slow/flaky connections (same pattern used by Instagram, Facebook). The next app open will retry session retrieval.
+> **Session Resilience**: After phone reboot, network may be slow and `getSession()` can fail before token refresh completes. The app keeps the cached profile and stays on the main screen. `onAuthStateChange` resolves the session asynchronously. Only an explicit sign-out or failed token refresh redirects to login.
+
+**5-minute profile re-check**: Periodically fetches profile from DB. If `approved = false` (admin locked account), auto-signs-out immediately. Also picks up role changes.
 
 ### DataProvider (`providers/DataProvider.tsx`)
 
@@ -586,6 +682,7 @@ QueryClientProvider
 - **Offline-aware CRUD** — all entity add/update/delete operations catch network errors, enqueue via `offlineMutationQueue`, and apply optimistic cache updates
 - `addSale` wraps mutation with offline fallback — on network error, enqueues via `enqueueSale()`, returns synthetic result with `_offline: true`
 - `createOfflineMutation` — generic wrapper that handles network error → enqueue → optimistic update for any entity
+- **Offline Sales Toggle** — admin-controlled via `app_settings` table. Loads from AsyncStorage cache, fetches from Supabase, subscribes to Realtime for instant propagation. `setOfflineSalesToggle(bool)` persists to both local and remote.
 - `isPendingSync(entity, entityId)` — checks if an entity has a pending offline mutation
 - `isOffline` — network connectivity state from NetInfo
 - `pendingOps` — Map of all pending mutation operations for UI indicators
@@ -604,7 +701,17 @@ Custom modal-based alert system (replaces native Alert). Supports types: `error`
 
 ### OfflineSyncProvider (`providers/OfflineSyncProvider.tsx`)
 
-Watches network via NetInfo. Syncs both offline sales (tamper-proof queue) and generic entity mutations (offlineMutationQueue). See [Offline Sync Architecture](#13-offline-sync-architecture).
+Watches network via NetInfo. Syncs both offline sales (tamper-proof queue) and generic entity mutations (offlineMutationQueue). Also manages **heartbeat** (5-minute device pings) and **shadow retry** (10-second flush of queued sale shadows). Reconciles shadows at startup and before each heartbeat to prevent false-positive fraud detection. See [Offline Sync Architecture](#13-offline-sync-architecture).
+
+### BillingProvider (`providers/BillingProvider.tsx`)
+
+**Pattern**: `@nkzw/create-context-hook`
+
+Shared cart state between billing screens (cart index ↔ checkout). Wrapped at billing `_layout.tsx` level.
+
+**State**: `items` (Service[]), `subs` (SubscriptionPlan[]), `addedCombos` (Combo[]), `selectedCustomer`, `completedSale`
+
+**Functions**: `resetBill()`, `handleAddQuantity()`, `handleSubtractQuantity()`, `handleRemoveCombo()`, `handleRemoveSub()`, `setSelectedCustomer()`, `setSubs()`, `setAddedCombos()`, `setCompletedSale()`
 
 ---
 
@@ -669,6 +776,24 @@ Subscribes to Supabase Realtime `postgres_changes` on **all** tables. Maps table
 - `registerPushToken(userId)` — gets Expo push token via `getExpoPushTokenAsync({ projectId })`, upserts to `push_tokens` table (enables background notifications)
 - `unregisterPushToken(userId)` — deletes all push tokens for user from `push_tokens` table (called on logout)
 
+### `utils/deviceId.ts`
+- Generates a UUID v4 on first launch, persists in AsyncStorage (`@install_id`)
+- Cached in memory after first read
+- On reinstall/data clear, a new ID is generated (enables fraud detection)
+
+### `utils/heartbeat.ts`
+- Sends heartbeat every 5 minutes with `install_id`, pending sale/mutation counts, app version
+- Best-effort: silently fails if offline
+- Runs `reconcileShadows()` before each heartbeat to prevent false-positive fraud detection
+- Also triggers `detect_shadow_mismatch()` RPC on each heartbeat
+
+### `utils/saleShadow.ts`
+- `sendSaleShadow(saleId, userId, amount, paymentMethod)` — fire-and-forget INSERT to `sale_shadows`
+- If offline, queues shadow in AsyncStorage (`@sale_shadow_queue`) for retry
+- `flushShadowQueue()` — attempts to sync all queued shadows (10s retry loop)
+- `startShadowRetry()` / `stopShadowRetry()` — manages the retry interval
+- `reconcileShadows()` — marks shadows as synced when their `sale_id` exists in `sales` table (prevents false-positive fraud alerts)
+
 ### `utils/offlineQueue.ts`
 See [Offline Sync Architecture](#13-offline-sync-architecture).
 
@@ -690,6 +815,7 @@ Complete CRUD for all entities with snake_case↔camelCase row mappers.
 | `offers` | getAll, useAdd, useUpdate, useRemove |
 | `upiConfigs` | getAll, useAdd, useUpdate, useRemove |
 | `combos` | getAll (joins combos + combo_items), useAdd (insert combo + items), useUpdate (delete old items + re-insert), useRemove |
+| `appSettings` | get(key), set(key, value, userId) — admin-controlled settings (e.g., `offline_sales_enabled`) |
 
 `seedSupabaseIfNeeded()` — seeds 2 default services + 2 plans if tables are empty.
 
@@ -704,7 +830,9 @@ Complete CRUD for all entities with snake_case↔camelCase row mappers.
   ├── /login
   ├── /(tabs) (Tab Navigator)
   │     ├── /(home)/index     → Dashboard
-  │     ├── /billing/index    → Billing
+  │     ├── /billing/
+  │     │     ├── index     → Cart (service picker, combos, Hot Combos, checkout bar)
+  │     │     └── checkout  → Checkout (BillSummary, payment, SaleComplete)
   │     ├── /sales/index      → Sales History
   │     └── /settings/
   │           ├── index       → Settings Hub
@@ -713,9 +841,9 @@ Complete CRUD for all entities with snake_case↔camelCase row mappers.
   │           ├── customers   → Customer CRUD (admin only)
   │           ├── subscription-plans    → Plan CRUD (admin only)
   │           ├── customer-subscriptions → Subscription Management (admin only)
-  │           ├── offers      → Offer CRUD (admin only)
+  │           ├── offers      → Offer CRUD (admin only, read-only for employees)
   │           ├── payments    → UPI Config CRUD (all users)
-  │           └── combos      → Combo CRUD (admin only)
+  │           └── combos      → Combo CRUD (admin only, read-only for employees)
   └── +not-found              → 404
 ```
 
@@ -729,7 +857,7 @@ Pink header (`#E91E63`), white tab bar, safe area insets. Settings header condit
 
 ### Root Layout (`app/_layout.tsx`)
 
-- QueryClient config: `staleTime: 5min`, `gcTime: 30min`, `retries: 2`, no `refetchOnWindowFocus`
+- QueryClient config: `staleTime: 10min`, `gcTime: 30min`, `retries: 2`, no `refetchOnWindowFocus`
 - Navigation guard: redirects to `/(tabs)/` if authenticated, `/login` if not
 - Loads **Billabong** custom font
 - Shows `OfflineBanner` above Stack navigator
@@ -759,34 +887,46 @@ Gradient login screen with rose/pink/gold palette. Features:
 - Pull-to-refresh via RefreshControl
 - Error banner with retry button
 
-### Billing (`app/(tabs)/billing/index.tsx` — 1531 lines)
+### Billing Cart (`app/(tabs)/billing/index.tsx` — ~1630 lines)
 
-**Core billing flow** — the largest and most complex screen.
+**Cart screen** — the first screen in the billing tab. Uses `useBilling()` for shared cart state.
 
 **Sections**:
 
 1. **Customer selection** — `CustomerPicker` modal with StudentBadge, SubscriptionBadge, renewal notices
 2. **Subscription add** — integrated into customer card with policy enforcement (see Business Rules)
-3. **Service picker modal** — Search bar, `SortPills` (a-z, z-a, recent/popularity), filter tabs (Services, Products, Combos — nullable/toggleable with `null` = show all), quantity +/- buttons for services/products
-4. **Combo handling** — inline display with savings calculation, combos mixed with services/products in the list
-5. **Cart section** — grouped items with quantities
-6. **BillSummary component** — discount calculation + payment flow
-7. **Quick Payment FAB** (Sparkles icon) — `QuickPayment` modal for walk-in payments
-8. **Sticky footer** — shown when items selected but no customer assigned
+3. **🔥 Hot Combos** — horizontal scrolling section showing popular combos for quick add (visible when no filter active)
+4. **Service picker modal** — Search bar, `SortPills` (a-z, z-a, recent/popularity), filter tabs (Combos, Services, Products — nullable/toggleable with `null` = show all), quantity +/- buttons for services/products
+5. **Combo handling** — inline display with savings calculation, combos mixed with services/products in the list
+6. **Cart section** — grouped items with quantities, Trash2 icon to remove combos
+7. **Quick Payment FAB** (Sparkles icon) — `QuickPayment` modal for walk-in payments (separate `quickPaySale` state to avoid double SaleComplete)
+8. **Sticky checkout footer bar** — shown when items in cart, displays item count + total, taps to navigate to checkout
 
 **Filter tabs**: `FilterTab = 'services' | 'products' | 'combos' | null`
 - Tabs are toggleable — tapping active tab sets it to `null` (show all)
 - Default is `null` (all items shown)
+- **Combos tab listed first** for prominence
+
+### Checkout (`app/(tabs)/billing/checkout.tsx` — ~310 lines)
+
+**Checkout screen** — second screen in billing tab, navigated to from the sticky footer bar.
+
+Uses `useBilling()` for shared cart state. Contains:
+- **Customer bar** (if selected) with name and mobile
+- **BillSummary component** — full discount calculation + payment flow
+- **SaleComplete overlay** — shows on `completedSale` from shared billing context
+- **Empty cart guard** — redirects to cart index if no items
 
 **`handlePlaceOrder`** function:
 - Builds sale object with **proportional combo pricing** — each combo item gets price allocated proportionally from combo total price based on original price ratios
 - Sets `paymentMethod` ('cash' or 'gpay')
 - Calls `addSale` (which may offline-enqueue on network error)
-- Shows `SaleComplete` modal on success
+- Sets `completedSale` in shared context, then `resetBill` after
 
-**`handleQuickPayment`** function:
+**`handleQuickPayment`** (on cart index):
 - Creates sale with `type: 'other'`, `customerName: 'Walk-in Customer'`
 - No customer association required
+- Uses separate `quickPaySale` local state (not shared context) to prevent double SaleComplete trigger
 
 **Key helper functions** (defined outside component):
 - `getSubscriptionEndDate(startDate, durationMonths)` — calculates expiry
@@ -822,8 +962,9 @@ Uses: `openInvoice`, `shareInvoice`, `shareSalesReport`
 - Menu sections (admin-guarded where noted):
   - **MANAGEMENT**: Inventory, Staff, Customers (admin only)
   - **SUBSCRIPTIONS**: Plans, Customer Subscriptions (admin only)
-  - **OFFERS**: Offers, Combos (admin only)
+  - **OFFERS**: Offers, Combos (visible to all, read-only for employees)
   - **PAYMENTS**: UPI (all users)
+  - **ADMIN**: Offline Sales toggle (admin only) — enables/disables offline sales for all users
 - APP INFO section with About Us modal (business name, address, contact, version)
 - Logout button with confirmation dialog
 - Footer: app name + version + author
@@ -840,7 +981,7 @@ Staff management (admin only). Search by name/email. Info banner: "Staff members
 Customer list/CRUD. Search + SortPills (a-z, z-a, recent, visits-high, visits-low). Form: name*, mobile* (10-digit validation). Duplicate mobile check on add. Cards show name, mobile, student tag, visit count.
 
 #### Subscription Plans (`settings/subscription-plans.tsx`)
-Plan CRUD. List with name, duration badge, price (or "FREE"). Discount hint: "Student: 30% off • Under ₹2000: 30% off / Over ₹2000: 20% off". FAB for add. Form: name, duration months, price.
+Plan CRUD. List with name, duration badge, price (or "FREE"). Form: name, duration months, price, discount %, max cart value. Card hint shows configured discount settings.
 
 #### Customer Subscriptions (`settings/customer-subscriptions.tsx`)
 View/manage subscriptions. Search + filter (All/Active/Paused with counts). Cards: customer name, plan name, start date, assigned by. Status toggle (active↔paused) and remove with confirmations. Sorted by start date descending.
@@ -853,11 +994,15 @@ Three offer types:
 
 Form with type selector, name, discount %, type-specific fields. Filter: all/promo/visit/student. Cards show type badge, discount %, details, appliesTo tag, studentOnly tag.
 
+**Employee view**: read-only — can see all offers but add/edit/delete buttons are hidden.
+
 #### Payments (`settings/payments.tsx`)
 UPI config CRUD. Simple list with payee name + UPI ID. Add/edit modal.
 
 #### Combos (`settings/combos.tsx` — 810 lines)
 Combo CRUD. Create combo from services/products via nested service picker modal (search + filter tabs). Validation: ≥2 items required, combo price must be < sum of original prices. Summary: original total, combo price, customer savings. Cards: items as chips with service/product icons + prices, savings badge. Edit replaces all items (delete + re-insert pattern).
+
+**Employee view**: read-only — can see all combos but add/edit/delete buttons are hidden.
 
 ---
 
@@ -872,7 +1017,7 @@ Combo CRUD. Create combo from services/products via nested service picker modal 
 **Discount calculation logic** (memoized):
 
 1. **Service discounts** (applied only to items with `kind === 'service'`, **NOT products**):
-   - If customer has **active subscription**: `max(studentDiscount 30%, priceDiscount(subtotal < ₹2000 → 30%, else 20%))`
+   - If customer has **active subscription**: looks up plan’s `discountPercent` and `maxCartValue` → `max(studentDiscount, plan-configured discount)`
    - Else: find best **offer** matching services + student/visit criteria
    - Offer filtering: `appliesTo` includes services, `studentOnly` matches, `visitCount` rules
 
@@ -978,20 +1123,28 @@ Modal for subscription plan selection. Search by name, FlatList with CheckCircle
 ### Security Rules
 9. **Offline sales**: tamper-proof queue with blockchain-style integrity hashing, **no delete/edit API** — employees cannot tamper with offline sales
 10. **Staff registration**: users self-register, admin must approve `profile.approved = true` before login works
-11. **Employee view restrictions**: dashboard shows only own sales; sales page date filter limited to today+yesterday
+11. **Employee view restrictions**: dashboard shows only own sales; sales page date filter limited to today+yesterday; offers/combos visible but read-only
+
+### Anti-Fraud Rules
+12. **Device heartbeat**: app sends heartbeat every 5 minutes with `install_id` (UUID regenerated on reinstall)
+13. **Sale shadows**: minimal sale record sent instantly on every sale (fire-and-forget), queued if offline and retried every 10s
+14. **Reinstall detection**: `detect_reinstall()` trigger fires when `install_id` changes. Checks for unsynced shadows whose sale doesn’t exist in the sales table. If found → auto-locks account + logs to `fraud_logs` + sends push alert to admin
+15. **Shadow mismatch**: `detect_shadow_mismatch()` RPC finds users with 3+ unsynced shadows older than 1 hour → auto-lock
+16. **Shadow reconciliation**: `reconcileShadows()` runs at app startup and before every heartbeat, marking shadows as synced when their sale exists. Prevents false-positives from timing gaps (shadow sent after sale INSERT)
+17. **Offline sales admin toggle**: admin can enable/disable offline sales for all users via app settings. Propagated in real-time.
 
 ### Validation Rules
-12. **Mobile validation**: Indian format, 10 digits, starts with 6-9
-13. **Name validation**: ≥4 characters, letters and spaces only
+18. **Mobile validation**: Indian format, 10 digits, starts with 6-9
+19. **Name validation**: ≥4 characters, letters and spaces only
 
 ### Payment Rules
-14. **Payment methods**: cash or gpay (UPI); UPI shows QR code carousel with `upi://pay` URI
-15. **Zero total shortcut**: if total ≤ 0 but subtotal > 0 (100% discount), skips payment flow entirely
+20. **Payment methods**: cash or gpay (UPI); UPI shows QR code carousel with `upi://pay` URI
+21. **Zero total shortcut**: if total ≤ 0 but subtotal > 0 (100% discount), skips payment flow entirely
 
 ### Data Rules
-16. **Sale types**: `service`, `subscription`, `other` (quick payment)
-17. **Visit count**: automatically incremented on each sale
-18. **Duplicate mobile check**: prevents adding customer with existing mobile number
+22. **Sale types**: `service`, `subscription`, `other` (quick payment)
+23. **Visit count**: automatically incremented on each sale
+24. **Duplicate mobile check**: prevents adding customer with existing mobile number
 
 ---
 
@@ -1038,6 +1191,13 @@ Offline Mutation Queue (AsyncStorage key: '@offline_mutation_queue')
   → conflict resolution: server-wins when record modified after offline mutation
   → syncs on reconnect alongside sales
   → optimistic UI updates via TanStack Query cache
+
+Anti-Fraud System
+  → Device heartbeat every 5 min (install_id, pending counts, app version)
+  → Sale shadows: instant fire-and-forget sale records
+  → Shadow queue (AsyncStorage key: '@sale_shadow_queue') — retry every 10s
+  → Server: detect_reinstall() trigger, detect_shadow_mismatch() RPC
+  → reconcileShadows() at startup + before every heartbeat
 ```
 
 ---
@@ -1125,8 +1285,10 @@ Server-wins strategy at sync time:
 | Feature | Behavior |
 |---|---|
 | Auto-sync trigger | Network reconnect (2s debounce) + app foreground |
-| Sale upload | `uploadSale(entry)` → inserts sale + sale_items + subscription_sale_items + customer_subscriptions + increments visit_count |
+| Sale upload | `uploadSale(entry)` → inserts sale + sale_items + subscription_sale_items + customer_subscriptions + increments visit_count. Also marks matching shadow as synced. |
 | Mutation upload | `syncMutation(mutation)` → handles add/update/delete per entity table with conflict resolution |
+| Shadow reconciliation | `reconcileShadows()` after sale sync — marks shadows whose sales now exist |
+| Heartbeat + Shadow retry | Started on user login, stopped on unmount. Heartbeat every 5 min, shadow flush every 10s |
 | Concurrency | Sync lock prevents concurrent syncs |
 | Integrity | Verifies integrity chain for sales before upload |
 | Conflict resolution | Server-wins for updates when server record is newer |
@@ -1135,6 +1297,41 @@ Server-wins strategy at sync time:
 | Query refresh | Invalidates affected entity queries after sync |
 
 **Exposed**: `isOffline`, `pendingCount`, `pendingMutationCount`, `totalPendingCount`, `isSyncing`, `lastSyncResult`, `syncNow()`, `refreshPendingCount()`
+
+### Anti-Fraud Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ DEVICE (React Native App)                                │
+│                                                          │
+│  Sale Made → sendSaleShadow() ─── fire-and-forget ───┐   │
+│                                  (queues if offline)   │   │
+│  Every 5 min → reconcileShadows() + sendHeartbeat() ─┐ │   │
+│                                                     │ │   │
+│  install_id = UUID in AsyncStorage (new on reinstall)│ │   │
+└─────────────────────────────────────────────────┤ │   │
+                                                       │ │   │
+┌─────────────────────────────────────────────────┤ │   │
+│ SUPABASE (PostgreSQL + Edge Functions)                │ │   │
+│                                                       │ │   │
+│  device_heartbeats ── detect_reinstall() trigger ────┘ │   │
+│    └ install_id changed?                                │   │
+│    └ unsynced shadows without matching sale? → FRAUD   │   │
+│    └ auto-lock profile + fraud_log + push alert        │   │
+│                                                       │   │
+│  sale_shadows ───────────────────────────────────┘   │
+│    └ mark_shadow_synced() trigger on sales INSERT        │
+│    └ detect_shadow_mismatch() RPC: 3+ unsynced > 1hr──┘
+│                                                         │
+│  fraud_logs ─ audit trail, admin dashboard               │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key design decisions**:
+- Shadows are sent for **every sale** (online and offline), not just offline ones
+- Reinstall detection checks `NOT EXISTS (SELECT 1 FROM sales WHERE sales.id = s.sale_id)` — shadows with matching sales are not suspicious (handles timing gaps)
+- On innocent reinstall, stale shadows are auto-cleaned up in the `ELSE` branch
+- `reconcileShadows()` runs proactively (startup + before heartbeat) so the server sees correct state
 
 ---
 
@@ -1237,11 +1434,14 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
    EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
    EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...your-anon-key
    ```
-5. Run `docs/supabase-migration.sql` in the Supabase SQL Editor (creates all 13 tables + RLS + triggers + realtime)
+5. Run `docs/supabase-migration.sql` in the Supabase SQL Editor (creates all tables + RLS + triggers + realtime + fraud fix)
 6. Run `docs/push-notifications-migration.sql` in the SQL Editor (creates push_tokens table + sale trigger — replace `<YOUR_SUPABASE_URL>` and `<YOUR_SERVICE_ROLE_KEY>` placeholders first)
-7. Enable `pg_net` extension: Dashboard → Database → Extensions → search `pg_net` → Enable
-8. Deploy Edge Function: `npx supabase functions deploy push-sale-notification --no-verify-jwt`
-9. App auto-seeds default services and subscription plans on first launch
+7. Run `docs/anti-fraud-migration.sql` in the SQL Editor (creates heartbeat, shadow, fraud_logs tables + detection triggers)
+8. Run `docs/offline-toggle-migration.sql` in the SQL Editor (creates app_settings table)
+9. Run `docs/expenses-migration.sql` in the SQL Editor (creates expense_categories + expenses tables)
+10. Enable `pg_net` extension: Dashboard → Database → Extensions → search `pg_net` → Enable
+11. Deploy Edge Function: `npx supabase functions deploy push-sale-notification --no-verify-jwt`
+12. App auto-seeds default services and subscription plans on first launch
 
 See `docs/PUSH_NOTIFICATIONS_SETUP.md` for detailed push notification setup instructions.
 
@@ -1302,6 +1502,15 @@ Generates `icon.png`, `adaptive-icon.png`, `favicon.png`, `splash-icon.png` in `
 - ✅ Session timeout resilience (15s timeout, no sign-out on timeout)
 - ✅ Safe area insets fix for billing modal (navigation bar overlap)
 - ✅ Performance optimization (25 files — memoization, virtualization, reduced re-renders)
+- ✅ Anti-fraud system (device heartbeats, sale shadows, reinstall detection, auto-lock)
+- ✅ Admin-controlled offline sales toggle (real-time propagation)
+- ✅ Checkout screen split (cart ↔ checkout as separate screens with shared BillingProvider)
+- ✅ 🔥 Hot Combos quick-access section on billing front page
+- ✅ Configurable subscription discounts (per-plan `discountPercent` + `maxCartValue`)
+- ✅ Offers/Combos visible (read-only) for employees in settings
+- ✅ Session restore fix (cached profile kept on phone reboot, no false login screen)
+- ✅ Reinstall false-positive fix (SQL trigger checks sales table, reconcileShadows before heartbeat)
+- ✅ Expense categories and expenses tables (migration)
 
 ### Planned
 - 🔮 OTP validation via WhatsApp
