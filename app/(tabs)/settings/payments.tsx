@@ -18,10 +18,12 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { usePayment } from '@/providers/PaymentProvider';
 import { UpiData } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PaymentsScreen() {
   const { upiList, addUpi, updateUpi, removeUpi, reloadUpi, upiLoading } = usePayment();
   const { showAlert, showConfirm } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -153,7 +155,7 @@ export default function PaymentsScreen() {
                 onChangeText={setUpiId}
                 autoCapitalize="none"
               />
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAdd}>
+              <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add UPI'}</Text>
               </TouchableOpacity>
               </ScrollView>

@@ -1,16 +1,44 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
 import { initializeDatabase, withTimeout } from '@/utils/database';
 import { unregisterPushToken } from '@/utils/notifications';
 import type { Session } from '@supabase/supabase-js';
 
+const CACHED_PROFILE_KEY = '@cached_profile';
+const PROFILE_RECHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const recheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** Save profile to AsyncStorage for instant restore on next launch */
+  const cacheProfile = useCallback(async (profile: User) => {
+    try {
+      await AsyncStorage.setItem(CACHED_PROFILE_KEY, JSON.stringify(profile));
+    } catch { /* best effort */ }
+  }, []);
+
+  /** Clear cached profile (on logout) */
+  const clearCachedProfile = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(CACHED_PROFILE_KEY);
+    } catch { /* best effort */ }
+  }, []);
+
+  /** Load cached profile for instant app launch */
+  const loadCachedProfile = useCallback(async (): Promise<User | null> => {
+    try {
+      const json = await AsyncStorage.getItem(CACHED_PROFILE_KEY);
+      if (json) return JSON.parse(json) as User;
+    } catch { /* best effort */ }
+    return null;
+  }, []);
 
   /** Fetch the profile row for a given auth user ID */
   const fetchProfile = useCallback(async (authUserId: string, email: string): Promise<User | null> => {
@@ -74,9 +102,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // Run seeding in background — don't block auth init
         initializeDatabase().catch(() => {});
 
-        // Check for existing Supabase Auth session.
-        // Use a generous timeout — AsyncStorage can be slow on some devices,
-        // especially after caching a lot of offline data.
+        // ── 1. Instant restore: load cached profile for zero-delay launch ──
+        const cached = await loadCachedProfile();
+        if (!cancelled && cached) {
+          setUser(cached);
+          // Don't set isInitialized yet — we'll verify in background
+        }
+
+        // ── 2. Get the real session from Supabase Auth ──
         let existingSession: Session | null = null;
         let sessionError: any = null;
 
@@ -89,10 +122,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           existingSession = result.data?.session ?? null;
           sessionError = result.error;
         } catch (timeoutErr: any) {
-          // Timeout: don't sign out — just proceed without session.
-          // The user can still log in manually. This avoids clearing
-          // a valid session just because AsyncStorage was slow.
-          console.log('Session retrieval slow, proceeding without session:', timeoutErr?.message);
+          // Timeout: if we have a cached profile, let user continue.
+          // Otherwise they'll see the login screen.
+          console.log('Session retrieval slow, proceeding with cached profile:', timeoutErr?.message);
+          if (cached) {
+            // Keep using cached profile
+          }
           return;
         }
 
@@ -102,10 +137,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (sessionError) {
           console.log('Session retrieval error (clearing stale session):', sessionError.message);
           try { await supabase.auth.signOut(); } catch (_) {}
+          setUser(null);
+          await clearCachedProfile();
           return;
         }
 
         if (existingSession?.user) {
+          setSession(existingSession);
+
+          // ── 3. Background profile refresh ──
           let profile: User | null = null;
           try {
             profile = await withTimeout(
@@ -114,25 +154,31 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
               'Profile fetch',
             );
           } catch (profileErr: any) {
-            // Profile fetch failed/timed out — still set session so user isn't locked out.
-            // They'll see data when connectivity improves.
-            console.log('Profile fetch slow, setting session without profile:', profileErr?.message);
-            setSession(existingSession);
+            // Profile fetch failed/timed out — keep cached profile so user isn't locked out.
+            console.log('Profile fetch slow, keeping cached profile:', profileErr?.message);
             return;
           }
           if (cancelled) return;
+
           if (profile && profile.approved) {
-            setSession(existingSession);
             setUser(profile);
+            await cacheProfile(profile);
           } else {
-            // Not approved – sign them out silently
+            // Account locked or not approved — sign out immediately
+            setUser(null);
+            setSession(null);
+            await clearCachedProfile();
             try { await supabase.auth.signOut(); } catch (_) {}
           }
+        } else if (!existingSession) {
+          // No session at all — clear cached profile too
+          setUser(null);
+          await clearCachedProfile();
         }
       } catch (e: any) {
         console.log('Auth init error:', e?.message || e);
-        // Don't sign out on unexpected errors — just let user proceed to login
-        // This prevents clearing valid sessions due to transient issues
+        // Don't sign out on unexpected errors — just let user proceed
+        // with cached profile if available
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -146,7 +192,45 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [fetchProfile, loadCachedProfile, cacheProfile, clearCachedProfile]);
+
+  // ── 5-minute profile re-check: detect account lock / role change ──
+  useEffect(() => {
+    // Clear previous interval
+    if (recheckIntervalRef.current) {
+      clearInterval(recheckIntervalRef.current);
+      recheckIntervalRef.current = null;
+    }
+
+    if (!session?.user || !user) return;
+
+    recheckIntervalRef.current = setInterval(async () => {
+      try {
+        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+        if (!profile || !profile.approved) {
+          // Account has been locked by admin / fraud system
+          console.log('Account locked detected during periodic re-check');
+          setUser(null);
+          setSession(null);
+          await clearCachedProfile();
+          try { await supabase.auth.signOut(); } catch (_) {}
+        } else {
+          // Update profile with latest data (role changes, etc.)
+          setUser(profile);
+          await cacheProfile(profile);
+        }
+      } catch {
+        // Network error during re-check — ignore, keep current session
+      }
+    }, PROFILE_RECHECK_INTERVAL);
+
+    return () => {
+      if (recheckIntervalRef.current) {
+        clearInterval(recheckIntervalRef.current);
+        recheckIntervalRef.current = null;
+      }
+    };
+  }, [session?.user?.id, user?.id, fetchProfile, cacheProfile, clearCachedProfile]);
 
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string; pendingApproval?: boolean }> => {
     try {
@@ -171,6 +255,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         }
         setSession(data.session);
         setUser(profile);
+        await cacheProfile(profile);
         return { success: true };
       }
 
@@ -212,13 +297,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     // Clear local state first so the UI navigates to login immediately
     setUser(null);
     setSession(null);
+    await clearCachedProfile();
     try {
       if (uid) await unregisterPushToken(uid);
       await supabase.auth.signOut();
     } catch (e) {
       console.log('Logout error:', e);
     }
-  }, [user?.id]);
+  }, [user?.id, clearCachedProfile]);
 
   /** Refresh profile from DB (call after role changes, etc.) */
   const refreshProfile = useCallback(async () => {

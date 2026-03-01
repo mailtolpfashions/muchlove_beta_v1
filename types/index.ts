@@ -139,3 +139,21 @@ export interface Combo {
   createdAt: string;
   _offline?: boolean;
 }
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface Expense {
+  id: string;
+  categoryId: string | null;
+  categoryName: string;
+  amount: number;
+  description: string;
+  expenseDate: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+}

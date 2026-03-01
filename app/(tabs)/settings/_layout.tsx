@@ -36,6 +36,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="payments" options={{ title: 'Payments' }} />
       <Stack.Screen name="inventory" options={{ title: 'Inventory' }} />
       <Stack.Screen name="subscription-plans" options={{ title: 'Subscription Plans' }} />
+      <Stack.Screen name="expenses" options={{ title: 'Expenses' }} />
     </Stack>
   );
 }

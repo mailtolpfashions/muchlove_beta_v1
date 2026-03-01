@@ -21,12 +21,14 @@ import { useData } from '@/providers/DataProvider';
 import { Customer } from '@/types';
 import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SortPills, { SortOption, SortPillOption, visitSortOptions } from '@/components/SortPills';
 import { ArrowDownAZ, ArrowUpZA, Clock } from 'lucide-react-native';
 
 export default function CustomersScreen() {
   const { customers, addCustomer, updateCustomer, reload } = useData();
   const { showAlert } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -247,7 +249,7 @@ export default function CustomersScreen() {
                   />
                 </View>
               </ScrollView>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAdd} disabled={loading}>
+              <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd} disabled={loading}>
                 {loading ? (
                   <ActivityIndicator color={Colors.surface} />
                 ) : (

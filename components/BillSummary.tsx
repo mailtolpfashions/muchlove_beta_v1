@@ -10,6 +10,8 @@ import { Service, SubscriptionPlan, UpiData, Customer, Offer, CustomerSubscripti
 import { formatCurrency, capitalizeWords } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useOfflineSync } from '@/providers/OfflineSyncProvider';
+import { useData } from '@/providers/DataProvider';
 
 interface BillSummaryProps {
   items: Service[];
@@ -170,8 +172,27 @@ function BillSummary({
     onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent), upiList[activeUpiIndex]?.id);
   };
 
+  const { isOffline } = useOfflineSync();
+  const { offlineSalesEnabled } = useData();
+  const salesBlockedOffline = isOffline && !offlineSalesEnabled;
+
   const handleMethodConfirm = () => {
+    // If offline sales are disabled by admin and we're offline, block everything
+    if (salesBlockedOffline) {
+      showAlert(
+        'Offline Sales Disabled',
+        'Offline sales have been disabled by your admin. Please connect to the internet to make sales.',
+      );
+      return;
+    }
     if (selectedMethod === 'cash') {
+      if (isOffline) {
+        showAlert(
+          'Internet Required',
+          'Cash sales require an internet connection to prevent fraud. Please connect to Wi-Fi/mobile data, or use UPI payment.',
+        );
+        return;
+      }
       handleCashPayment();
     } else {
       if (upiList.length === 0) {

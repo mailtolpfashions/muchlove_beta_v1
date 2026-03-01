@@ -13,6 +13,8 @@ import type {
   UpiData,
   Combo,
   ComboItem,
+  ExpenseCategory,
+  Expense,
 } from '@/types';
 import { generateId } from '@/utils/hash';
 
@@ -26,6 +28,8 @@ function mapCustomerSubscription(r: Record<string, unknown>): CustomerSubscripti
 function mapOffer(r: Record<string, unknown>): Offer { return { id: r.id as string, name: r.name as string, percent: Number(r.percent), visitCount: r.visit_count != null ? Number(r.visit_count) : undefined, startDate: r.start_date as string | undefined, endDate: r.end_date as string | undefined, appliesTo: (r.applies_to as Offer['appliesTo']) || 'both', studentOnly: !!r.student_only, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapUpiData(r: Record<string, unknown>): UpiData { return { id: r.id as string, upiId: r.upi_id as string, payeeName: r.payee_name as string }; }
 function mapComboItem(r: Record<string, unknown>): ComboItem { return { id: r.id as string, serviceId: r.service_id as string, serviceName: r.service_name as string, serviceKind: (r.service_kind as ComboItem['serviceKind']) ?? 'service', originalPrice: Number(r.original_price) }; }
+function mapExpenseCategory(r: Record<string, unknown>): ExpenseCategory { return { id: r.id as string, name: r.name as string, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
+function mapExpense(r: Record<string, unknown>): Expense { return { id: r.id as string, categoryId: (r.category_id as string) ?? null, categoryName: r.category_name as string, amount: Number(r.amount), description: (r.description as string) ?? '', expenseDate: r.expense_date as string, createdBy: (r.created_by as string) ?? '', createdByName: (r.created_by_name as string) ?? '', createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapSaleRow(r: Record<string, unknown>): Omit<Sale, 'items' | 'subscriptionItems'> { return { id: r.id as string, customerId: r.customer_id as string, customerName: r.customer_name as string, employeeId: r.employee_id as string, employeeName: r.employee_name as string, type: r.type as Sale['type'], paymentMethod: r.payment_method as Sale['paymentMethod'], subtotal: Number(r.subtotal), discountPercent: Number(r.discount_percent) ?? 0, discountAmount: Number(r.discount_amount) ?? 0, total: Number(r.total), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapSaleItem(r: Record<string, unknown>): SaleItem {
   const item: SaleItem = {
@@ -59,11 +63,15 @@ export const users = {
   useUpdate: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (user: Pick<User, 'id' | 'name' | 'role'>) => {
-        const { error } = await supabase.from('profiles').update({
+      mutationFn: async (user: Pick<User, 'id' | 'name' | 'role'> & { approved?: boolean }) => {
+        const updateData: Record<string, any> = {
           name: user.name,
           role: user.role,
-        }).eq('id', user.id);
+        };
+        if (user.approved !== undefined) {
+          updateData.approved = user.approved;
+        }
+        const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['users'] }); if (onSuccess) await onSuccess(); }
@@ -572,3 +580,113 @@ export async function seedSupabaseIfNeeded(): Promise<void> {
   ];
   await supabase.from('subscription_plans').insert(defaultPlans);
 }
+
+// ── Expense Categories ─────────────────────────────────────────────────
+
+export const expenseCategories = {
+  getAll: async (): Promise<ExpenseCategory[]> => {
+    const { data, error } = await supabase.from('expense_categories').select('*').order('created_at', { ascending: true });
+    if (error) throw error;
+    return data.map(mapExpenseCategory);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (name: string) => {
+        const { data, error } = await supabase.from('expense_categories').insert({ name: name.trim() }).select().single();
+        if (error) throw error;
+        return mapExpenseCategory(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['expenseCategories'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('expense_categories').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['expenseCategories'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── Expenses ──────────────────────────────────────────────────────────
+
+export const expenses = {
+  getAll: async (): Promise<Expense[]> => {
+    const { data, error } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false });
+    if (error) throw error;
+    return data.map(mapExpense);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (expense: { categoryId: string; categoryName: string; amount: number; description: string; expenseDate: string; createdBy: string; createdByName: string }) => {
+        const row = {
+          category_id: expense.categoryId,
+          category_name: expense.categoryName,
+          amount: expense.amount,
+          description: expense.description,
+          expense_date: expense.expenseDate,
+          created_by: expense.createdBy,
+          created_by_name: expense.createdByName,
+        };
+        const { data, error } = await supabase.from('expenses').insert(row).select().single();
+        if (error) throw error;
+        return mapExpense(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['expenses'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (expense: { id: string; categoryId: string; categoryName: string; amount: number; description: string; expenseDate: string }) => {
+        const { error } = await supabase.from('expenses').update({
+          category_id: expense.categoryId,
+          category_name: expense.categoryName,
+          amount: expense.amount,
+          description: expense.description,
+          expense_date: expense.expenseDate,
+        }).eq('id', expense.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['expenses'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('expenses').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['expenses'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── App Settings ─────────────────────────────────────────────────────────
+
+export const appSettings = {
+  /** Get a single setting value by key */
+  get: async (key: string): Promise<any> => {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.value ?? null;
+  },
+  /** Upsert a setting (admin only) */
+  set: async (key: string, value: any, userId?: string): Promise<void> => {
+    const { error } = await supabase.from('app_settings').upsert(
+      { key, value, updated_at: new Date().toISOString(), updated_by: userId ?? null },
+      { onConflict: 'key' },
+    );
+    if (error) throw error;
+  },
+};

@@ -6,10 +6,12 @@ import { useOfflineQuery } from '@/hooks/useOfflineQuery';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
-import { CustomerSubscription, Sale } from '@/types';
+import { CustomerSubscription, Sale, Expense, ExpenseCategory } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 import { enqueueSale } from '@/utils/offlineQueue';
 import { generateId } from '@/utils/hash';
+import { sendSaleShadow } from '@/utils/saleShadow';
+import { supabase } from '@/lib/supabase';
 import {
   enqueueMutation,
   getPendingMutations,
@@ -118,6 +120,58 @@ export const [DataProvider, useData] = createContextHook(() => {
   const queryClient = useQueryClient();
   const isOffline = netInfo.isConnected === false;
 
+  // ── Offline Sales Toggle (admin-controlled) ─────────────────────────────
+  const [offlineSalesEnabled, setOfflineSalesEnabled] = useState<boolean>(true);
+
+  // Load from AsyncStorage on mount, then fetch from Supabase, then subscribe to Realtime
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const init = async () => {
+      // 1. Instant restore from cache
+      try {
+        const cached = await AsyncStorage.getItem('@app_setting:offline_sales_enabled');
+        if (cached !== null) setOfflineSalesEnabled(JSON.parse(cached));
+      } catch { /* best effort */ }
+
+      // 2. Fetch latest from Supabase
+      try {
+        const value = await supabaseDb.appSettings.get('offline_sales_enabled');
+        if (value !== null) {
+          setOfflineSalesEnabled(value === true);
+          await AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(value === true));
+        }
+      } catch { /* offline — use cached */ }
+
+      // 3. Subscribe to Realtime for instant updates
+      channel = supabase
+        .channel('app-settings-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'app_settings', filter: 'key=eq.offline_sales_enabled' },
+          (payload) => {
+            const newValue = (payload.new as any)?.value === true;
+            setOfflineSalesEnabled(newValue);
+            AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(newValue)).catch(() => {});
+          },
+        )
+        .subscribe();
+    };
+
+    init();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
+  /** Toggle offline sales (admin only) */
+  const setOfflineSalesToggle = useCallback(async (enabled: boolean) => {
+    setOfflineSalesEnabled(enabled);
+    await AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(enabled));
+    await supabaseDb.appSettings.set('offline_sales_enabled', enabled, user?.id);
+  }, [user?.id]);
+
   // Pending mutation tracking for UI indicators
   const [pendingOps, setPendingOps] = useState<Map<string, MutationOperation>>(new Map());
 
@@ -156,9 +210,28 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll);
   const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll);
   const { data: combos = [], isLoading: combosLoading, error: combosError, refetch: refetchCombos } = useOfflineQuery(['combos'], supabaseDb.combos.getAll);
+  const { data: expenseCategories = [], isLoading: expCatLoading, error: expCatError, refetch: refetchExpCat } = useOfflineQuery(['expenseCategories'], supabaseDb.expenseCategories.getAll);
+  const { data: allExpenses = [], isLoading: expensesLoading, error: expensesError, refetch: refetchExpenses } = useOfflineQuery(['expenses'], supabaseDb.expenses.getAll);
 
   const { mutateAsync: updateUser } = supabaseDb.users.useUpdate();
   const { mutateAsync: deleteUser } = supabaseDb.users.useRemove();
+
+  // ── Expense Categories ─────────────────────────────────────────────────
+  const { mutateAsync: addExpenseCategory } = supabaseDb.expenseCategories.useAdd();
+  const { mutateAsync: deleteExpenseCategory } = supabaseDb.expenseCategories.useRemove();
+
+  // ── Expenses ─────────────────────────────────────────────────────────
+  const { mutateAsync: _addExpense } = supabaseDb.expenses.useAdd();
+  const { mutateAsync: updateExpense } = supabaseDb.expenses.useUpdate();
+  const { mutateAsync: deleteExpense } = supabaseDb.expenses.useRemove();
+
+  const addExpense = useCallback(async (expense: { categoryId: string; categoryName: string; amount: number; description: string; expenseDate: string }) => {
+    return _addExpense({
+      ...expense,
+      createdBy: user?.id ?? '',
+      createdByName: user?.name ?? '',
+    });
+  }, [_addExpense, user?.id, user?.name]);
 
   // ── Customers (offline-aware) ───────────────────────────────────────────
 
@@ -232,13 +305,40 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { mutateAsync: _addSale } = supabaseDb.sales.useAdd();
 
   const addSale = useCallback(async (sale: any) => {
+    // If offline sales are disabled by admin and we're offline, refuse to queue
+    if (isOffline && !offlineSalesEnabled) {
+      throw new Error('Offline sales are disabled. Please connect to the internet.');
+    }
+
+    let saleId: string;
+    let saleTotal: number;
+    let paymentMethod: 'cash' | 'gpay';
+
     try {
       const result = await _addSale(sale);
+      saleId = result?.id || sale.id;
+      saleTotal = sale.total ?? 0;
+      paymentMethod = sale.payment_method ?? 'cash';
+
+      // Fire-and-forget sale shadow for fraud detection
+      if (user?.id) {
+        sendSaleShadow(saleId, user.id, saleTotal, paymentMethod).catch(() => {});
+      }
+
       return result;
     } catch (error: any) {
       if (isNetworkError(error)) {
         const offlineId = generateId();
         const entry = await enqueueSale(offlineId, sale);
+        saleId = offlineId;
+        saleTotal = sale.total ?? 0;
+        paymentMethod = sale.payment_method ?? 'cash';
+
+        // Fire-and-forget shadow (will queue if offline)
+        if (user?.id) {
+          sendSaleShadow(saleId, user.id, saleTotal, paymentMethod).catch(() => {});
+        }
+
         return {
           ...sale,
           id: offlineId,
@@ -248,7 +348,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       }
       throw error;
     }
-  }, [_addSale]);
+  }, [_addSale, user?.id, isOffline, offlineSalesEnabled]);
 
   // ── Services (offline-aware) ────────────────────────────────────────────
 
@@ -644,8 +744,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     };
   }, [sales, customers, customerSubscriptions]);
 
-  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading;
-  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError;
+  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading || expCatLoading || expensesLoading;
+  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError || expCatError || expensesError;
 
   const reload = useCallback(async () => {
     await Promise.all([
@@ -657,8 +757,10 @@ export const [DataProvider, useData] = createContextHook(() => {
       refetchCS(),
       refetchOffers(),
       refetchCombos(),
+      refetchExpCat(),
+      refetchExpenses(),
     ]);
-  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos]);
+  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses]);
 
   return {
     customers,
@@ -709,10 +811,21 @@ export const [DataProvider, useData] = createContextHook(() => {
     dataLoading,
     loadError,
     reload,
+    // Expenses
+    expenseCategories,
+    allExpenses,
+    addExpense,
+    updateExpense,
+    deleteExpense,
+    addExpenseCategory,
+    deleteExpenseCategory,
     // Offline support
     isOffline,
     isPendingSync,
     pendingOps,
     refreshPendingOps,
+    // Offline sales toggle
+    offlineSalesEnabled,
+    setOfflineSalesToggle,
   };
 });

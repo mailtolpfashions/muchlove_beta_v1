@@ -9,7 +9,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
-import { BarChart3, Search, Download, Share2, X, SlidersHorizontal, Calendar, Wallet, Package, Clock, FileDown } from 'lucide-react-native';
+import { BarChart3, Search, Download, Share2, X, SlidersHorizontal, Calendar, Wallet, Package, Clock, FileDown, UsersRound } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
@@ -58,7 +58,7 @@ const salesEmptyComponent = (
 
 export default function SalesScreen() {
   const { user, isAdmin } = useAuth();
-  const { sales, reload, dataLoading, loadError } = useData();
+  const { sales, users, reload, dataLoading, loadError } = useData();
   const { showAlert } = useAlert();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -68,10 +68,12 @@ export default function SalesScreen() {
   const [dateFilter, setDateFilter] = useState(TODAY);
   const [paymentFilter, setPaymentFilter] = useState(ALL);
   const [typeFilter, setTypeFilter] = useState(ALL);
+  const [employeeFilter, setEmployeeFilter] = useState(ALL);
 
   const [tempDateFilter, setTempDateFilter] = useState(dateFilter);
   const [tempPaymentFilter, setTempPaymentFilter] = useState(paymentFilter);
   const [tempTypeFilter, setTempTypeFilter] = useState(typeFilter);
+  const [tempEmployeeFilter, setTempEmployeeFilter] = useState(ALL);
   const [pickedDate, setPickedDate] = useState<Date | null>(null);
   const [pickedEndDate, setPickedEndDate] = useState<Date | null>(null);
   const [tempPickedDate, setTempPickedDate] = useState<Date | null>(null);
@@ -117,6 +119,8 @@ export default function SalesScreen() {
       filtered = filtered.filter(s => s.type === 'other');
     }
 
+    if (employeeFilter !== ALL) filtered = filtered.filter(s => s.employeeId === employeeFilter);
+
     if (search.trim()) {
       const q = search.toLowerCase();
       filtered = filtered.filter(s =>
@@ -126,12 +130,13 @@ export default function SalesScreen() {
       );
     }
     return filtered;
-  }, [visibleSales, search, dateFilter, paymentFilter, typeFilter, pickedDate, pickedEndDate]);
+  }, [visibleSales, search, dateFilter, paymentFilter, typeFilter, employeeFilter, pickedDate, pickedEndDate]);
 
   const openFilterModal = () => {
     setTempDateFilter(dateFilter);
     setTempPaymentFilter(paymentFilter);
     setTempTypeFilter(typeFilter);
+    setTempEmployeeFilter(employeeFilter);
     setTempPickedDate(pickedDate);
     setTempPickedEndDate(pickedEndDate);
     setFilterModalVisible(true);
@@ -141,6 +146,7 @@ export default function SalesScreen() {
     setDateFilter(tempDateFilter);
     setPaymentFilter(tempPaymentFilter);
     setTypeFilter(tempTypeFilter);
+    setEmployeeFilter(tempEmployeeFilter);
     setPickedDate(tempPickedDate);
     setPickedEndDate(tempPickedEndDate);
     setFilterModalVisible(false);
@@ -248,6 +254,10 @@ export default function SalesScreen() {
 
   const paymentFilters = useMemo(() => [{ label: 'All', value: ALL }, { label: 'Cash', value: CASH }, { label: 'Online/UPI', value: ONLINE }], []);
   const typeFilters = useMemo(() => [{ label: 'All', value: ALL }, { label: 'Service', value: SERVICE }, { label: 'Product', value: PRODUCT }, { label: 'Others', value: OTHER }], []);
+  const employeeFilters = useMemo(() => [
+    { label: 'All', value: ALL },
+    ...users.map((u: any) => ({ label: u.name, value: u.id })),
+  ], [users]);
 
   return (
     <View style={styles.container}>
@@ -268,13 +278,13 @@ export default function SalesScreen() {
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity onPress={openFilterModal} style={[styles.filterTrigger, (dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL) && styles.filterTriggerActive]}>
-          <SlidersHorizontal size={18} color={(dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL) ? Colors.surface : Colors.primary} />
+        <TouchableOpacity onPress={openFilterModal} style={[styles.filterTrigger, (dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL || employeeFilter !== ALL) && styles.filterTriggerActive]}>
+          <SlidersHorizontal size={18} color={(dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL || employeeFilter !== ALL) ? Colors.surface : Colors.primary} />
         </TouchableOpacity>
       </View>
 
       {/* Active filters summary */}
-      {(dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL) && (
+      {(dateFilter !== TODAY || paymentFilter !== ALL || typeFilter !== ALL || employeeFilter !== ALL) && (
         <View style={styles.activeFiltersRow}>
           {dateFilter !== TODAY && (
             <View style={styles.activeFilterChip}>
@@ -300,7 +310,13 @@ export default function SalesScreen() {
               <Text style={styles.activeFilterText}>{typeFilters.find(f => f.value === typeFilter)?.label}</Text>
             </View>
           )}
-          <TouchableOpacity onPress={() => { setDateFilter(TODAY); setPaymentFilter(ALL); setTypeFilter(ALL); setPickedDate(null); setPickedEndDate(null); }} style={styles.clearFiltersBtn}>
+          {employeeFilter !== ALL && (
+            <View style={styles.activeFilterChip}>
+              <UsersRound size={10} color={Colors.primary} />
+              <Text style={styles.activeFilterText}>{employeeFilters.find(f => f.value === employeeFilter)?.label}</Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={() => { setDateFilter(TODAY); setPaymentFilter(ALL); setTypeFilter(ALL); setEmployeeFilter(ALL); setPickedDate(null); setPickedEndDate(null); }} style={styles.clearFiltersBtn}>
             <X size={12} color={Colors.danger} />
             <Text style={styles.clearFiltersText}>Clear</Text>
           </TouchableOpacity>
@@ -413,6 +429,21 @@ export default function SalesScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {isAdmin && <>
+              <Text style={styles.filterSectionTitle}>Employee</Text>
+              <View style={styles.filterGroup}>
+                {employeeFilters.map(f => (
+                  <TouchableOpacity
+                    key={f.value}
+                    style={[styles.filterBtn, tempEmployeeFilter === f.value && styles.filterBtnActive]}
+                    onPress={() => setTempEmployeeFilter(f.value)}
+                  >
+                    <Text style={[styles.filterBtnText, tempEmployeeFilter === f.value && styles.filterBtnTextActive]}>{f.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={handleCancelFilters}>

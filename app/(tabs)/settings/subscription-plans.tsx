@@ -19,10 +19,12 @@ import { useData } from '@/providers/DataProvider';
 import { SubscriptionPlan } from '@/types';
 import { formatCurrency, capitalizeWords } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SubscriptionPlansScreen() {
   const { subscriptions, addSubscription, updateSubscription, deleteSubscription, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -142,7 +144,7 @@ export default function SubscriptionPlansScreen() {
       />
 
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: 24 + insets.bottom }]}
         onPress={() => {
           setIsEditing(false);
           setEditingId(null);
@@ -193,7 +195,7 @@ export default function SubscriptionPlansScreen() {
                 onChangeText={setPrice}
                 keyboardType="numeric"
               />
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSavePlan}>
+              <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleSavePlan}>
                 <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Plan'}</Text>
               </TouchableOpacity>
             </ScrollView>

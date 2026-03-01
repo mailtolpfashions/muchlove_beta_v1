@@ -18,12 +18,14 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Combo, ComboItem, Service } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { capitalizeWords } from '@/utils/format';
 import { generateId } from '@/utils/hash';
 
 export default function CombosScreen() {
   const { combos, services, addCombo, updateCombo, deleteCombo, reload } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const onRefresh = React.useCallback(async () => {
@@ -334,7 +336,7 @@ export default function CombosScreen() {
                   )}
                 </View>
 
-                <TouchableOpacity style={styles.saveBtn} onPress={handleAdd}>
+                <TouchableOpacity style={[styles.saveBtn, { marginBottom: insets.bottom }]} onPress={handleAdd}>
                   <Text style={styles.saveBtnText}>{isEditing ? 'Update Combo' : 'Create Combo'}</Text>
                 </TouchableOpacity>
               </ScrollView>
@@ -464,7 +466,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: Spacing.md,
-    paddingBottom: 30,
+    paddingBottom: 100,
   },
   card: {
     backgroundColor: Colors.surface,

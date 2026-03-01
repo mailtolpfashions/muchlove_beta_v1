@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WifiOff, CloudUpload, AlertTriangle } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
@@ -27,16 +28,18 @@ function OfflineBanner() {
     syncNow,
     lastSyncResult,
   } = useOfflineSync();
+  const insets = useSafeAreaInsets();
 
   // Nothing to show
   if (!isOffline && totalPendingCount === 0 && !isSyncing) return null;
 
   const label = pendingLabel(pendingCount, pendingMutationCount);
+  const topPadding = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0);
 
   // Currently syncing
   if (isSyncing) {
     return (
-      <View style={[styles.banner, styles.syncingBanner]}>
+      <View style={[styles.banner, styles.syncingBanner, { paddingTop: topPadding + 8 }]}>
         <ActivityIndicator size="small" color="#FFFFFF" />
         <Text style={styles.bannerText}>
           Syncing{label ? ` ${label}` : ''}…
@@ -48,7 +51,7 @@ function OfflineBanner() {
   // Offline
   if (isOffline) {
     return (
-      <View style={[styles.banner, styles.offlineBanner]}>
+      <View style={[styles.banner, styles.offlineBanner, { paddingTop: topPadding + 8 }]}>
         <WifiOff size={16} color="#FFFFFF" />
         <Text style={styles.bannerText}>
           You're offline{label ? ` · ${label} pending` : ''}
@@ -64,7 +67,7 @@ function OfflineBanner() {
   if (totalPendingCount > 0) {
     return (
       <TouchableOpacity
-        style={[styles.banner, styles.pendingBanner]}
+        style={[styles.banner, styles.pendingBanner, { paddingTop: topPadding + 8 }]}
         onPress={syncNow}
         activeOpacity={0.8}
       >

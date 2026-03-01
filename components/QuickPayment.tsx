@@ -18,6 +18,8 @@ import { UpiData } from '@/types';
 import { Sparkles, X, Wallet, Smartphone, ArrowLeft, CheckCircle } from 'lucide-react-native';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useOfflineSync } from '@/providers/OfflineSyncProvider';
+import { useData } from '@/providers/DataProvider';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -33,6 +35,9 @@ interface QuickPaymentProps {
 function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProps) {
   const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
+  const { isOffline } = useOfflineSync();
+  const { offlineSalesEnabled } = useData();
+  const salesBlockedOffline = isOffline && !offlineSalesEnabled;
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,6 +67,20 @@ function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProp
   };
 
   const handleCash = async () => {
+    if (salesBlockedOffline) {
+      showAlert(
+        'Offline Sales Disabled',
+        'Offline sales have been disabled by your admin. Please connect to the internet to make sales.',
+      );
+      return;
+    }
+    if (isOffline) {
+      showAlert(
+        'Internet Required',
+        'Cash sales require an internet connection to prevent fraud. Please connect to Wi-Fi/mobile data, or use UPI payment.',
+      );
+      return;
+    }
     setLoading(true);
     try {
       await onPayment(parsedAmount, '', note.trim(), 'cash');
@@ -74,6 +93,13 @@ function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProp
   };
 
   const handleUpi = () => {
+    if (salesBlockedOffline) {
+      showAlert(
+        'Offline Sales Disabled',
+        'Offline sales have been disabled by your admin. Please connect to the internet to make sales.',
+      );
+      return;
+    }
     if (upiList.length === 0) {
       showAlert('No UPI ID configured', 'Please configure a UPI ID in settings.');
       return;
