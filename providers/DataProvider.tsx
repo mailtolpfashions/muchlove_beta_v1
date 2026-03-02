@@ -119,7 +119,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const isOffline = netInfo.isConnected === false;
 
   // ── Offline Sales Toggle (admin-controlled) ─────────────────────────────
-  const [offlineSalesEnabled, setOfflineSalesEnabled] = useState<boolean>(true);
+  const [offlineSalesEnabled, setOfflineSalesEnabled] = useState<boolean | null>(null);
 
   // Load from AsyncStorage on mount, then fetch from Supabase, then subscribe to Realtime
   useEffect(() => {
@@ -138,6 +138,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         if (value !== null) {
           setOfflineSalesEnabled(value === true);
           await AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(value === true));
+        } else {
+          // Setting not found in DB (fresh setup) — default to enabled
+          setOfflineSalesEnabled(true);
         }
       } catch { /* offline — use cached */ }
 
@@ -303,8 +306,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { mutateAsync: _addSale } = supabaseDb.sales.useAdd();
 
   const addSale = useCallback(async (sale: any) => {
-    // If offline sales are disabled by admin and we're offline, refuse to queue
-    if (isOffline && !offlineSalesEnabled) {
+    // If offline sales are disabled by admin (or not yet loaded) and we're offline, refuse to queue
+    if (isOffline && offlineSalesEnabled !== true) {
       throw new Error('Offline sales are disabled. Please connect to the internet.');
     }
 
@@ -318,8 +321,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       saleTotal = sale.total ?? 0;
       paymentMethod = sale.payment_method ?? 'cash';
 
-      // Fire-and-forget sale shadow for fraud detection
-      if (user?.id) {
+      // Fire-and-forget sale shadow for fraud detection (only when offline sales are enabled)
+      if (user?.id && offlineSalesEnabled === true) {
         sendSaleShadow(saleId, user.id, saleTotal, paymentMethod).catch(() => {});
       }
 
@@ -332,8 +335,8 @@ export const [DataProvider, useData] = createContextHook(() => {
         saleTotal = sale.total ?? 0;
         paymentMethod = sale.payment_method ?? 'cash';
 
-        // Fire-and-forget shadow (will queue if offline)
-        if (user?.id) {
+        // Fire-and-forget shadow (only when offline sales are enabled)
+        if (user?.id && offlineSalesEnabled === true) {
           sendSaleShadow(saleId, user.id, saleTotal, paymentMethod).catch(() => {});
         }
 

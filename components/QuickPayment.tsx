@@ -36,7 +36,7 @@ function QuickPayment({ visible, upiList, onPayment, onClose }: QuickPaymentProp
   const insets = useSafeAreaInsets();
   const { isOffline } = useOfflineSync();
   const { offlineSalesEnabled } = useData();
-  const salesBlockedOffline = isOffline && !offlineSalesEnabled;
+  const salesBlockedOffline = isOffline && offlineSalesEnabled !== true;
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);

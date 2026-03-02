@@ -424,7 +424,7 @@ export default function BillingScreen() {
         </View>
       )}
 
-      {isOffline && !offlineSalesEnabled && (
+      {isOffline && offlineSalesEnabled !== true && (
         <View style={[styles.errorBanner, { backgroundColor: '#FFF3E0' }]}>
           <Text style={[styles.errorBannerText, { color: '#E65100' }]}>Offline sales disabled by admin. Connect to the internet to make sales.</Text>
         </View>

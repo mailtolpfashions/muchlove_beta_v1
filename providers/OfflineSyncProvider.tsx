@@ -22,7 +22,8 @@ import { supabase } from '@/lib/supabase';
 import { generateId } from '@/utils/hash';
 import { useAuth } from '@/providers/AuthProvider';
 import { startHeartbeat, stopHeartbeat } from '@/utils/heartbeat';
-import { startShadowRetry, stopShadowRetry, flushShadowQueue, reconcileShadows } from '@/utils/saleShadow';
+import { startShadowRetry, stopShadowRetry, flushShadowQueue, reconcileShadows, setShadowEnabled } from '@/utils/saleShadow';
+import { useData } from '@/providers/DataProvider';
 import {
   getPendingSales,
   getPendingCount,
@@ -82,6 +83,7 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
   const netInfo = useNetInfo();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { offlineSalesEnabled } = useData();
 
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingMutationCount, setPendingMutationCount] = useState(0);
@@ -90,6 +92,11 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
   const syncLock = useRef(false);
 
   const isOffline = netInfo.isConnected === false;
+
+  // Pause shadow flushing when offline sales are disabled by admin
+  useEffect(() => {
+    setShadowEnabled(offlineSalesEnabled === true);
+  }, [offlineSalesEnabled]);
 
   // ── Refresh pending count ─────────────────────────────────────────────────
   const refreshPendingCount = useCallback(async () => {

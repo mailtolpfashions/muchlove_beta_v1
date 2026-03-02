@@ -16,6 +16,13 @@ const SHADOW_QUEUE_KEY = '@sale_shadow_queue';
 const RETRY_INTERVAL = 10 * 1000; // 10 seconds
 
 let retryTimer: ReturnType<typeof setInterval> | null = null;
+let shadowEnabled = true;
+
+/** Control whether shadows can be flushed/sent to the server.
+ *  When disabled, shadows are queued locally but never pushed. */
+export function setShadowEnabled(enabled: boolean): void {
+  shadowEnabled = enabled;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,6 +80,14 @@ export async function sendSaleShadow(
     created_at: new Date().toISOString(),
   };
 
+  // If shadows are disabled (offline sales toggled off), queue locally only
+  if (!shadowEnabled) {
+    const queue = await getQueue();
+    queue.push(shadow);
+    await saveQueue(queue);
+    return;
+  }
+
   try {
     const { error } = await supabase.from('sale_shadows').insert(shadow);
     if (error) throw error;
@@ -91,6 +106,7 @@ export async function sendSaleShadow(
 export async function flushShadowQueue(): Promise<void> {
   const queue = await getQueue();
   if (queue.length === 0) return;
+  if (!shadowEnabled) return; // Paused — hold shadows until re-enabled
 
   const remaining: SaleShadow[] = [];
 

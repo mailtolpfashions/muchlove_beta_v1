@@ -31,20 +31,24 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# Google/Firebase credentials — NEVER commit service account keys
+serviceAccountKey.json
+*-adminsdk-*.json
+*-firebase-*.json
+much-love-*.json
+*.p12
+
+# Environment variables
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 .vercel
 
+# misc
 .rork
-
-.env
 rork-eslint.config.js
 core
-node_modules
-.expo
 dist-test/
-AUDIT_REPORT.md
 AUDIT_REPORT.md

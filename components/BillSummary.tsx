@@ -180,7 +180,7 @@ function BillSummary({
     onPlaceOrder(total, totalDiscount, Math.max(serviceDiscountPercent, subsDiscountPercent), upiList[activeUpiIndex]?.id);
   };
 
-  const salesBlockedOffline = isOffline && !offlineSalesEnabled;
+  const salesBlockedOffline = isOffline && offlineSalesEnabled !== true;
 
   const handleMethodConfirm = () => {
     // If offline sales are disabled by admin and we're offline, block everything
