@@ -97,7 +97,7 @@ function createOfflineMutation<TInput, TResult>(opts: {
         const entityId = opts.getEntityId(input);
         const payload = opts.buildPayload?.(input);
         await enqueueMutation(
-          generateId(),
+          generateId('MUT'),
           opts.entity,
           opts.operation,
           entityId,
@@ -139,8 +139,8 @@ export const [DataProvider, useData] = createContextHook(() => {
           setOfflineSalesEnabled(value === true);
           await AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(value === true));
         } else {
-          // Setting not found in DB (fresh setup) — default to enabled
-          setOfflineSalesEnabled(true);
+          // Setting not found in DB (fresh setup) — default to disabled
+          setOfflineSalesEnabled(false);
         }
       } catch { /* offline — use cached */ }
 
@@ -214,6 +214,25 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: expenseCategories = [], isLoading: expCatLoading, error: expCatError, refetch: refetchExpCat } = useOfflineQuery(['expenseCategories'], supabaseDb.expenseCategories.getAll);
   const { data: allExpenses = [], isLoading: expensesLoading, error: expensesError, refetch: refetchExpenses } = useOfflineQuery(['expenses'], supabaseDb.expenses.getAll);
 
+  // ── Attendance & HR ───────────────────────────────────────────────────
+  const { data: attendance = [], isLoading: attendanceLoading, error: attendanceError, refetch: refetchAttendance } = useOfflineQuery(['attendance'], supabaseDb.attendanceDb.getAll);
+  const { data: leaveRequests = [], isLoading: leaveRequestsLoading, error: leaveRequestsError, refetch: refetchLeaveRequests } = useOfflineQuery(['leaveRequests'], supabaseDb.leaveRequestsDb.getAll);
+  const { data: permissionRequests = [], isLoading: permissionRequestsLoading, error: permissionRequestsError, refetch: refetchPermissionRequests } = useOfflineQuery(['permissionRequests'], supabaseDb.permissionRequestsDb.getAll);
+  const { data: employeeSalaries = [], isLoading: salariesLoading, error: salariesError, refetch: refetchSalaries } = useOfflineQuery(['employeeSalaries'], supabaseDb.employeeSalariesDb.getAll);
+
+  const { mutateAsync: addAttendance } = supabaseDb.attendanceDb.useAdd();
+  const { mutateAsync: updateAttendance } = supabaseDb.attendanceDb.useUpdate();
+  const { mutateAsync: deleteAttendance } = supabaseDb.attendanceDb.useRemove();
+  const { mutateAsync: addLeaveRequest } = supabaseDb.leaveRequestsDb.useAdd();
+  const { mutateAsync: updateLeaveRequest } = supabaseDb.leaveRequestsDb.useUpdate();
+  const { mutateAsync: deleteLeaveRequest } = supabaseDb.leaveRequestsDb.useRemove();
+  const { mutateAsync: addPermissionRequest } = supabaseDb.permissionRequestsDb.useAdd();
+  const { mutateAsync: updatePermissionRequest } = supabaseDb.permissionRequestsDb.useUpdate();
+  const { mutateAsync: deletePermissionRequest } = supabaseDb.permissionRequestsDb.useRemove();
+  const { mutateAsync: addEmployeeSalary } = supabaseDb.employeeSalariesDb.useAdd();
+  const { mutateAsync: updateEmployeeSalary } = supabaseDb.employeeSalariesDb.useUpdate();
+  const { mutateAsync: deleteEmployeeSalary } = supabaseDb.employeeSalariesDb.useRemove();
+
   const { mutateAsync: updateUser } = supabaseDb.users.useUpdate();
   const { mutateAsync: deleteUser } = supabaseDb.users.useRemove();
 
@@ -257,7 +276,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (c: any) => {
-        const id = c.id || generateId();
+        const id = c.id || generateId('CUST');
         optimisticAdd(queryClient, ['customers'], {
           id,
           name: c.name,
@@ -329,7 +348,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       return result;
     } catch (error: any) {
       if (isNetworkError(error)) {
-        const offlineId = generateId();
+        const offlineId = generateId('SAL');
         const entry = await enqueueSale(offlineId, sale);
         saleId = offlineId;
         saleTotal = sale.total ?? 0;
@@ -362,9 +381,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'services',
       operation: 'add',
       mutationFn: _addService,
-      getEntityId: (s: any) => s.id || generateId(),
+      getEntityId: (s: any) => s.id || generateId('SVC'),
       buildPayload: (s: any) => ({
-        id: s.id || generateId(),
+        id: s.id || generateId('SVC'),
         name: s.name,
         code: s.code,
         price: s.price,
@@ -375,7 +394,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (s: any) => {
-        const id = s.id || generateId();
+        const id = s.id || generateId('SVC');
         optimisticAdd(queryClient, ['services'], {
           id,
           name: s.name,
@@ -445,16 +464,16 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'subscriptions',
       operation: 'add',
       mutationFn: _addSubscription,
-      getEntityId: (p: any) => p.id || generateId(),
+      getEntityId: (p: any) => p.id || generateId('PLAN'),
       buildPayload: (p: any) => ({
-        id: p.id || generateId(),
+        id: p.id || generateId('PLAN'),
         name: p.name,
         duration_months: p.durationMonths,
         price: p.price,
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (p: any) => {
-        const id = p.id || generateId();
+        const id = p.id || generateId('PLAN');
         optimisticAdd(queryClient, ['subscriptions'], {
           id,
           name: p.name,
@@ -516,9 +535,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'offers',
       operation: 'add',
       mutationFn: _addOffer,
-      getEntityId: (o: any) => o.id || generateId(),
+      getEntityId: (o: any) => o.id || generateId('OFR'),
       buildPayload: (o: any) => ({
-        id: o.id || generateId(),
+        id: o.id || generateId('OFR'),
         name: o.name,
         percent: o.percent,
         visit_count: o.visitCount,
@@ -529,7 +548,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (o: any) => {
-        const id = o.id || generateId();
+        const id = o.id || generateId('OFR');
         optimisticAdd(queryClient, ['offers'], {
           id,
           name: o.name,
@@ -608,7 +627,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (c: any) => {
-        const id = c.id || generateId();
+        const id = c.id || generateId('CMB');
         optimisticAdd(queryClient, ['combos'], {
           id,
           name: c.name,
@@ -670,9 +689,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'customerSubscriptions',
       operation: 'add',
       mutationFn: _addCustomerSubscription,
-      getEntityId: (cs: any) => cs.id || generateId(),
+      getEntityId: (cs: any) => cs.id || generateId('CSUB'),
       buildPayload: (cs: any) => ({
-        id: cs.id || generateId(),
+        id: cs.id || generateId('CSUB'),
         customer_id: cs.customerId,
         customer_name: cs.customerName,
         plan_id: cs.planId,
@@ -686,7 +705,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         created_at: new Date().toISOString(),
       }),
       applyOptimistic: (cs: any) => {
-        const id = cs.id || generateId();
+        const id = cs.id || generateId('CSUB');
         optimisticAdd(queryClient, ['customerSubscriptions'], {
           id,
           ...cs,
@@ -745,8 +764,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     };
   }, [sales, customers, customerSubscriptions]);
 
-  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading || expCatLoading || expensesLoading;
-  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError || expCatError || expensesError;
+  const dataLoading = customersLoading || servicesLoading || subscriptionsLoading || salesLoading || usersLoading || csLoading || offersLoading || combosLoading || expCatLoading || expensesLoading || attendanceLoading || leaveRequestsLoading || permissionRequestsLoading || salariesLoading;
+  const loadError = customersError || servicesError || subscriptionsError || salesError || usersError || csError || offersError || combosError || expCatError || expensesError || attendanceError || leaveRequestsError || permissionRequestsError || salariesError;
 
   const reload = useCallback(async () => {
     await Promise.all([
@@ -760,8 +779,12 @@ export const [DataProvider, useData] = createContextHook(() => {
       refetchCombos(),
       refetchExpCat(),
       refetchExpenses(),
+      refetchAttendance(),
+      refetchLeaveRequests(),
+      refetchPermissionRequests(),
+      refetchSalaries(),
     ]);
-  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses]);
+  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses, refetchAttendance, refetchLeaveRequests, refetchPermissionRequests, refetchSalaries]);
 
   return {
     customers,
@@ -828,5 +851,22 @@ export const [DataProvider, useData] = createContextHook(() => {
     // Offline sales toggle
     offlineSalesEnabled,
     setOfflineSalesToggle,
+    // Attendance & HR
+    attendance,
+    leaveRequests,
+    permissionRequests,
+    employeeSalaries,
+    addAttendance,
+    updateAttendance,
+    deleteAttendance,
+    addLeaveRequest,
+    updateLeaveRequest,
+    deleteLeaveRequest,
+    addPermissionRequest,
+    updatePermissionRequest,
+    deletePermissionRequest,
+    addEmployeeSalary,
+    updateEmployeeSalary,
+    deleteEmployeeSalary,
   };
 });

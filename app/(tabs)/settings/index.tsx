@@ -30,6 +30,9 @@ import {
   ShieldCheck,
   WifiOff,
   Receipt,
+  CalendarCheck,
+  ClipboardCheck,
+  Banknote,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
@@ -44,7 +47,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
   const { showConfirm } = useAlert();
-  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle } = useData();
+  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle, attendance, leaveRequests, permissionRequests, employeeSalaries } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
@@ -93,6 +96,58 @@ export default function SettingsScreen() {
   ], [services.length, users.length, customers.length, allExpenses.length]);
 
   const menuItems = isAdmin ? adminMenuItems : [];
+
+  // Attendance menu — visible to employees only
+  const attendanceMenuItems = useMemo(() => {
+    if (isAdmin) return [];
+    return [
+      {
+        title: 'My Attendance',
+        subtitle: 'Request leave or permission',
+        icon: CalendarCheck,
+        color: '#0D9488',
+        bg: '#CCFBF1',
+        route: '/settings/attendance' as const,
+      },
+    ];
+  }, [isAdmin]);
+
+  // Attendance Management — admin only
+  const attendanceAdminMenuItems = useMemo(() => {
+    if (!isAdmin) return [];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayCheckedIn = attendance.filter(a => a.date === todayStr && a.checkIn).length;
+    const pendingLeaves = leaveRequests.filter(lr => lr.status === 'pending').length;
+    const pendingPerms = permissionRequests.filter(pr => pr.status === 'pending').length;
+    const pendingTotal = pendingLeaves + pendingPerms;
+    const configuredSalaries = new Set(employeeSalaries.map(s => s.employeeId)).size;
+    return [
+      {
+        title: 'Attendance Records',
+        subtitle: `${todayCheckedIn} checked in today`,
+        icon: CalendarCheck,
+        color: '#0D9488',
+        bg: '#CCFBF1',
+        route: '/settings/attendance-management' as const,
+      },
+      {
+        title: 'Leave & Permission',
+        subtitle: `${pendingTotal} pending requests`,
+        icon: ClipboardCheck,
+        color: '#EA580C',
+        bg: '#FFF7ED',
+        route: '/settings/leave-approvals' as const,
+      },
+      {
+        title: 'Salary Management',
+        subtitle: `${configuredSalaries} employees configured`,
+        icon: Banknote,
+        color: '#059669',
+        bg: '#D1FAE5',
+        route: '/settings/salary-management' as const,
+      },
+    ];
+  }, [isAdmin, attendance, leaveRequests, permissionRequests, employeeSalaries]);
 
   const subscriptionMenuItems = useMemo(() => isAdmin ? [
     {
@@ -235,6 +290,8 @@ export default function SettingsScreen() {
       {renderSection('MANAGEMENT', menuItems)}
       {renderSection('SUBSCRIPTIONS', subscriptionMenuItems)}
       {renderSection('OFFERS', offersMenuItems)}
+      {renderSection('ATTENDANCE', attendanceMenuItems)}
+      {isAdmin && renderSection('ATTENDANCE MANAGEMENT', attendanceAdminMenuItems)}
       {isAdmin && renderSection('PAYMENTS', paymentsMenuItems)}
 
       {/* System — Admin Only */}

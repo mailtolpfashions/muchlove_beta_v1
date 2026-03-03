@@ -70,10 +70,11 @@ export async function registerPushToken(userId: string): Promise<void> {
     const token = tokenData.data;
 
     // Upsert: insert or update if this user+token combo already exists
+    // updated_at refreshes on each login so stale tokens can be flushed
     await supabase
       .from('push_tokens')
       .upsert(
-        { id: generateId(), user_id: userId, token },
+        { id: generateId('PTK'), user_id: userId, token, updated_at: new Date().toISOString() },
         { onConflict: 'user_id,token' }
       );
   } catch {

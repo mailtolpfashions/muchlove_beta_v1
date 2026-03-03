@@ -37,6 +37,10 @@ export default function SettingsLayout() {
       <Stack.Screen name="inventory" options={{ title: 'Inventory' }} />
       <Stack.Screen name="subscription-plans" options={{ title: 'Subscription Plans' }} />
       <Stack.Screen name="expenses" options={{ title: 'Expenses' }} />
+      <Stack.Screen name="attendance" options={{ title: 'My Attendance' }} />
+      <Stack.Screen name="attendance-management" options={{ title: 'Attendance Records' }} />
+      <Stack.Screen name="leave-approvals" options={{ title: 'Leave & Permission Approvals' }} />
+      <Stack.Screen name="salary-management" options={{ title: 'Salary Management' }} />
     </Stack>
   );
 }

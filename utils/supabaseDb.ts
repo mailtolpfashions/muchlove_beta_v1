@@ -15,6 +15,10 @@ import type {
   ComboItem,
   ExpenseCategory,
   Expense,
+  Attendance,
+  LeaveRequest,
+  PermissionRequest,
+  EmployeeSalary,
 } from '@/types';
 import { generateId } from '@/utils/hash';
 
@@ -101,7 +105,7 @@ export const customers = {
       mutationFn: async (customer: Omit<Customer, 'id' | 'createdAt' | 'visitCount'>) => {
         if (!customer) return null;
         const newCustomer = {
-          id: generateId(),
+          id: generateId('CUST'),
           created_at: new Date().toISOString(),
           name: customer.name,
           age: customer.age,
@@ -142,7 +146,7 @@ export const services = {
     return useMutation({
       mutationFn: async (service: Omit<Service, 'id' | 'createdAt'>) => {
         const newService = {
-          id: generateId(),
+          id: generateId('SVC'),
           created_at: new Date().toISOString(),
           name: service.name,
           code: service.code,
@@ -201,7 +205,7 @@ export const subscriptions = {
     return useMutation({
       mutationFn: async (plan: Omit<SubscriptionPlan, 'id' | 'createdAt'>) => {
         const newPlan = {
-          id: generateId(),
+          id: generateId('PLAN'),
           created_at: new Date().toISOString(),
           name: plan.name,
           price: plan.price,
@@ -266,7 +270,7 @@ export const sales = {
     return useMutation({
       mutationFn: async (sale: any) => {
         const { items, subscription_items, ...saleData } = sale;
-        const newSaleId = generateId();
+        const newSaleId = generateId('SAL');
 
         const saleToInsert = {
           ...saleData,
@@ -283,12 +287,13 @@ export const sales = {
         // Increment customer visit count (fire in parallel)
         if (saleToInsert.customer_id) {
           parallelOps.push(
-            supabase
-              .from('customers')
-              .select('visit_count')
-              .eq('id', saleToInsert.customer_id)
-              .single()
-              .then(({ data: customerData, error: customerFetchError }) => {
+            Promise.resolve(
+              supabase
+                .from('customers')
+                .select('visit_count')
+                .eq('id', saleToInsert.customer_id)
+                .single()
+            ).then(({ data: customerData, error: customerFetchError }) => {
                 if (!customerFetchError && customerData) {
                   return supabase
                     .from('customers')
@@ -301,7 +306,7 @@ export const sales = {
 
         if (items && items.length > 0) {
           const saleItemsToInsert = items.map((item: any) => ({
-            id: generateId(),
+            id: generateId('SI'),
             sale_id: newSaleId,
             service_id: item.itemId,
             service_name: item.itemName,
@@ -312,30 +317,31 @@ export const sales = {
             kind: item.kind,
           }));
           parallelOps.push(
-            supabase.from('sale_items').insert(saleItemsToInsert).then(({ error }) => { if (error) throw error; })
+            Promise.resolve(supabase.from('sale_items').insert(saleItemsToInsert)).then(({ error }) => { if (error) throw error; })
           );
         }
 
         if (subscription_items && subscription_items.length > 0) {
           const subItemsToInsert = subscription_items.map((item: any) => ({ ...item, sale_id: newSaleId }));
           parallelOps.push(
-            supabase.from('subscription_sale_items').insert(subItemsToInsert).then(({ error }) => { if (error) throw error; })
+            Promise.resolve(supabase.from('subscription_sale_items').insert(subItemsToInsert)).then(({ error }) => { if (error) throw error; })
           );
 
           // Subscription customer records — run after sub items insert
           parallelOps.push(
-            supabase
-              .from('subscription_plans')
-              .select('id, duration_months')
-              .in('id', subscription_items.map((item: any) => item.plan_id))
-              .then(({ data: plans, error: plansError }) => {
+            Promise.resolve(
+              supabase
+                .from('subscription_plans')
+                .select('id, duration_months')
+                .in('id', subscription_items.map((item: any) => item.plan_id))
+            ).then(({ data: plans, error: plansError }) => {
                 if (plansError) throw plansError;
                 const planDurations = (plans || []).reduce<Record<string, number>>((acc, plan) => {
                   acc[plan.id] = plan.duration_months;
                   return acc;
                 }, {});
                 const customerSubscriptionsToInsert = subscription_items.map((item: any) => ({
-                  id: generateId(),
+                  id: generateId('CSUB'),
                   customer_id: saleToInsert.customer_id,
                   customer_name: saleToInsert.customer_name,
                   plan_id: item.plan_id,
@@ -380,7 +386,7 @@ export const customerSubscriptions = {
       mutationFn: async (subscription: Omit<CustomerSubscription, 'id' | 'createdAt'>) => {
         const newSubscription = {
           ...subscription,
-          id: generateId(),
+          id: generateId('CSUB'),
           created_at: new Date().toISOString(),
           customer_id: subscription.customerId,
           customer_name: subscription.customerName,
@@ -432,7 +438,7 @@ export const offers = {
     return useMutation({
       mutationFn: async (offer: Omit<Offer, 'id' | 'createdAt'>) => {
         const newOffer = {
-          id: generateId(),
+          id: generateId('OFR'),
           created_at: new Date().toISOString(),
           name: offer.name,
           percent: offer.percent,
@@ -531,11 +537,11 @@ export const combos = {
     const queryClient = useQueryClient();
     return useMutation({
       mutationFn: async (combo: Omit<Combo, 'id' | 'createdAt'>) => {
-        const comboId = generateId();
+        const comboId = generateId('CMB');
         const { error: comboErr } = await supabase.from('combos').insert({ id: comboId, name: combo.name, combo_price: combo.comboPrice, created_at: new Date().toISOString() });
         if (comboErr) throw comboErr;
         if (combo.items.length > 0) {
-          const rows = combo.items.map(item => ({ id: generateId(), combo_id: comboId, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
+          const rows = combo.items.map(item => ({ id: generateId('CI'), combo_id: comboId, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
           const { error: itemErr } = await supabase.from('combo_items').insert(rows);
           if (itemErr) throw itemErr;
         }
@@ -553,7 +559,7 @@ export const combos = {
         // Delete existing items and re-insert
         await supabase.from('combo_items').delete().eq('combo_id', combo.id);
         if (combo.items.length > 0) {
-          const rows = combo.items.map(item => ({ id: item.id || generateId(), combo_id: combo.id, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
+          const rows = combo.items.map(item => ({ id: item.id || generateId('CI'), combo_id: combo.id, service_id: item.serviceId, service_name: item.serviceName, service_kind: item.serviceKind, original_price: item.originalPrice }));
           const { error: itemErr } = await supabase.from('combo_items').insert(rows);
           if (itemErr) throw itemErr;
         }
@@ -580,14 +586,14 @@ export async function seedSupabaseIfNeeded(): Promise<void> {
   if (existingServices && existingServices.length > 0) return;
 
   const defaultServices = [
-    { id: generateId(), name: 'Haircut', code: 'HC001', price: 300, kind: 'service', created_at: new Date().toISOString() },
-    { id: generateId(), name: 'Hair Color', code: 'HC002', price: 1500, kind: 'service', created_at: new Date().toISOString() },
+    { id: generateId('SVC'), name: 'Haircut', code: 'HC001', price: 300, kind: 'service', created_at: new Date().toISOString() },
+    { id: generateId('SVC'), name: 'Hair Color', code: 'HC002', price: 1500, kind: 'service', created_at: new Date().toISOString() },
   ];
   await supabase.from('services').insert(defaultServices);
 
   const defaultPlans = [
-    { id: generateId(), name: 'Trial Plan', duration_months: 1, price: 0, created_at: new Date().toISOString() },
-    { id: generateId(), name: '6 Months Plan', duration_months: 6, price: 600, created_at: new Date().toISOString() },
+    { id: generateId('PLAN'), name: 'Trial Plan', duration_months: 1, price: 0, created_at: new Date().toISOString() },
+    { id: generateId('PLAN'), name: '6 Months Plan', duration_months: 6, price: 600, created_at: new Date().toISOString() },
   ];
   await supabase.from('subscription_plans').insert(defaultPlans);
 }
@@ -699,5 +705,295 @@ export const appSettings = {
       { onConflict: 'key' },
     );
     if (error) throw error;
+  },
+};
+
+// ── Row Mappers for Attendance/HR ──────────────────────────────────────
+
+function mapAttendance(r: Record<string, unknown>): Attendance {
+  return {
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    employeeName: (r.employee_name as string) || '',
+    date: r.date as string,
+    checkIn: (r.check_in as string) ?? null,
+    checkOut: (r.check_out as string) ?? null,
+    status: (r.status as Attendance['status']) ?? 'present',
+    notes: (r.notes as string) ?? null,
+    markedBy: (r.marked_by as string) ?? null,
+    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+  };
+}
+
+function mapLeaveRequest(r: Record<string, unknown>): LeaveRequest {
+  return {
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    employeeName: (r.employee_name as string) || '',
+    type: (r.type as LeaveRequest['type']) ?? 'leave',
+    startDate: r.start_date as string,
+    endDate: r.end_date as string,
+    reason: (r.reason as string) ?? null,
+    status: (r.status as LeaveRequest['status']) ?? 'pending',
+    reviewedBy: (r.reviewed_by as string) ?? null,
+    reviewedAt: (r.reviewed_at as string) ?? null,
+    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+  };
+}
+
+function mapPermissionRequest(r: Record<string, unknown>): PermissionRequest {
+  return {
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    employeeName: (r.employee_name as string) || '',
+    date: r.date as string,
+    fromTime: r.from_time as string,
+    toTime: r.to_time as string,
+    reason: (r.reason as string) ?? null,
+    status: (r.status as PermissionRequest['status']) ?? 'pending',
+    reviewedBy: (r.reviewed_by as string) ?? null,
+    reviewedAt: (r.reviewed_at as string) ?? null,
+    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+  };
+}
+
+function mapEmployeeSalary(r: Record<string, unknown>): EmployeeSalary {
+  return {
+    id: r.id as string,
+    employeeId: r.employee_id as string,
+    employeeName: (r.employee_name as string) || '',
+    baseSalary: Number(r.base_salary),
+    effectiveFrom: r.effective_from as string,
+    createdAt: (r.created_at as string) ?? new Date().toISOString(),
+  };
+}
+
+// ── Attendance ──────────────────────────────────────────────────────────
+
+export const attendanceDb = {
+  getAll: async (): Promise<Attendance[]> => {
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('*')
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapAttendance);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (record: { employeeId: string; employeeName: string; date: string; checkIn?: string; checkOut?: string; status?: string; notes?: string; markedBy?: string }) => {
+        const row = {
+          id: generateId('ATT'),
+          employee_id: record.employeeId,
+          employee_name: record.employeeName,
+          date: record.date,
+          check_in: record.checkIn ?? null,
+          check_out: record.checkOut ?? null,
+          status: record.status ?? 'present',
+          notes: record.notes ?? null,
+          marked_by: record.markedBy ?? null,
+        };
+        const { data, error } = await supabase.from('attendance').insert(row).select().single();
+        if (error) throw error;
+        return mapAttendance(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['attendance'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (record: { id: string; checkIn?: string; checkOut?: string; status?: string; notes?: string; markedBy?: string }) => {
+        const updates: Record<string, any> = {};
+        if (record.checkIn !== undefined) updates.check_in = record.checkIn;
+        if (record.checkOut !== undefined) updates.check_out = record.checkOut;
+        if (record.status !== undefined) updates.status = record.status;
+        if (record.notes !== undefined) updates.notes = record.notes;
+        if (record.markedBy !== undefined) updates.marked_by = record.markedBy;
+        const { error } = await supabase.from('attendance').update(updates).eq('id', record.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['attendance'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('attendance').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['attendance'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── Leave Requests ──────────────────────────────────────────────────────
+
+export const leaveRequestsDb = {
+  getAll: async (): Promise<LeaveRequest[]> => {
+    const { data, error } = await supabase
+      .from('leave_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapLeaveRequest);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (req: { employeeId: string; employeeName: string; type?: string; startDate: string; endDate: string; reason?: string }) => {
+        const row = {
+          id: generateId('LR'),
+          employee_id: req.employeeId,
+          employee_name: req.employeeName,
+          type: req.type ?? 'leave',
+          start_date: req.startDate,
+          end_date: req.endDate,
+          reason: req.reason ?? null,
+          status: 'pending',
+        };
+        const { data, error } = await supabase.from('leave_requests').insert(row).select().single();
+        if (error) throw error;
+        return mapLeaveRequest(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['leaveRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (req: { id: string; status?: string; reviewedBy?: string; reviewedAt?: string }) => {
+        const updates: Record<string, any> = {};
+        if (req.status !== undefined) updates.status = req.status;
+        if (req.reviewedBy !== undefined) updates.reviewed_by = req.reviewedBy;
+        if (req.reviewedAt !== undefined) updates.reviewed_at = req.reviewedAt;
+        const { error } = await supabase.from('leave_requests').update(updates).eq('id', req.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['leaveRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('leave_requests').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['leaveRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── Permission Requests ─────────────────────────────────────────────────
+
+export const permissionRequestsDb = {
+  getAll: async (): Promise<PermissionRequest[]> => {
+    const { data, error } = await supabase
+      .from('permission_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapPermissionRequest);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (req: { employeeId: string; employeeName: string; date: string; fromTime: string; toTime: string; reason?: string }) => {
+        const row = {
+          id: generateId('PR'),
+          employee_id: req.employeeId,
+          employee_name: req.employeeName,
+          date: req.date,
+          from_time: req.fromTime,
+          to_time: req.toTime,
+          reason: req.reason ?? null,
+          status: 'pending',
+        };
+        const { data, error } = await supabase.from('permission_requests').insert(row).select().single();
+        if (error) throw error;
+        return mapPermissionRequest(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['permissionRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (req: { id: string; status?: string; reviewedBy?: string; reviewedAt?: string }) => {
+        const updates: Record<string, any> = {};
+        if (req.status !== undefined) updates.status = req.status;
+        if (req.reviewedBy !== undefined) updates.reviewed_by = req.reviewedBy;
+        if (req.reviewedAt !== undefined) updates.reviewed_at = req.reviewedAt;
+        const { error } = await supabase.from('permission_requests').update(updates).eq('id', req.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['permissionRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('permission_requests').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['permissionRequests'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── Employee Salaries ───────────────────────────────────────────────────
+
+export const employeeSalariesDb = {
+  getAll: async (): Promise<EmployeeSalary[]> => {
+    const { data, error } = await supabase
+      .from('employee_salaries')
+      .select('*')
+      .order('effective_from', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapEmployeeSalary);
+  },
+  useAdd: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (salary: { employeeId: string; employeeName: string; baseSalary: number; effectiveFrom: string }) => {
+        const row = {
+          id: generateId('ESAL'),
+          employee_id: salary.employeeId,
+          employee_name: salary.employeeName,
+          base_salary: salary.baseSalary,
+          effective_from: salary.effectiveFrom,
+        };
+        const { data, error } = await supabase.from('employee_salaries').insert(row).select().single();
+        if (error) throw error;
+        return mapEmployeeSalary(data);
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['employeeSalaries'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (salary: { id: string; baseSalary: number; effectiveFrom?: string }) => {
+        const updates: Record<string, any> = { base_salary: salary.baseSalary };
+        if (salary.effectiveFrom) updates.effective_from = salary.effectiveFrom;
+        const { error } = await supabase.from('employee_salaries').update(updates).eq('id', salary.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['employeeSalaries'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+  useRemove: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await supabase.from('employee_salaries').delete().eq('id', id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['employeeSalaries'] }); if (onSuccess) await onSuccess(); },
+    });
   },
 };

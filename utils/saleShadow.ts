@@ -10,7 +10,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
-import { getInstallId } from '@/utils/deviceId';
+import { getInstallId } from '@/utils/deviceId';\nimport { generateId } from '@/utils/hash';
 
 const SHADOW_QUEUE_KEY = '@sale_shadow_queue';
 const RETRY_INTERVAL = 10 * 1000; // 10 seconds
@@ -71,7 +71,7 @@ export async function sendSaleShadow(
 ): Promise<void> {
   const installId = await getInstallId();
   const shadow: SaleShadow = {
-    id: `shadow_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: generateId('SHDW'),
     sale_id: saleId,
     user_id: userId,
     amount,

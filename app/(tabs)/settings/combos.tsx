@@ -110,7 +110,7 @@ export default function CombosScreen() {
       return;
     }
     const item: ComboItem = {
-      id: generateId(),
+      id: generateId('CI'),
       serviceId: service.id,
       serviceName: service.name,
       serviceKind: service.kind,

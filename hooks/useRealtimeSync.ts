@@ -20,6 +20,10 @@ const TABLE_QUERY_MAP: Record<string, string[]> = {
   sale_items: ['sales'],
   subscription_sale_items: ['sales'],
   upi_configs: ['upiConfigs'],
+  attendance: ['attendance'],
+  leave_requests: ['leaveRequests'],
+  permission_requests: ['permissionRequests'],
+  employee_salaries: ['employeeSalaries'],
 };
 
 /** Debounce window — collect changes for 400ms then batch-invalidate once */

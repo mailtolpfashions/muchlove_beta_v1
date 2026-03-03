@@ -159,3 +159,59 @@ export interface Expense {
   createdByName: string;
   createdAt: string;
 }
+
+// ── Attendance & HR ─────────────────────────────────────────
+
+export type AttendanceStatus = 'present' | 'absent' | 'half_day' | 'permission';
+export type RequestStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveType = 'leave' | 'compensation';
+
+export interface Attendance {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  checkIn: string | null;
+  checkOut: string | null;
+  status: AttendanceStatus;
+  notes: string | null;
+  markedBy: string | null;
+  createdAt: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  type: LeaveType;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+  status: RequestStatus;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface PermissionRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  fromTime: string;
+  toTime: string;
+  reason: string | null;
+  status: RequestStatus;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface EmployeeSalary {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  baseSalary: number;
+  effectiveFrom: string;
+  createdAt: string;
+}

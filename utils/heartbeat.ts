@@ -13,15 +13,17 @@ import { getInstallId } from '@/utils/deviceId';
 import { getPendingCount } from '@/utils/offlineQueue';
 import { getPendingMutationCount } from '@/utils/offlineMutationQueue';
 import { reconcileShadows } from '@/utils/saleShadow';
+import { generateId } from '@/utils/hash';
 
 const HEARTBEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const APP_VERSION = '1.1.5';
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let flushedThisSession = false;
 
 /** Generate a simple unique ID for the heartbeat row */
 function hbId(): string {
-  return `hb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return generateId('HB');
 }
 
 /** Send a single heartbeat ping */
@@ -55,6 +57,16 @@ async function sendHeartbeat(userId: string): Promise<void> {
     } catch {
       // RPC may not exist yet or may fail — that's fine
     }
+
+    // Flush verified/stale data once per session (not every heartbeat)
+    if (!flushedThisSession) {
+      try {
+        await supabase.rpc('flush_verified_data');
+        flushedThisSession = true;
+      } catch {
+        // Flush RPC may not exist yet — that's fine
+      }
+    }
   } catch {
     // Best-effort — silently ignore errors (likely offline)
   }
@@ -77,5 +89,7 @@ export function stopHeartbeat(): void {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
+  }
+  flushedThisSession = false;
   }
 }

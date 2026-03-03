@@ -21,7 +21,7 @@ export const [PaymentProvider, usePayment] = createContextHook(() => {
     async (data: Omit<UpiData, 'id'>) => {
       const upi: UpiData = {
         ...data,
-        id: generateId(),
+        id: generateId('UPI'),
       };
       await addUpiMutate(upi);
       reloadUpi();

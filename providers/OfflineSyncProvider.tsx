@@ -153,7 +153,7 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
     // Insert sale line items
     if (items && items.length > 0) {
       const saleItemsToInsert = items.map((item: any) => ({
-        id: item.id || generateId(),
+        id: item.id || generateId('SI'),
         sale_id: saleId,
         service_id: item.itemId,
         service_name: item.itemName,
@@ -189,7 +189,7 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
         }, {});
 
         const customerSubscriptionsToInsert = subscription_items.map((item: any) => ({
-          id: generateId(),
+          id: generateId('CSUB'),
           customer_id: saleToInsert.customer_id,
           customer_name: saleToInsert.customer_name,
           plan_id: item.plan_id,

@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -32,8 +32,13 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
+import { useAlert } from '@/providers/AlertProvider';
 import { formatCurrency, isToday } from '@/utils/format';
+import { WORKING_HOURS_PER_DAY } from '@/utils/salary';
 import { Sale, Expense, CustomerSubscription, Customer } from '@/types';
+import AttendanceCard from '@/components/AttendanceCard';
+import SalaryCard from '@/components/SalaryCard';
+import AttendanceOverview from '@/components/AttendanceOverview';
 
 const isThisCalendarMonth = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -43,9 +48,52 @@ const isThisCalendarMonth = (dateStr: string) => {
 
 export default function DashboardScreen() {
   const { user, logout, isAdmin } = useAuth();
-  const { stats, sales, allExpenses, customerSubscriptions, customers, reload, dataLoading, loadError } = useData();
+  const { stats, sales, allExpenses, customerSubscriptions, customers, users, reload, dataLoading, loadError, attendance, leaveRequests, permissionRequests, employeeSalaries, addAttendance, updateAttendance } = useData();
+  const { showAlert } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const { width: SCREEN_WIDTH } = useWindowDimensions();
+
+  // Attendance handlers for employee
+  const handleCheckIn = useCallback(async () => {
+    if (!user) return;
+    setCheckingIn(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      await addAttendance({
+        employeeId: user.id,
+        employeeName: user.name,
+        date: todayStr,
+        checkIn: new Date().toISOString(),
+        status: 'present',
+      });
+    } catch (err: any) {
+      showAlert('Error', err?.message || 'Failed to check in');
+    } finally {
+      setCheckingIn(false);
+    }
+  }, [user, addAttendance, showAlert]);
+
+  const handleCheckOut = useCallback(async (recordId: string, checkInTime: string) => {
+    setCheckingOut(true);
+    try {
+      const now = new Date();
+      const ci = new Date(checkInTime);
+      const workedHours = (now.getTime() - ci.getTime()) / (1000 * 60 * 60);
+      // Auto-determine status based on hours worked
+      const status = workedHours >= WORKING_HOURS_PER_DAY ? 'present' : 'half_day';
+      await updateAttendance({
+        id: recordId,
+        checkOut: now.toISOString(),
+        status,
+      });
+    } catch (err: any) {
+      showAlert('Error', err?.message || 'Failed to check out');
+    } finally {
+      setCheckingOut(false);
+    }
+  }, [updateAttendance, showAlert]);
 
   const chartConfig = useMemo(() => ({
     backgroundColor: Colors.surface,
@@ -431,6 +479,14 @@ export default function DashboardScreen() {
               ))}
             </>
           )}
+
+          {/* Attendance Overview (admin) */}
+          <AttendanceOverview
+            attendance={attendance}
+            leaveRequests={leaveRequests}
+            permissionRequests={permissionRequests}
+            users={users}
+          />
         </View>
       )}
 
@@ -457,6 +513,31 @@ export default function DashboardScreen() {
             <Text style={styles.infoValue}>{formatCurrency(employeeStats.totalSalesAmount)}</Text>
           </View>
         </View>
+      )}
+
+      {/* Employee Attendance Card */}
+      {!isAdmin && user && (
+        <AttendanceCard
+          attendance={attendance}
+          leaveRequests={leaveRequests}
+          permissionRequests={permissionRequests}
+          userId={user.id}
+          onCheckIn={handleCheckIn}
+          onCheckOut={handleCheckOut}
+          checkingIn={checkingIn}
+          checkingOut={checkingOut}
+        />
+      )}
+
+      {/* Employee Salary Card */}
+      {!isAdmin && user && (
+        <SalaryCard
+          attendance={attendance}
+          leaveRequests={leaveRequests}
+          permissionRequests={permissionRequests}
+          employeeSalaries={employeeSalaries}
+          userId={user.id}
+        />
       )}
 
     </ScrollView>
