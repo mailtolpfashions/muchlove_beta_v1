@@ -91,5 +91,4 @@ export function stopHeartbeat(): void {
     heartbeatTimer = null;
   }
   flushedThisSession = false;
-  }
 }

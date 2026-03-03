@@ -10,7 +10,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
-import { getInstallId } from '@/utils/deviceId';\nimport { generateId } from '@/utils/hash';
+import { getInstallId } from '@/utils/deviceId';
+import { generateId } from '@/utils/hash';
 
 const SHADOW_QUEUE_KEY = '@sale_shadow_queue';
 const RETRY_INTERVAL = 10 * 1000; // 10 seconds
