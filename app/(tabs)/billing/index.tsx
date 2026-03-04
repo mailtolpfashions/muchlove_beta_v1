@@ -733,7 +733,7 @@ export default function BillingScreen() {
       {/* Quick Payment FAB */}
       {upiList.length > 0 && totalItems === 0 && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: 20 + insets.bottom }]}
+          style={styles.fab}
           onPress={() => setShowQuickPayment(true)}
           activeOpacity={0.85}
         >
@@ -1269,7 +1269,7 @@ const styles = StyleSheet.create({
   /* FAB */
   fab: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 24,
     right: 20,
     width: 56,
     height: 56,
@@ -1282,6 +1282,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+    zIndex: 10,
   },
 
   /* ===== CHECKOUT BAR ===== */
