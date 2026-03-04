@@ -13,7 +13,6 @@ import {
   Clock,
   Timer,
   CalendarOff,
-  ShieldCheck,
   Hourglass,
   Coffee,
   CalendarPlus,

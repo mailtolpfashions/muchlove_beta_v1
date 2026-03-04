@@ -22,16 +22,6 @@ function resolveConfig(cfg?: Partial<SalaryConfig>): SalaryConfig {
   return { ...DEFAULT_SALON_CONFIG, ...cfg };
 }
 
-// ── Legacy constants (re-exported from defaults for backward compatibility) ──
-export const WEEKLY_OFF_DAY = DEFAULT_SALON_CONFIG.weeklyOffDay;
-export const SHIFT_START_HOUR = DEFAULT_SALON_CONFIG.shiftStartHour;
-export const SHIFT_START_MIN = DEFAULT_SALON_CONFIG.shiftStartMin;
-export const SHIFT_END_HOUR = DEFAULT_SALON_CONFIG.shiftEndHour;
-export const SHIFT_END_MIN = DEFAULT_SALON_CONFIG.shiftEndMin;
-export const WORKING_HOURS_PER_DAY = DEFAULT_SALON_CONFIG.workingHoursPerDay;
-export const GRACE_MINUTES = DEFAULT_SALON_CONFIG.graceMinutes;
-export const FREE_PERMISSION_HOURS = DEFAULT_SALON_CONFIG.freePermissionHours;
-
 // ── Helpers ─────────────────────────────────────────────────
 
 /** Get total days in a month */

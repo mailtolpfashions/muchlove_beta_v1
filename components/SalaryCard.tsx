@@ -4,7 +4,7 @@ import { Banknote, TrendingDown, Download, ChevronLeft, ChevronRight } from 'luc
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { formatCurrency } from '@/utils/format';
-import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary, SalonConfig } from '@/types';
+import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary } from '@/types';
 import { calculateMonthlySalary } from '@/utils/salary';
 import { shareSalarySlip } from '@/utils/salarySlip';
 import { useData } from '@/providers/DataProvider';

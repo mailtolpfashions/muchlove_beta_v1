@@ -292,11 +292,6 @@ function buildSalarySlipHtml(params: SlipParams): string {
 </html>`;
 }
 
-export async function openSalarySlip(params: SlipParams): Promise<void> {
-  const html = buildSalarySlipHtml(params);
-  await Print.printAsync({ html });
-}
-
 export async function shareSalarySlip(params: SlipParams): Promise<void> {
   const html = buildSalarySlipHtml(params);
   const { uri } = await Print.printToFileAsync({ html });
