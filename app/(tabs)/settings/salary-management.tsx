@@ -26,7 +26,7 @@ import { shareSalarySlip } from '@/utils/salarySlip';
 
 export default function SalaryManagementScreen() {
   const { user } = useAuth();
-  const { users, employeeSalaries, attendance, leaveRequests, permissionRequests, addEmployeeSalary, updateEmployeeSalary, reload, salonConfig } = useData();
+  const { users, employeeSalaries, attendance, leaveRequests, permissionRequests, sales, addEmployeeSalary, updateEmployeeSalary, reload, salonConfig } = useData();
   const { showAlert } = useAlert();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -37,6 +37,7 @@ export default function SalaryManagementScreen() {
   // Form state
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [salaryAmount, setSalaryAmount] = useState('');
+  const [incentivePercent, setIncentivePercent] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState<Date | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -91,6 +92,15 @@ export default function SalaryManagementScreen() {
       const currentSalary = salaryRecords[0] ?? null;
 
       // Calculate this month's salary
+      // Compute employee's monthly sales total
+      const empSalesTotal = sales
+        .filter((s: any) => {
+          if (s.employeeId !== emp.id) return false;
+          const d = new Date(s.createdAt);
+          return d.getFullYear() === year && d.getMonth() === month;
+        })
+        .reduce((sum: number, s: any) => sum + s.total, 0);
+
       const breakdown = currentSalary
         ? calculateMonthlySalary(
             currentSalary.baseSalary,
@@ -100,7 +110,7 @@ export default function SalaryManagementScreen() {
             year,
             month,
             emp.joiningDate,
-            salonConfig,
+            { ...salonConfig, incentivePercent: currentSalary.incentivePercent, employeeSalesTotal: empSalesTotal } as any,
           )
         : null;
 
@@ -113,17 +123,19 @@ export default function SalaryManagementScreen() {
         breakdown,
       };
     });
-  }, [employees, employeeSalaryMap, attendance, leaveRequests, permissionRequests, viewMonth, viewYear]);
+  }, [employees, employeeSalaryMap, attendance, leaveRequests, permissionRequests, sales, viewMonth, viewYear]);
 
   const handleOpenForm = (empId: string, existing?: EmployeeSalary) => {
     setSelectedEmployee(empId);
     if (existing) {
       setEditingId(existing.id);
       setSalaryAmount(existing.baseSalary.toString());
+      setIncentivePercent(existing.incentivePercent > 0 ? existing.incentivePercent.toString() : '');
       setEffectiveFrom(new Date(existing.effectiveFrom));
     } else {
       setEditingId(null);
       setSalaryAmount('');
+      setIncentivePercent('');
       setEffectiveFrom(new Date());
     }
     setShowForm(true);
@@ -142,10 +154,12 @@ export default function SalaryManagementScreen() {
     setSubmitting(true);
     try {
       const empName = employees.find((e: any) => e.id === selectedEmployee)?.name ?? '';
+      const incPct = parseFloat(incentivePercent) || 0;
       const payload = {
         employeeId: selectedEmployee,
         employeeName: empName,
         baseSalary: amount,
+        incentivePercent: incPct,
         effectiveFrom: toLocalDateString(effectiveFrom),
       };
       if (editingId) {
@@ -207,7 +221,7 @@ export default function SalaryManagementScreen() {
             <Text style={styles.empName}>{item.name}</Text>
             {hasSalary ? (
               <Text style={styles.empSalary}>
-                Base: {formatCurrency(item.currentSalary!.baseSalary)}/month
+                Base: {formatCurrency(item.currentSalary!.baseSalary)}/month{item.currentSalary!.incentivePercent > 0 ? ` + ${item.currentSalary!.incentivePercent}% incentive` : ''}
               </Text>
             ) : (
               <Text style={styles.empNoSalary}>Salary not configured</Text>
@@ -308,6 +322,16 @@ export default function SalaryManagementScreen() {
                   </View>
                 </>
               )}
+              {b.incentiveAmount > 0 && (
+                <>
+                  <SalaryDivider />
+                  <SalaryRow
+                    label={`Sales Incentive (${b.incentivePercent}% of ${formatCurrency(b.employeeSalesTotal)})`}
+                    value={`+${formatCurrency(b.incentiveAmount)}`}
+                    color="#059669"
+                  />
+                </>
+              )}
             </View>
 
             <Text style={salaryStyles.effectiveLabel}>
@@ -385,6 +409,19 @@ export default function SalaryManagementScreen() {
               placeholderTextColor={Colors.textTertiary}
               keyboardType="numeric"
             />
+          </View>
+
+          <Text style={styles.fieldLabel}>Incentive on Sales (%)</Text>
+          <View style={styles.salaryInputRow}>
+            <TextInput
+              style={styles.salaryInput}
+              value={incentivePercent}
+              onChangeText={setIncentivePercent}
+              placeholder="e.g. 5"
+              placeholderTextColor={Colors.textTertiary}
+              keyboardType="decimal-pad"
+            />
+            <Text style={{ color: Colors.textTertiary, fontSize: FontSize.body }}>%</Text>
           </View>
 
           <Text style={styles.fieldLabel}>Effective From *</Text>

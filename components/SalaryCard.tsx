@@ -4,7 +4,7 @@ import { Banknote, TrendingDown, Download, ChevronLeft, ChevronRight } from 'luc
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { formatCurrency } from '@/utils/format';
-import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary } from '@/types';
+import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary, Sale } from '@/types';
 import { calculateMonthlySalary } from '@/utils/salary';
 import { shareSalarySlip } from '@/utils/salarySlip';
 import { useData } from '@/providers/DataProvider';
@@ -14,6 +14,7 @@ interface SalaryCardProps {
   leaveRequests: LeaveRequest[];
   permissionRequests: PermissionRequest[];
   employeeSalaries: EmployeeSalary[];
+  sales: Sale[];
   userId: string;
   joiningDate?: string;
   userName?: string;
@@ -25,6 +26,7 @@ export default function SalaryCard({
   leaveRequests,
   permissionRequests,
   employeeSalaries,
+  sales,
   userId,
   joiningDate,
   userName,
@@ -56,8 +58,19 @@ export default function SalaryCard({
     const myAttendance = attendance.filter(a => a.employeeId === userId);
     const myLeaves = leaveRequests.filter(lr => lr.employeeId === userId);
     const myPermissions = permissionRequests.filter(pr => pr.employeeId === userId);
-    return calculateMonthlySalary(currentSalary.baseSalary, myAttendance, myLeaves, myPermissions, year, month, joiningDate, salonConfig);
-  }, [currentSalary, attendance, leaveRequests, permissionRequests, userId, year, month, salonConfig]);
+    // Compute employee's monthly sales total
+    const mySalesTotal = sales
+      .filter(s => {
+        if (s.employeeId !== userId) return false;
+        const d = new Date(s.createdAt);
+        return d.getFullYear() === year && d.getMonth() === month;
+      })
+      .reduce((sum, s) => sum + s.total, 0);
+    return calculateMonthlySalary(
+      currentSalary.baseSalary, myAttendance, myLeaves, myPermissions, year, month, joiningDate,
+      { ...salonConfig, incentivePercent: currentSalary.incentivePercent, employeeSalesTotal: mySalesTotal } as any,
+    );
+  }, [currentSalary, attendance, leaveRequests, permissionRequests, sales, userId, year, month, salonConfig]);
 
   // Check if selected month is before joining
   const isBeforeJoining = useMemo(() => {
@@ -207,6 +220,16 @@ export default function SalaryCard({
               <Text style={styles.totalDeductionLabel}>Total Deduction</Text>
               <Text style={styles.totalDeductionValue}>-{formatCurrency(breakdown.totalDeduction)}</Text>
             </View>
+          </>
+        )}
+        {breakdown.incentiveAmount > 0 && (
+          <>
+            <Divider />
+            <Row
+              label={`Sales Incentive (${breakdown.incentivePercent}% of ${formatCurrency(breakdown.employeeSalesTotal)})`}
+              value={`+${formatCurrency(breakdown.incentiveAmount)}`}
+              color="#059669"
+            />
           </>
         )}
       </View>

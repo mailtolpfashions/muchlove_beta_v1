@@ -214,6 +214,7 @@ export interface EmployeeSalary {
   employeeId: string;
   employeeName: string;
   baseSalary: number;
+  incentivePercent: number;
   effectiveFrom: string;
   createdAt: string;
 }

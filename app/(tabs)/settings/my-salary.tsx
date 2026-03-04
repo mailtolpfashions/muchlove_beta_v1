@@ -8,7 +8,7 @@ import SalaryCard from '@/components/SalaryCard';
 
 export default function MySalaryScreen() {
   const { user } = useAuth();
-  const { attendance, leaveRequests, permissionRequests, employeeSalaries, reload, dataLoading } = useData();
+  const { attendance, leaveRequests, permissionRequests, employeeSalaries, sales, reload, dataLoading } = useData();
 
   if (!user) return null;
 
@@ -27,6 +27,7 @@ export default function MySalaryScreen() {
         joiningDate={user.joiningDate}
         userName={user.name}
         userMobile={user.mobile}
+        sales={sales}
       />
     </ScrollView>
   );

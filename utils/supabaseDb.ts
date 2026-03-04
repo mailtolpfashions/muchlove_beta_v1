@@ -770,6 +770,7 @@ function mapEmployeeSalary(r: Record<string, unknown>): EmployeeSalary {
     employeeId: r.employee_id as string,
     employeeName: (r.employee_name as string) || '',
     baseSalary: Number(r.base_salary),
+    incentivePercent: Number(r.incentive_percent ?? 0),
     effectiveFrom: r.effective_from as string,
     createdAt: (r.created_at as string) ?? new Date().toISOString(),
   };
@@ -971,12 +972,13 @@ export const employeeSalariesDb = {
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (salary: { employeeId: string; employeeName: string; baseSalary: number; effectiveFrom: string }) => {
+      mutationFn: async (salary: { employeeId: string; employeeName: string; baseSalary: number; incentivePercent?: number; effectiveFrom: string }) => {
         const row = {
           id: generateId('ESAL'),
           employee_id: salary.employeeId,
           employee_name: salary.employeeName,
           base_salary: salary.baseSalary,
+          incentive_percent: salary.incentivePercent ?? 0,
           effective_from: salary.effectiveFrom,
         };
         const { data, error } = await supabase.from('employee_salaries').insert(row).select().single();
@@ -989,8 +991,9 @@ export const employeeSalariesDb = {
   useUpdate: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (salary: { id: string; baseSalary: number; effectiveFrom?: string }) => {
+      mutationFn: async (salary: { id: string; baseSalary: number; incentivePercent?: number; effectiveFrom?: string }) => {
         const updates: Record<string, any> = { base_salary: salary.baseSalary };
+        if (salary.incentivePercent !== undefined) updates.incentive_percent = salary.incentivePercent;
         if (salary.effectiveFrom) updates.effective_from = salary.effectiveFrom;
         const { error } = await supabase.from('employee_salaries').update(updates).eq('id', salary.id);
         if (error) throw error;

@@ -18,6 +18,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { useAlert } from '@/providers/AlertProvider';
 import BottomSheetModal from '@/components/BottomSheetModal';
+import { useFocusEffect } from 'expo-router';
 import DatePickerModal from '@/components/DatePickerModal';
 import type { LeaveRequest, PermissionRequest, Attendance } from '@/types';
 import { isWeeklyOff, compLeaveValue, computeCompBalance, computeEarnedLeaveBalance, computeLeaveBalance } from '@/utils/salary';
@@ -52,10 +53,12 @@ const CAL_LEGEND_ITEMS: { label: string; status: DayStatus }[] = [
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
-  const { attendance, leaveRequests, permissionRequests, addLeaveRequest, addPermissionRequest, reload, salonConfig } = useData();
+  const { attendance, leaveRequests, permissionRequests, addLeaveRequest, addPermissionRequest, updateLeaveRequest, reload, salonConfig } = useData();
   const { showAlert } = useAlert();
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelledIds, setCancelledIds] = useState<string[]>([]);
 
   const [tab, setTab] = useState<'attendance' | 'requests'>('attendance');
 
@@ -129,6 +132,13 @@ export default function AttendanceScreen() {
     setRefreshing(false);
   }, [reload]);
 
+  // Auto-refresh when screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      reload();
+    }, [reload])
+  );
+
   /* ── My data ── */
   const myAttendance = useMemo(() => {
     if (!user) return [];
@@ -137,8 +147,10 @@ export default function AttendanceScreen() {
 
   const myLeaveRequests = useMemo(() => {
     if (!user) return [];
-    return leaveRequests.filter(lr => lr.employeeId === user.id);
-  }, [leaveRequests, user]);
+    return leaveRequests
+      .filter(lr => lr.employeeId === user.id)
+      .map(lr => cancelledIds.includes(lr.id) ? { ...lr, status: 'rejected' as const } : lr);
+  }, [leaveRequests, user, cancelledIds]);
 
   const myPermissionRequests = useMemo(() => {
     if (!user) return [];
@@ -221,11 +233,16 @@ export default function AttendanceScreen() {
       leaveConsumed += permHours / salonConfig.workingHoursPerDay;
     }
 
-    // Compute leave balance
+    // Compute leave balance (actual — for display)
     const balResult = computeLeaveBalance(myAttendance, myLeaveRequests, user.joiningDate, salonConfig);
     const leaveBalance = balResult.totalBalance;
-    const paidLeaves = Math.min(leaveConsumed, leaveBalance);
-    const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
+
+    // Effective balance for paid/excess (exclude current month to avoid double-counting typed leaves)
+    const effectiveBalResult = computeLeaveBalance(myAttendance, myLeaveRequests, user.joiningDate, salonConfig, { year: viewYear, month: viewMonth });
+    const effectiveBalance = effectiveBalResult.totalBalance;
+
+    const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
+    const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
     absent += excessLeaves;
 
     return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compOff };
@@ -268,7 +285,8 @@ export default function AttendanceScreen() {
 
       let status: DayStatus;
       if (isFuture || isBeforeJoining) {
-        status = 'future';
+        // Future days with an approved/pending leave should show as 'leave'
+        status = hasLeave ? 'leave' : 'future';
       } else if (isOff) {
         const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
         status = cv > 0 ? (rec?.status === 'half_day' ? 'half_day' : 'present') : 'off';
@@ -291,20 +309,20 @@ export default function AttendanceScreen() {
   const compBalance = useMemo(() => {
     if (!user) return 0;
     return computeCompBalance(
-      attendance.filter(a => a.employeeId === user.id),
-      leaveRequests.filter(lr => lr.employeeId === user.id),
+      myAttendance,
+      myLeaveRequests,
       salonConfig,
     );
-  }, [attendance, leaveRequests, user, salonConfig]);
+  }, [myAttendance, myLeaveRequests, user, salonConfig]);
 
   const earnedLeaveBalance = useMemo(() => {
     if (!user) return 0;
     return computeEarnedLeaveBalance(
-      leaveRequests.filter(lr => lr.employeeId === user.id),
+      myLeaveRequests,
       user.joiningDate,
       salonConfig,
     );
-  }, [leaveRequests, user, salonConfig]);
+  }, [myLeaveRequests, user, salonConfig]);
 
   /* ── Month records for list ── */
   const monthRecords = useMemo(() => {
@@ -319,8 +337,7 @@ export default function AttendanceScreen() {
   /* ── Combined requests ── */
   const myRequests = useMemo(() => {
     if (!user) return [];
-    const leaves = leaveRequests
-      .filter(lr => lr.employeeId === user.id)
+    const leaves = myLeaveRequests
       .map(lr => ({ ...lr, reqType: 'leave' as const }));
     const perms = permissionRequests
       .filter(pr => pr.employeeId === user.id)
@@ -328,7 +345,7 @@ export default function AttendanceScreen() {
     return [...leaves, ...perms].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
-  }, [leaveRequests, permissionRequests, user]);
+  }, [myLeaveRequests, permissionRequests, user]);
 
   /* ── Resets ── */
   const resetLeaveForm = () => { setLeaveStartDate(null); setLeaveEndDate(null); setLeaveReason(''); setIsHalfDay(false); setHalfDayPeriod('first_half'); };
@@ -336,12 +353,17 @@ export default function AttendanceScreen() {
   const resetCompForm = () => { setCompDate(null); setCompReason(''); };
   const resetEarnedForm = () => { setEarnedDate(null); setEarnedReason(''); };
 
-  /* ── Calendar date tap ── */
+  /* ── Calendar date tap (first tap selects, second tap on same date opens actions) ── */
   const handleCalendarDatePress = (day: number) => {
     const data = calendarData.get(day);
     if (!data) return;
-    setSelectedDay(day);
-    setShowDateActions(true);
+    if (selectedDay === day) {
+      // Second tap on same date → open actions
+      setShowDateActions(true);
+    } else {
+      // First tap → just select/highlight
+      setSelectedDay(day);
+    }
   };
 
   const selectedDate = selectedDay ? new Date(viewYear, viewMonth, selectedDay) : null;
@@ -422,6 +444,18 @@ export default function AttendanceScreen() {
     finally { setSubmitting(false); }
   };
 
+  /** Employee cancels an approved/pending leave or correction request */
+  const handleCancelLeave = async (leaveId: string, isCorrection?: boolean) => {
+    setCancellingId(leaveId);
+    try {
+      await updateLeaveRequest({ id: leaveId, status: 'rejected', reviewedBy: user!.id });
+      setCancelledIds(prev => [...prev, leaveId]);
+      await reload();
+      showAlert('Success', isCorrection ? 'Correction request cancelled.' : 'Leave cancelled. Balance restored.');
+    } catch (err: any) { showAlert('Error', err?.message || 'Failed to cancel'); }
+    finally { setCancellingId(null); }
+  };
+
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -449,16 +483,28 @@ export default function AttendanceScreen() {
     const isLeave = item.reqType === 'leave';
     const leaveItem = item as LeaveRequest & { reqType: string };
     const permItem = item as PermissionRequest & { reqType: string };
+
+    // Allow cancel for approved/pending leaves if the leave end date hasn't passed yet
+    const canCancel = isLeave
+      && !cancelledIds.includes(item.id)
+      && (item.status === 'approved' || item.status === 'pending')
+      && new Date(leaveItem.endDate + 'T23:59:59') >= new Date(toLocalDateString(new Date()) + 'T00:00:00');
+
+    const isCorrection = isLeave && !!leaveItem.reason?.startsWith('[CORRECTION]');
+
+    const displayStatus = cancelledIds.includes(item.id) ? 'rejected' : item.status;
+    const displayStatusColors = STATUS_COLORS[displayStatus] || STATUS_COLORS.pending;
+
     return (
       <View style={styles.recordCard}>
         <View style={styles.recordHeader}>
-          <View style={[styles.typeBadge, { backgroundColor: isLeave ? (leaveItem.type === 'earned' ? '#D1FAE5' : leaveItem.type === 'compensation' ? '#EDE9FE' : '#FFEDD5') : '#FEF3C7' }]}>
-            <Text style={[styles.typeText, { color: isLeave ? (leaveItem.type === 'earned' ? '#059669' : leaveItem.type === 'compensation' ? '#7C3AED' : '#EA580C') : '#D97706' }]}>
-              {isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : leaveItem.type === 'earned' ? 'EARNED LEAVE' : 'LEAVE') : 'PERMISSION'}
+          <View style={[styles.typeBadge, { backgroundColor: isCorrection ? '#FEE2E2' : isLeave ? (leaveItem.type === 'earned' ? '#D1FAE5' : leaveItem.type === 'compensation' ? '#EDE9FE' : '#FFEDD5') : '#FEF3C7' }]}>
+            <Text style={[styles.typeText, { color: isCorrection ? '#DC2626' : isLeave ? (leaveItem.type === 'earned' ? '#059669' : leaveItem.type === 'compensation' ? '#7C3AED' : '#EA580C') : '#D97706' }]}>
+              {isCorrection ? 'CORRECTION' : isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : leaveItem.type === 'earned' ? 'EARNED LEAVE' : 'LEAVE') : 'PERMISSION'}
             </Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
-            <Text style={[styles.statusText, { color: statusColors.text }]}>{item.status.toUpperCase()}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: displayStatusColors.bg }]}>
+            <Text style={[styles.statusText, { color: displayStatusColors.text }]}>{displayStatus.toUpperCase()}</Text>
           </View>
         </View>
         <Text style={styles.recordDate}>
@@ -469,6 +515,17 @@ export default function AttendanceScreen() {
         {(isLeave ? leaveItem.reason : permItem.reason) ? (
           <Text style={styles.recordReason} numberOfLines={2}>{isLeave ? leaveItem.reason : permItem.reason}</Text>
         ) : null}
+        {canCancel && (
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={() => handleCancelLeave(item.id, isCorrection)}
+            disabled={cancellingId === item.id}
+          >
+            {cancellingId === item.id
+              ? <ActivityIndicator size="small" color="#DC2626" />
+              : <Text style={styles.cancelBtnText}>{isCorrection ? 'Cancel Request' : 'Cancel Leave'}</Text>}
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -565,6 +622,10 @@ export default function AttendanceScreen() {
             </View>
           </View>
 
+          {selectedDay !== null && (
+            <Text style={styles.tapHint}>Tap again to apply leave or request correction</Text>
+          )}
+
           {/* Records list */}
           <View style={styles.recordsSection}>
             <Text style={styles.sectionTitle}>{monthLabel} — Records</Text>
@@ -606,6 +667,7 @@ export default function AttendanceScreen() {
       ) : (
         <FlatList
           data={myRequests}
+          extraData={cancelledIds}
           keyExtractor={item => item.id}
           renderItem={renderRequestItem}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
@@ -674,7 +736,7 @@ export default function AttendanceScreen() {
               <Text style={styles.dateActionLabel}>EL ({earnedLeaveBalance})</Text>
             </TouchableOpacity>
           )}
-          {selectedDayData?.attendance && (
+          {(selectedDayData?.attendance || selectedDayData?.status === 'absent') && (
             <TouchableOpacity style={styles.dateActionBtn} onPress={openCorrectionFromCalendar}>
               <View style={[styles.dateActionIcon, { backgroundColor: '#FEE2E2' }]}>
                 <ClipboardEdit size={20} color="#DC2626" />
@@ -869,18 +931,21 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   legendDot: { width: 10, height: 10, borderRadius: 3, borderWidth: 1 },
   legendText: { fontSize: 9, color: Colors.textSecondary, fontWeight: '600' },
+  tapHint: { textAlign: 'center', fontSize: 12, color: Colors.primary, fontWeight: '500', marginTop: 6, marginBottom: 2 },
   actionRow: { flexDirection: 'row', paddingHorizontal: Spacing.screen, paddingVertical: Spacing.sm, gap: 8, flexWrap: 'wrap' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 12, borderRadius: BorderRadius.md, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   actionBtnDisabled: { opacity: 0.5 },
   actionText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.text },
   recordsSection: { paddingHorizontal: Spacing.screen, marginTop: Spacing.sm },
   sectionTitle: { fontSize: FontSize.body, fontWeight: '700', color: Colors.text, marginBottom: Spacing.sm },
-  listContent: { padding: Spacing.screen, paddingTop: 0, paddingBottom: 100 },
+  listContent: { padding: Spacing.screen, paddingTop: 12, paddingBottom: 100 },
   recordCard: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: Spacing.sm, shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 },
   recordHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   recordDate: { fontSize: FontSize.body, fontWeight: '600', color: Colors.text, flex: 1 },
   recordTime: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 4 },
   recordReason: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 4, fontStyle: 'italic' },
+  cancelBtn: { marginTop: 8, alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: '#DC2626', backgroundColor: '#FEF2F2' },
+  cancelBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#DC2626' },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   statusText: { fontSize: FontSize.xs, fontWeight: '700' },
   typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },

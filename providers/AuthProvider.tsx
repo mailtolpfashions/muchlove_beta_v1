@@ -74,14 +74,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
         // ── TOKEN_REFRESHED ──
         // Success → silently update session, keep user as-is.
-        // Failure → only log out if the user explicitly triggered it.
+        // Failure → clear stale tokens from storage so the SDK stops
+        //           retrying with the dead refresh token.
         if (event === 'TOKEN_REFRESHED') {
           if (newSession) {
             setSession(newSession);
+          } else {
+            // Refresh failed — clear the corrupt stored session so the
+            // SDK stops emitting errors.  Cached profile keeps UI alive;
+            // the 5-min recheck will catch truly dead sessions.
+            try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
           }
-          // If no session, don't kick user out — the cached profile
-          // keeps the UI logged in. The 5-min recheck will catch
-          // truly dead sessions eventually.
           return;
         }
 
@@ -139,10 +142,19 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             'Session retrieval',
           );
           existingSession = result.data?.session ?? null;
-          // Ignore sessionError — if we have a cache, user stays in.
-          // Token will auto-refresh via onAuthStateChange.
-        } catch {
-          // Timeout or network error — keep cached profile
+
+          // If the stored session has a dead refresh token, clear it
+          // so the SDK stops retrying with the stale token.
+          if (result.error && /refresh.token/i.test(result.error.message ?? '')) {
+            try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
+          }
+        } catch (e: any) {
+          // AuthApiError thrown when the SDK internally tries to refresh
+          // with a stale refresh token — clear the bad session.
+          if (/refresh.token/i.test(e?.message ?? '')) {
+            try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
+          }
+          // Keep cached profile regardless
         }
 
         if (cancelled) return;

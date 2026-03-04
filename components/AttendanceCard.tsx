@@ -91,13 +91,19 @@ export default function AttendanceCard({
       }
     });
 
-    // Non-rejected leave requests this month
-    const myLeaves = leaveRequests.filter(lr => {
-      if (lr.employeeId !== userId || lr.status === 'rejected') return false;
-      const start = new Date(lr.startDate);
-      return start.getMonth() === month && start.getFullYear() === year;
-    }).length;
-    leaveConsumed += myLeaves;
+    // Non-rejected leave requests this month — count DAYS (not requests)
+    let myLeaveDays = 0;
+    for (const lr of leaveRequests) {
+      if (lr.employeeId !== userId || lr.status === 'rejected') continue;
+      const mStart = new Date(year, month, 1);
+      const mEnd = new Date(year, month + 1, 0);
+      const start = new Date(Math.max(new Date(lr.startDate).getTime(), mStart.getTime()));
+      const end = new Date(Math.min(new Date(lr.endDate).getTime(), mEnd.getTime()));
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== salonConfig.weeklyOffDay) myLeaveDays++;
+      }
+    }
+    leaveConsumed += myLeaveDays;
 
     // Permission hours → leave days consumed
     let permHours = 0;
@@ -117,15 +123,19 @@ export default function AttendanceCard({
       : 0;
     leaveConsumed += permLeaveDays;
 
-    // Compute leave balance
+    // Compute leave balance (actual — for display)
     const myAllAttendance = attendance.filter(a => a.employeeId === userId);
     const myAllLeaves = leaveRequests.filter(lr => lr.employeeId === userId);
     const balResult = computeLeaveBalance(myAllAttendance, myAllLeaves, joiningDate, salonConfig);
     const leaveBalance = balResult.totalBalance;
 
+    // Effective balance for paid/excess (exclude current month's typed usage to avoid double-counting)
+    const effectiveBalResult = computeLeaveBalance(myAllAttendance, myAllLeaves, joiningDate, salonConfig, { year, month });
+    const effectiveBalance = effectiveBalResult.totalBalance;
+
     // Paid vs excess
-    const paidLeaves = Math.min(leaveConsumed, leaveBalance);
-    const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
+    const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
+    const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
     absent += excessLeaves;
 
     return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compEarned, permHours, lateCount };
@@ -431,11 +441,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   statPill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    gap: 3,
     paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     borderRadius: 12,
   },
   statNum: {

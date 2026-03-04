@@ -10,6 +10,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, UserCheck, UserX, Clock, UserMinus, CalendarOff, X, Check, Trash2 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
@@ -19,7 +20,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import BottomSheetModal from '@/components/BottomSheetModal';
 import type { Attendance, AttendanceStatus, LeaveRequest, PermissionRequest, RequestStatus } from '@/types';
 import { toLocalDateString } from '@/utils/format';
-import { isWeeklyOff, compLeaveValue, computeLeaveBalance } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, computeLeaveBalance, computeCompBalance } from '@/utils/salary';
 
 type FormCategory = 'present' | 'absent' | 'leave';
 type PresentSubType = 'full_day' | 'half_day';
@@ -84,7 +85,7 @@ const CAL_LEGEND_ITEMS: { label: string; status: DayStatus }[] = [
 export default function AttendanceManagementScreen() {
   const { user } = useAuth();
   const { attendance, users, addAttendance, updateAttendance, deleteAttendance, leaveRequests, permissionRequests, updateLeaveRequest, updatePermissionRequest, addLeaveRequest, addPermissionRequest, reload, salonConfig } = useData();
-  const { showAlert } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
 
   // Top-level tab
   const [mainTab, setMainTab] = useState<'attendance' | 'requests'>('attendance');
@@ -136,6 +137,13 @@ export default function AttendanceManagementScreen() {
     await reload();
     setRefreshing(false);
   }, [reload]);
+
+  // Auto-refresh when screen gains focus (e.g. coming back from employee screen)
+  useFocusEffect(
+    useCallback(() => {
+      reload();
+    }, [reload])
+  );
 
   const dateStr = toLocalDateString(selectedDate);
   const now = new Date();
@@ -287,16 +295,20 @@ export default function AttendanceManagementScreen() {
       // Add permission hours as leave consumed
       leave += permLeaveDays;
 
-      // Compute leave balance for this employee
+      // Compute leave balance for this employee (actual — for display)
       const empAllAttendance = attendance.filter(a => a.employeeId === emp.id);
       const empAllLeaves = leaveRequests.filter(lr => lr.employeeId === emp.id);
       const balResult = computeLeaveBalance(empAllAttendance, empAllLeaves, (emp as any).joiningDate, salonConfig);
       const leaveBalance = balResult.totalBalance;
 
+      // Effective balance for paid/excess (exclude current month to avoid double-counting typed leaves)
+      const effectiveBalResult = computeLeaveBalance(empAllAttendance, empAllLeaves, (emp as any).joiningDate, salonConfig, { year, month });
+      const effectiveBalance = effectiveBalResult.totalBalance;
+
       // Excess leaves become absent
-      const excessLeaves = Math.max(0, leave - leaveBalance);
+      const excessLeaves = Math.max(0, leave - effectiveBalance);
       absent += excessLeaves;
-      const paidLeave = Math.min(leave, leaveBalance);
+      const paidLeave = Math.min(leave, effectiveBalance);
 
       map.set(emp.id, { present, absent, off, leave: paidLeave, leaveBalance, compOff });
     }
@@ -350,7 +362,8 @@ export default function AttendanceManagementScreen() {
         const hasLeave = leaveDates.has(ds);
 
         if (isFuture || isBeforeJoining) {
-          dayMap.set(day, 'future');
+          // Future days with an approved/pending leave should show as 'leave'
+          dayMap.set(day, hasLeave ? 'leave' : 'future');
         } else if (isOff) {
           const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
           if (cv > 0 && rec?.status === 'half_day') {
@@ -408,6 +421,21 @@ export default function AttendanceManagementScreen() {
 
   const pendingCount = allRequests.filter(r => r.status === 'pending').length;
 
+  /** Check if removing a comp-earning record would leave comp usage unfunded.
+   *  Returns the number of comp days that would become excess. */
+  const getCompImpact = useCallback((empId: string, existingRecord: Attendance | undefined): number => {
+    if (!existingRecord) return 0;
+    if (!isWeeklyOff(existingRecord.date, salonConfig)) return 0;
+    const cv = compLeaveValue(existingRecord, salonConfig);
+    if (cv <= 0) return 0;
+    // Current comp balance already accounts for this record's earning
+    const empAtt = attendance.filter(a => a.employeeId === empId);
+    const empLeaves = leaveRequests.filter(lr => lr.employeeId === empId);
+    const currentBalance = computeCompBalance(empAtt, empLeaves, salonConfig);
+    // After removal, balance drops by cv. If it goes below 0, comp usage becomes unfunded.
+    return currentBalance < cv ? cv - currentBalance : 0;
+  }, [attendance, leaveRequests, salonConfig]);
+
   const handleOpenForm = (empId: string, empName: string, currentStatus: AttendanceStatus | null) => {
     setSelectedEmployee(empId);
     setSelectedEmployeeName(empName);
@@ -433,7 +461,7 @@ export default function AttendanceManagementScreen() {
         setPresentType('full_day');
         setLeaveType('leave');
       }
-      setDeductFrom('el');
+      setDeductFrom(empLeaveBreakdown.earnedLeaveBalance > 0 ? 'el' : empLeaveBreakdown.compBalance > 0 ? 'comp' : 'el');
       setNotes(existing.notes ?? '');
       // Parse permission hours from existing permission request for this date
       const existingPerm = permissionRequests.find(pr =>
@@ -483,7 +511,7 @@ export default function AttendanceManagementScreen() {
         setPresentType('full_day');
         setLeaveType('leave');
       }
-      setDeductFrom('el');
+      setDeductFrom(empLeaveBreakdown.earnedLeaveBalance > 0 ? 'el' : empLeaveBreakdown.compBalance > 0 ? 'comp' : 'el');
       setNotes('');
       setPermHours('');
       setPermFromTime('');
@@ -496,8 +524,29 @@ export default function AttendanceManagementScreen() {
   // Quick-mark attendance from the employee row
   const handleQuickMark = async (empId: string, empName: string, status: AttendanceStatus) => {
     if (!user) return;
+
+    // Safeguard: warn if reverting a weekly-off present to absent
+    const existing = dateAttendance.get(empId);
+    if (status === 'absent' && existing) {
+      const impact = getCompImpact(empId, existing);
+      if (impact > 0) {
+        showConfirm(
+          'Comp Off Used',
+          `This employee has used comp off earned from this day. Reverting will make ${impact} comp-off day(s) unfunded (counted as excess/absent). Continue?`,
+          async () => {
+            try {
+              await updateAttendance({ id: existing.id, status, markedBy: user.id });
+            } catch (err: any) {
+              showAlert('Error', err?.message || 'Failed to update');
+            }
+          },
+          'Revert Anyway',
+        );
+        return;
+      }
+    }
+
     try {
-      const existing = dateAttendance.get(empId);
       if (existing) {
         await updateAttendance({ id: existing.id, status, markedBy: user.id });
       } else {
@@ -616,6 +665,28 @@ export default function AttendanceManagementScreen() {
         return;
       }
     }
+
+    // Safeguard: warn before overwriting a comp-earning weekly-off record
+    if (formCategory === 'absent' && editingId && selectedEmployee) {
+      const existing = dateAttendance.get(selectedEmployee);
+      const impact = getCompImpact(selectedEmployee, existing);
+      if (impact > 0) {
+        showConfirm(
+          'Comp Off Used',
+          `This employee has used comp off earned from this day. Changing to absent will make ${impact} comp-off day(s) unfunded (counted as excess/absent). Continue?`,
+          () => { doSubmitSave(); },
+          'Change Anyway',
+        );
+        return;
+      }
+    }
+
+    doSubmitSave();
+  };
+
+  /** Inner save logic — called directly or after comp-off confirmation */
+  const doSubmitSave = async () => {
+    if (!selectedEmployee || !user) return;
     setSubmitting(true);
     try {
       // Build notes with extra info
@@ -703,6 +774,7 @@ export default function AttendanceManagementScreen() {
       } else {
         await updatePermissionRequest({ id: req.id, ...update });
       }
+      await reload();
       showAlert('Success', `Request ${action}`);
     } catch (err: any) {
       showAlert('Error', err?.message || 'Failed to update');
@@ -946,6 +1018,7 @@ export default function AttendanceManagementScreen() {
     const isLeave = item.reqType === 'leave';
     const leaveItem = item as LeaveRequest & { reqType: string; employeeName: string };
     const permItem = item as PermissionRequest & { reqType: string; employeeName: string };
+    const isCorrection = isLeave && !!leaveItem.reason?.startsWith('[CORRECTION]');
     const isPending = item.status === 'pending';
     const isProcessing = processingId === item.id;
 
@@ -956,9 +1029,9 @@ export default function AttendanceManagementScreen() {
             <Text style={styles.reqEmpName}>{item.employeeName}</Text>
             <Text style={styles.reqDate}>Requested {formatDate(item.createdAt)}</Text>
           </View>
-          <View style={[styles.typeBadge, { backgroundColor: isLeave ? '#FFEDD5' : '#FEF3C7' }]}>
-            <Text style={[styles.typeText, { color: isLeave ? '#EA580C' : '#D97706' }]}>
-              {isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : 'LEAVE') : 'PERMISSION'}
+          <View style={[styles.typeBadge, { backgroundColor: isCorrection ? '#FEE2E2' : isLeave ? (leaveItem.type === 'compensation' ? '#EDE9FE' : leaveItem.type === 'earned' ? '#D1FAE5' : '#FFEDD5') : '#FEF3C7' }]}>
+            <Text style={[styles.typeText, { color: isCorrection ? '#DC2626' : isLeave ? (leaveItem.type === 'compensation' ? '#7C3AED' : leaveItem.type === 'earned' ? '#059669' : '#EA580C') : '#D97706' }]}>
+              {isCorrection ? 'CORRECTION' : isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : leaveItem.type === 'earned' ? 'EARNED LEAVE' : 'LEAVE') : 'PERMISSION'}
             </Text>
           </View>
         </View>
@@ -1013,14 +1086,29 @@ export default function AttendanceManagementScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={[styles.statusRow, { backgroundColor: colors.bg }]}>
-            <Text style={[styles.statusLabel, { color: colors.text }]}>
-              {item.status.toUpperCase()}
-            </Text>
-            {(item as any).reviewedAt && (
-              <Text style={[styles.reviewedAt, { color: colors.text }]}>
-                on {formatDate((item as any).reviewedAt)}
+          <View style={[styles.statusRow, { backgroundColor: colors.bg, justifyContent: item.status === 'approved' ? 'space-between' : 'center', paddingHorizontal: 12 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.statusLabel, { color: colors.text }]}>
+                {item.status === 'rejected' && (item as any).reviewedBy === item.employeeId ? 'CANCELLED BY EMPLOYEE' : item.status.toUpperCase()}
               </Text>
+              {(item as any).reviewedAt && (
+                <Text style={[styles.reviewedAt, { color: colors.text }]}>
+                  on {formatDate((item as any).reviewedAt)}
+                </Text>
+              )}
+            </View>
+            {item.status === 'approved' && (
+              <TouchableOpacity
+                onPress={() => handleRequestAction(item, 'rejected')}
+                disabled={isProcessing}
+                style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FEE2E2', borderRadius: 8 }}
+              >
+                {isProcessing ? (
+                  <ActivityIndicator size="small" color="#DC2626" />
+                ) : (
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#DC2626' }}>Revoke</Text>
+                )}
+              </TouchableOpacity>
             )}
           </View>
         )}
@@ -1046,22 +1134,22 @@ export default function AttendanceManagementScreen() {
   // Summary counts — monthly totals across all employees (consistent with per-employee pills)
   const weeklyOffDate = isWeeklyOff(dateStr, salonConfig);
   const summaryTotals = useMemo(() => {
-    let present = 0, absent = 0, off = 0, leave = 0;
+    let present = 0, absent = 0, off = 0, leaveBalance = 0;
     for (const emp of employeeList) {
       const s = monthlyStats.get(emp.id);
       if (s) {
         present += s.present;
         absent += s.absent;
         off += s.off;
-        leave += s.leave;
+        leaveBalance += s.leaveBalance;
       }
     }
-    return { present, absent, off, leave };
+    return { present, absent, off, leaveBalance };
   }, [employeeList, monthlyStats]);
   const presentCount = summaryTotals.present;
   const absentCount = summaryTotals.absent;
   const offCount = summaryTotals.off;
-  const leaveCount = summaryTotals.leave;
+  const leaveCount = parseFloat(summaryTotals.leaveBalance.toFixed(1));
 
   return (
     <View style={styles.container}>
@@ -1166,10 +1254,11 @@ export default function AttendanceManagementScreen() {
 
           <FlatList
             data={filteredRequests}
+            extraData={filteredRequests}
             keyExtractor={item => item.id}
             renderItem={renderRequest}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingTop: 12 }]}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>
@@ -1441,7 +1530,30 @@ export default function AttendanceManagementScreen() {
           <TouchableOpacity
             style={[styles.submitBtn, { backgroundColor: '#FEE2E2', marginTop: 10 }]}
             onPress={async () => {
-              if (!editingId) return;
+              if (!editingId || !selectedEmployee) return;
+              // Safeguard: warn if deleting a comp-earning record
+              const existing = dateAttendance.get(selectedEmployee);
+              const impact = getCompImpact(selectedEmployee, existing);
+              if (impact > 0) {
+                showConfirm(
+                  'Comp Off Used',
+                  `This employee has used comp off earned from this day. Deleting will make ${impact} comp-off day(s) unfunded (counted as excess/absent). Continue?`,
+                  async () => {
+                    setDeleting(true);
+                    try {
+                      await deleteAttendance(editingId);
+                      setShowForm(false);
+                      showAlert('Deleted', 'Attendance record removed');
+                    } catch (err: any) {
+                      showAlert('Error', err?.message || 'Failed to delete');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  },
+                  'Delete Anyway',
+                );
+                return;
+              }
               setDeleting(true);
               try {
                 await deleteAttendance(editingId);

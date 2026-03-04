@@ -46,6 +46,12 @@ export async function registerForNotifications(): Promise<boolean> {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#E91E63',
       });
+      await Notifications.setNotificationChannelAsync('requests', {
+        name: 'Request Notifications',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#2196F3',
+      });
     }
 
     return true;
@@ -115,5 +121,63 @@ export async function sendSaleNotification(
     });
   } catch {
     // Notification delivery failed — non-critical
+  }
+}
+
+/**
+ * Local notification → Admin: an employee raised a leave/correction/permission request
+ */
+export async function sendRequestNotification(
+  employeeName: string,
+  requestType: 'leave' | 'correction' | 'permission' | 'comp_leave' | 'earned_leave',
+) {
+  if (isExpoGo) return;
+  try {
+    const typeLabels: Record<string, string> = {
+      leave: 'Leave Request',
+      correction: 'Attendance Correction',
+      permission: 'Permission Request',
+      comp_leave: 'Comp Off Request',
+      earned_leave: 'Earned Leave Request',
+    };
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '📋 New Request',
+        body: `${employeeName} submitted a ${typeLabels[requestType] || 'request'}`,
+        data: { type: 'request' },
+        sound: 'default',
+        ...(Platform.OS === 'android' && { channelId: 'requests' }),
+      },
+      trigger: null,
+    });
+  } catch {
+    // Non-critical
+  }
+}
+
+/**
+ * Local notification → Employee: admin took action on their request
+ */
+export async function sendRequestActionNotification(
+  action: 'approved' | 'rejected' | 'revoked',
+  requestType: 'leave' | 'permission',
+) {
+  if (isExpoGo) return;
+  try {
+    const emoji = action === 'approved' ? '✅' : '❌';
+    const typeLabel = requestType === 'leave' ? 'Leave request' : 'Permission request';
+    const actionLabel = action === 'revoked' ? 'revoked' : action;
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `${emoji} Request ${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}`,
+        body: `Your ${typeLabel.toLowerCase()} has been ${actionLabel}`,
+        data: { type: 'request_action' },
+        sound: 'default',
+        ...(Platform.OS === 'android' && { channelId: 'requests' }),
+      },
+      trigger: null,
+    });
+  } catch {
+    // Non-critical
   }
 }

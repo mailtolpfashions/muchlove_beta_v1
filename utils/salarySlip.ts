@@ -234,6 +234,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
           ${b.paidLeaves > 0 ? `<tr><td>Paid Leaves (within balance)</td><td class="right" style="color:#7C3AED;">${parseFloat(b.paidLeaves.toFixed(1))} days</td></tr>` : ''}
           <tr><td class="bold">Earned Days</td><td class="right bold" style="color:#059669;">${b.earnedDays} days</td></tr>
           <tr><td class="bold">Earned Salary</td><td class="right bold" style="color:#059669;">${formatCurrency(b.earnedSalary)}</td></tr>
+          ${b.incentiveAmount > 0 ? `<tr><td class="bold">Sales Incentive (${b.incentivePercent}% of ${formatCurrency(b.employeeSalesTotal)})</td><td class="right bold" style="color:#059669;">+${formatCurrency(b.incentiveAmount)}</td></tr>` : ''}
         </tbody>
       </table>
     </div>

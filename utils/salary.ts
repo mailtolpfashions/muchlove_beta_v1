@@ -108,21 +108,29 @@ export interface SalaryBreakdown {
   latesPerHalfDay: number;
   latePenaltyDays: number;
 
+  /* Incentive */
+  incentivePercent: number;    // admin-configured % of employee's monthly sales
+  employeeSalesTotal: number;  // total sales amount by this employee in the month
+  incentiveAmount: number;     // employeeSalesTotal × incentivePercent / 100
+
   /* Salary */
   earnedDays: number;          // presentDays + halfDays×0.5 + paidLeaves
   earnedSalary: number;
   lateDeduction: number;
   totalDeduction: number;      // lateDeduction only (excess leaves already reduce earnedDays)
-  netSalary: number;
+  netSalary: number;           // earnedSalary - totalDeduction + incentiveAmount
 }
 
 // ── Leave Balance Helpers (shared with UI) ──────────────────
 
-/** Compute cumulative comp balance across ALL attendance records */
+/** Compute cumulative comp balance across ALL attendance records.
+ *  Pass excludeMonth to get the balance *before* that month's comp usage
+ *  (so the month's usage can be counted separately without double-counting). */
 export function computeCompBalance(
   allAttendance: Attendance[],
   allLeaveRequests: LeaveRequest[],
   cfg?: Partial<SalaryConfig>,
+  excludeMonth?: { year: number; month: number },
 ): number {
   const c = resolveConfig(cfg);
   // Total comp earned across all time
@@ -137,17 +145,23 @@ export function computeCompBalance(
     const start = new Date(lr.startDate);
     const end = new Date(lr.endDate);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== c.weeklyOffDay) totalCompUsed++;
+      if (d.getDay() !== c.weeklyOffDay) {
+        // Skip days in the excluded month (they'll be counted in leaveConsumed)
+        if (excludeMonth && d.getFullYear() === excludeMonth.year && d.getMonth() === excludeMonth.month) continue;
+        totalCompUsed++;
+      }
     }
   }
   return Math.max(0, totalCompEarned - totalCompUsed);
 }
 
-/** Compute cumulative earned leave balance */
+/** Compute cumulative earned leave balance.
+ *  Pass excludeMonth to get the balance *before* that month's earned leave usage. */
 export function computeEarnedLeaveBalance(
   allLeaveRequests: LeaveRequest[],
   joiningDate: string | undefined,
   cfg?: Partial<SalaryConfig>,
+  excludeMonth?: { year: number; month: number },
 ): number {
   const c = resolveConfig(cfg);
   if (!c.monthlyLeaveAllowance || c.monthlyLeaveAllowance <= 0 || !joiningDate) return 0;
@@ -164,22 +178,26 @@ export function computeEarnedLeaveBalance(
     const start = new Date(lr.startDate);
     const end = new Date(lr.endDate);
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      // Skip days in the excluded month (they'll be counted in leaveConsumed)
+      if (excludeMonth && d.getFullYear() === excludeMonth.year && d.getMonth() === excludeMonth.month) continue;
       totalELUsed++;
     }
   }
   return Math.max(0, totalELEarned - totalELUsed);
 }
 
-/** Compute total leave balance = EL + comp + free permission days */
+/** Compute total leave balance = EL + comp + free permission days.
+ *  Pass excludeMonth to get the balance *before* that month's typed leave usage. */
 export function computeLeaveBalance(
   allAttendance: Attendance[],
   allLeaveRequests: LeaveRequest[],
   joiningDate: string | undefined,
   cfg?: Partial<SalaryConfig>,
+  excludeMonth?: { year: number; month: number },
 ): { earnedLeaveBalance: number; compBalance: number; freePermDays: number; totalBalance: number } {
   const c = resolveConfig(cfg);
-  const earnedLeaveBalance = computeEarnedLeaveBalance(allLeaveRequests, joiningDate, c);
-  const compBalance = computeCompBalance(allAttendance, allLeaveRequests, c);
+  const earnedLeaveBalance = computeEarnedLeaveBalance(allLeaveRequests, joiningDate, c, excludeMonth);
+  const compBalance = computeCompBalance(allAttendance, allLeaveRequests, c, excludeMonth);
   const freePermDays = c.workingHoursPerDay > 0
     ? parseFloat((c.freePermissionHours / c.workingHoursPerDay).toFixed(4))
     : 0;
@@ -269,10 +287,15 @@ export function calculateMonthlySalary(
     }
   }
 
-  // ── Leave balance (cumulative, all-time) ──
+  // ── Leave balance (cumulative, all-time) — for display ──
   const balanceResult = computeLeaveBalance(attendanceRecords, leaveRequests, joiningDate, c);
   const { earnedLeaveBalance, compBalance, freePermDays } = balanceResult;
   const leaveBalance = balanceResult.totalBalance;
+
+  // Effective balance for paid/excess calc: exclude current month's typed leave usage
+  // to prevent double-counting (those days are already counted in approvedLeaveDays)
+  const effectiveBalanceResult = computeLeaveBalance(attendanceRecords, leaveRequests, joiningDate, c, { year, month });
+  const effectiveBalance = effectiveBalanceResult.totalBalance;
 
   // ── Leave consumed this month ──
 
@@ -303,9 +326,9 @@ export function calculateMonthlySalary(
 
   const leaveConsumed = halfDayLeave + permissionLeaveDays + approvedLeaveDays;
 
-  // ── Paid vs excess ──
-  const paidLeaves = Math.min(leaveConsumed, leaveBalance);
-  const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
+  // ── Paid vs excess (use effectiveBalance to avoid double-counting typed leaves) ──
+  const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
+  const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
 
   // ── Absent days = unaccounted working days + excess leaves ──
   const today = new Date();
@@ -334,7 +357,15 @@ export function calculateMonthlySalary(
 
   // No separate permission deduction — permissions consume from leave balance
   const totalDeduction = lateDeduction;
-  const netSalary = Math.max(0, earnedSalary - totalDeduction);
+
+  // ── Incentive ──
+  const incentivePercent = (cfg as any)?.incentivePercent ?? 0;
+  const employeeSalesTotal = (cfg as any)?.employeeSalesTotal ?? 0;
+  const incentiveAmount = incentivePercent > 0 && employeeSalesTotal > 0
+    ? parseFloat((employeeSalesTotal * incentivePercent / 100).toFixed(2))
+    : 0;
+
+  const netSalary = Math.max(0, earnedSalary - totalDeduction + incentiveAmount);
 
   return {
     baseSalary,
@@ -359,6 +390,9 @@ export function calculateMonthlySalary(
     lateCount,
     latesPerHalfDay,
     latePenaltyDays,
+    incentivePercent,
+    employeeSalesTotal,
+    incentiveAmount,
     earnedDays,
     earnedSalary,
     lateDeduction,

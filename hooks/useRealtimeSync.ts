@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { sendSaleNotification } from '@/utils/notifications';
+import { sendSaleNotification, sendRequestNotification, sendRequestActionNotification } from '@/utils/notifications';
 
 /**
  * Maps Supabase table names to the React Query cache keys they should invalidate.
@@ -24,6 +24,9 @@ const TABLE_QUERY_MAP: Record<string, string[]> = {
   leave_requests: ['leaveRequests'],
   permission_requests: ['permissionRequests'],
   employee_salaries: ['employeeSalaries'],
+  salon_config: ['salonConfig'],
+  expense_categories: ['expenseCategories'],
+  expenses: ['expenses'],
 };
 
 /** Debounce window — collect changes for 400ms then batch-invalidate once */
@@ -93,6 +96,61 @@ export function useRealtimeSync({ currentUserId, isAdmin }: RealtimeSyncOptions 
                 Number(newRow.total) || 0,
                 (newRow.employee_name as string) || 'Staff',
               );
+            }
+          }
+
+          // Notify admin when an employee submits a new leave/permission request
+          if (
+            (table === 'leave_requests' || table === 'permission_requests') &&
+            payload.eventType === 'INSERT' &&
+            isAdmin &&
+            currentUserId
+          ) {
+            const newRow = payload.new as Record<string, unknown>;
+            if (newRow.employee_id && newRow.employee_id !== currentUserId) {
+              const empName = (newRow.employee_name as string) || 'Employee';
+              if (table === 'permission_requests') {
+                sendRequestNotification(empName, 'permission');
+              } else {
+                const reason = (newRow.reason as string) || '';
+                const leaveType = (newRow.type as string) || 'leave';
+                if (reason.startsWith('[CORRECTION]')) {
+                  sendRequestNotification(empName, 'correction');
+                } else if (leaveType === 'compensation') {
+                  sendRequestNotification(empName, 'comp_leave');
+                } else if (leaveType === 'earned') {
+                  sendRequestNotification(empName, 'earned_leave');
+                } else {
+                  sendRequestNotification(empName, 'leave');
+                }
+              }
+            }
+          }
+
+          // Notify employee when admin approves/rejects/revokes their request
+          if (
+            (table === 'leave_requests' || table === 'permission_requests') &&
+            payload.eventType === 'UPDATE' &&
+            !isAdmin &&
+            currentUserId
+          ) {
+            const newRow = payload.new as Record<string, unknown>;
+            const oldRow = payload.old as Record<string, unknown>;
+            // Only notify if this is the employee's own request and status changed
+            if (
+              newRow.employee_id === currentUserId &&
+              newRow.status !== oldRow.status &&
+              newRow.reviewed_by !== currentUserId // not self-cancelled
+            ) {
+              const reqType = table === 'leave_requests' ? 'leave' : 'permission';
+              const newStatus = newRow.status as string;
+              if (newStatus === 'approved') {
+                sendRequestActionNotification('approved', reqType);
+              } else if (newStatus === 'rejected') {
+                // Check if this was a revoke (previously approved)
+                const wasApproved = oldRow.status === 'approved';
+                sendRequestActionNotification(wasApproved ? 'revoked' : 'rejected', reqType);
+              }
             }
           }
         },
