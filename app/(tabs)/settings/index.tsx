@@ -31,8 +31,8 @@ import {
   WifiOff,
   Receipt,
   CalendarCheck,
-  ClipboardCheck,
   Banknote,
+  SlidersHorizontal,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
@@ -42,12 +42,13 @@ import { APP_AUTHOR, APP_NAME, APP_VERSION, BUSINESS_NAME, BUSINESS_ADDRESS, BUS
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { CustomerSubscription } from '@/types';
+import { toLocalDateString } from '@/utils/format';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
   const { showConfirm } = useAlert();
-  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle, attendance, leaveRequests, permissionRequests, employeeSalaries } = useData();
+  const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle, attendance, employeeSalaries } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
@@ -109,17 +110,22 @@ export default function SettingsScreen() {
         bg: '#CCFBF1',
         route: '/settings/attendance' as const,
       },
+      {
+        title: 'My Salary',
+        subtitle: 'View salary breakdown',
+        icon: Banknote,
+        color: '#059669',
+        bg: '#D1FAE5',
+        route: '/settings/my-salary' as const,
+      },
     ];
   }, [isAdmin]);
 
   // Attendance Management — admin only
   const attendanceAdminMenuItems = useMemo(() => {
     if (!isAdmin) return [];
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = toLocalDateString(new Date());
     const todayCheckedIn = attendance.filter(a => a.date === todayStr && a.checkIn).length;
-    const pendingLeaves = leaveRequests.filter(lr => lr.status === 'pending').length;
-    const pendingPerms = permissionRequests.filter(pr => pr.status === 'pending').length;
-    const pendingTotal = pendingLeaves + pendingPerms;
     const configuredSalaries = new Set(employeeSalaries.map(s => s.employeeId)).size;
     return [
       {
@@ -131,14 +137,6 @@ export default function SettingsScreen() {
         route: '/settings/attendance-management' as const,
       },
       {
-        title: 'Leave & Permission',
-        subtitle: `${pendingTotal} pending requests`,
-        icon: ClipboardCheck,
-        color: '#EA580C',
-        bg: '#FFF7ED',
-        route: '/settings/leave-approvals' as const,
-      },
-      {
         title: 'Salary Management',
         subtitle: `${configuredSalaries} employees configured`,
         icon: Banknote,
@@ -146,8 +144,16 @@ export default function SettingsScreen() {
         bg: '#D1FAE5',
         route: '/settings/salary-management' as const,
       },
+      {
+        title: 'Attendance Config',
+        subtitle: 'Shift, leaves & permissions',
+        icon: SlidersHorizontal,
+        color: '#6366F1',
+        bg: '#EEF2FF',
+        route: '/settings/attendance-config' as const,
+      },
     ];
-  }, [isAdmin, attendance, leaveRequests, permissionRequests, employeeSalaries]);
+  }, [isAdmin, attendance, employeeSalaries]);
 
   const subscriptionMenuItems = useMemo(() => isAdmin ? [
     {
@@ -315,7 +321,7 @@ export default function SettingsScreen() {
                 <ActivityIndicator size="small" color={Colors.primary} />
               ) : (
                 <Switch
-                  value={offlineSalesEnabled}
+                  value={offlineSalesEnabled ?? false}
                   onValueChange={(val) => {
                     showConfirm(
                       val ? 'Enable Offline Sales?' : 'Disable Offline Sales?',

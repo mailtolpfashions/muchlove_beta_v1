@@ -6,7 +6,7 @@ import { useOfflineQuery } from '@/hooks/useOfflineQuery';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import * as supabaseDb from '@/utils/supabaseDb';
 import { isToday } from '@/utils/format';
-import { CustomerSubscription, Sale } from '@/types';
+import { CustomerSubscription, Sale, SalonConfig, DEFAULT_SALON_CONFIG } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 import { enqueueSale } from '@/utils/offlineQueue';
 import { generateId } from '@/utils/hash';
@@ -219,6 +219,25 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: leaveRequests = [], isLoading: leaveRequestsLoading, error: leaveRequestsError, refetch: refetchLeaveRequests } = useOfflineQuery(['leaveRequests'], supabaseDb.leaveRequestsDb.getAll);
   const { data: permissionRequests = [], isLoading: permissionRequestsLoading, error: permissionRequestsError, refetch: refetchPermissionRequests } = useOfflineQuery(['permissionRequests'], supabaseDb.permissionRequestsDb.getAll);
   const { data: employeeSalaries = [], isLoading: salariesLoading, error: salariesError, refetch: refetchSalaries } = useOfflineQuery(['employeeSalaries'], supabaseDb.employeeSalariesDb.getAll);
+
+  // ── Salon Config ──────────────────────────────────────────────────────
+  const { data: salonConfigRaw, refetch: refetchSalonConfig } = useOfflineQuery(
+    ['salonConfig'],
+    async () => {
+      const cfg = await supabaseDb.salonConfigDb.get();
+      return cfg ? [cfg] : []; // wrap in array for useOfflineQuery compatibility
+    },
+  );
+  const salonConfig: SalonConfig = useMemo(() => {
+    const cfg = salonConfigRaw?.[0];
+    if (cfg) return cfg;
+    return { id: '', updatedAt: '', ...DEFAULT_SALON_CONFIG };
+  }, [salonConfigRaw]);
+
+  const { mutateAsync: _updateSalonConfig } = supabaseDb.salonConfigDb.useUpdate();
+  const updateSalonConfig = useCallback(async (config: Partial<Omit<SalonConfig, 'id' | 'updatedAt'>>) => {
+    await _updateSalonConfig({ ...config, id: salonConfig.id });
+  }, [_updateSalonConfig, salonConfig.id]);
 
   const { mutateAsync: addAttendance } = supabaseDb.attendanceDb.useAdd();
   const { mutateAsync: updateAttendance } = supabaseDb.attendanceDb.useUpdate();
@@ -783,8 +802,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       refetchLeaveRequests(),
       refetchPermissionRequests(),
       refetchSalaries(),
+      refetchSalonConfig(),
     ]);
-  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses, refetchAttendance, refetchLeaveRequests, refetchPermissionRequests, refetchSalaries]);
+  }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses, refetchAttendance, refetchLeaveRequests, refetchPermissionRequests, refetchSalaries, refetchSalonConfig]);
 
   return {
     customers,
@@ -868,5 +888,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     addEmployeeSalary,
     updateEmployeeSalary,
     deleteEmployeeSalary,
+    // Salon Config
+    salonConfig,
+    updateSalonConfig,
   };
 });

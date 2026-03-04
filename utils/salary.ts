@@ -1,56 +1,57 @@
-import type { Attendance, LeaveRequest, PermissionRequest } from '@/types';
+import type { Attendance, LeaveRequest, PermissionRequest, SalonConfig } from '@/types';
+import { DEFAULT_SALON_CONFIG } from '@/types';
 
-// ── Constants ───────────────────────────────────────────────
+// ── Config-aware type ───────────────────────────────────────
+/** Partial config that salary functions need. Falls back to defaults. */
+export type SalaryConfig = Pick<
+  SalonConfig,
+  | 'weeklyOffDay'
+  | 'shiftStartHour'
+  | 'shiftStartMin'
+  | 'shiftEndHour'
+  | 'shiftEndMin'
+  | 'workingHoursPerDay'
+  | 'graceMinutes'
+  | 'latesPerHalfDay'
+  | 'freePermissionHours'
+  | 'monthlyLeaveAllowance'
+>;
 
-/** Weekly off day — 2 = Tuesday (JS Date.getDay(): 0=Sun,1=Mon,2=Tue…) */
-export const WEEKLY_OFF_DAY = 2; // Tuesday
+/** Resolve a partial config into a full one, using defaults for missing fields */
+function resolveConfig(cfg?: Partial<SalaryConfig>): SalaryConfig {
+  return { ...DEFAULT_SALON_CONFIG, ...cfg };
+}
 
-/** Shift timings */
-export const SHIFT_START_HOUR = 9;  // 9:00 AM
-export const SHIFT_START_MIN = 0;
-export const SHIFT_END_HOUR = 20;   // 8:00 PM
-export const SHIFT_END_MIN = 0;
-
-/** Working hours per day (11hr shift minus 2hr lunch) */
-export const WORKING_HOURS_PER_DAY = 9;
-
-/** Grace period for late punch-in (minutes) */
-export const GRACE_MINUTES = 15;
-
-/** Free permission hours per month */
-export const FREE_PERMISSION_HOURS = 2;
+// ── Legacy constants (re-exported from defaults for backward compatibility) ──
+export const WEEKLY_OFF_DAY = DEFAULT_SALON_CONFIG.weeklyOffDay;
+export const SHIFT_START_HOUR = DEFAULT_SALON_CONFIG.shiftStartHour;
+export const SHIFT_START_MIN = DEFAULT_SALON_CONFIG.shiftStartMin;
+export const SHIFT_END_HOUR = DEFAULT_SALON_CONFIG.shiftEndHour;
+export const SHIFT_END_MIN = DEFAULT_SALON_CONFIG.shiftEndMin;
+export const WORKING_HOURS_PER_DAY = DEFAULT_SALON_CONFIG.workingHoursPerDay;
+export const GRACE_MINUTES = DEFAULT_SALON_CONFIG.graceMinutes;
+export const FREE_PERMISSION_HOURS = DEFAULT_SALON_CONFIG.freePermissionHours;
 
 // ── Helpers ─────────────────────────────────────────────────
-
-/** Count how many times a specific weekday occurs in a given month/year */
-function countWeekdayInMonth(year: number, month: number, weekday: number): number {
-  let count = 0;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  for (let d = 1; d <= daysInMonth; d++) {
-    if (new Date(year, month, d).getDay() === weekday) count++;
-  }
-  return count;
-}
 
 /** Get total days in a month */
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-/** Check if a date string falls on the weekly off day (Tuesday) */
-export function isWeeklyOff(dateStr: string): boolean {
-  return new Date(dateStr).getDay() === WEEKLY_OFF_DAY;
+/** Check if a date string falls on the weekly off day */
+export function isWeeklyOff(dateStr: string, cfg?: Partial<SalaryConfig>): boolean {
+  const c = resolveConfig(cfg);
+  return new Date(dateStr).getDay() === c.weeklyOffDay;
 }
 
-/** Returns comp leave value for a weekly-off attendance record: 1 (full day), 0.5 (half day), or 0 */
-export function compLeaveValue(record: Attendance): number {
-  if (!isWeeklyOff(record.date) || !record.checkIn || !record.checkOut) return 0;
-  // Use actual hours worked to determine comp value
-  const ci = new Date(record.checkIn);
-  const co = new Date(record.checkOut);
-  const workedHours = (co.getTime() - ci.getTime()) / (1000 * 60 * 60);
-  if (workedHours >= WORKING_HOURS_PER_DAY) return 1;
-  if (workedHours >= WORKING_HOURS_PER_DAY / 2) return 0.5;
+/** Returns comp leave value for a weekly-off attendance record (status-based).
+ *  present → 1, half_day → 0.5, otherwise → 0 */
+export function compLeaveValue(record: Attendance, cfg?: Partial<SalaryConfig>): number {
+  const c = resolveConfig(cfg);
+  if (!isWeeklyOff(record.date, c)) return 0;
+  if (record.status === 'present' || record.status === 'permission') return 1;
+  if (record.status === 'half_day') return 0.5;
   return 0;
 }
 
@@ -67,43 +68,16 @@ function timeDiffHours(from: string, to: string): number {
   return Math.max(0, (toMin - fromMin) / 60);
 }
 
-// ── Late / Early Calculation ────────────────────────────────
+// ── Late Check-in Detection ─────────────────────────────────
 
-export interface PunchShortage {
-  lateMinutes: number;
-  earlyMinutes: number;
-  totalShortHours: number;
-}
-
-/** Calculate how many minutes late (after grace) and minutes early for a single attendance record */
-export function calculatePunchShortage(record: Attendance): PunchShortage {
-  let lateMinutes = 0;
-  let earlyMinutes = 0;
-
-  if (record.checkIn) {
-    const checkIn = new Date(record.checkIn);
-    const shiftStartWithGrace = SHIFT_START_HOUR * 60 + SHIFT_START_MIN + GRACE_MINUTES;
-    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
-    if (checkInMinutes > shiftStartWithGrace) {
-      // Late = total minutes from shift start (not from grace end)
-      lateMinutes = checkInMinutes - (SHIFT_START_HOUR * 60 + SHIFT_START_MIN);
-    }
-  }
-
-  if (record.checkOut) {
-    const checkOut = new Date(record.checkOut);
-    const shiftEndMinutes = SHIFT_END_HOUR * 60 + SHIFT_END_MIN;
-    const checkOutMinutes = checkOut.getHours() * 60 + checkOut.getMinutes();
-    if (checkOutMinutes < shiftEndMinutes) {
-      earlyMinutes = shiftEndMinutes - checkOutMinutes;
-    }
-  }
-
-  return {
-    lateMinutes,
-    earlyMinutes,
-    totalShortHours: (lateMinutes + earlyMinutes) / 60,
-  };
+/** Check if a single attendance record has a late check-in (after shift start + grace) */
+export function isLateCheckIn(record: Attendance, cfg?: Partial<SalaryConfig>): boolean {
+  const c = resolveConfig(cfg);
+  if (!record.checkIn) return false;
+  const checkIn = new Date(record.checkIn);
+  const threshold = c.shiftStartHour * 60 + c.shiftStartMin + c.graceMinutes;
+  const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+  return checkInMinutes > threshold;
 }
 
 // ── Monthly Salary Calculation ──────────────────────────────
@@ -114,24 +88,33 @@ export interface SalaryBreakdown {
   weeklyOffs: number;
   workingDays: number;
   perDayRate: number;
-  hourlyRate: number;
   presentDays: number;
   halfDays: number;
   approvedLeaves: number;
   approvedCompLeaves: number;
+  approvedEarnedLeaves: number;
   approvedPermissions: number;
   absentDays: number;
   compLeavesEarned: number;
   compLeavesUsed: number;
+  earnedLeavesUsed: number;
   totalPermissionHours: number;
   freePermissionHours: number;
   excessPermissionHours: number;
-  totalLateMinutes: number;
-  totalEarlyMinutes: number;
-  totalShortHours: number;
-  dayDeduction: number;
+  /** Number of late check-ins this month */
+  lateCount: number;
+  /** Config: how many lates = 0.5 day deduction */
+  latesPerHalfDay: number;
+  /** Days deducted due to lates (e.g. 0.5, 1, 1.5…) */
+  latePenaltyDays: number;
+  /** Days deducted due to excess permission hours */
+  permissionPenaltyDays: number;
+  earnedDays: number;
+  earnedSalary: number;
+  /** Late penalty in currency */
+  lateDeduction: number;
+  /** Permission penalty in currency */
   permissionDeduction: number;
-  shortHoursDeduction: number;
   totalDeduction: number;
   netSalary: number;
 }
@@ -143,24 +126,48 @@ export function calculateMonthlySalary(
   permissionRequests: PermissionRequest[],
   year: number,
   month: number, // 0-indexed (JS convention)
+  joiningDate?: string, // YYYY-MM-DD — only count days from this date onward
+  cfg?: Partial<SalaryConfig>,
 ): SalaryBreakdown {
+  const c = resolveConfig(cfg);
   const totalDays = daysInMonth(year, month);
-  const weeklyOffs = countWeekdayInMonth(year, month, WEEKLY_OFF_DAY);
-  const workingDays = totalDays - weeklyOffs;
+
+  // Determine the first countable day of the month based on joining date
+  let firstDay = 1;
+  if (joiningDate) {
+    const jd = new Date(joiningDate);
+    if (jd.getFullYear() === year && jd.getMonth() === month) {
+      firstDay = jd.getDate(); // joined mid-month
+    } else if (jd.getFullYear() > year || (jd.getFullYear() === year && jd.getMonth() > month)) {
+      firstDay = totalDays + 1; // joined after this month — no working days
+    }
+  }
+
+  // Count weekly offs and working days from firstDay
+  let weeklyOffs = 0;
+  let workingDays = 0;
+  for (let d = firstDay; d <= totalDays; d++) {
+    const date = new Date(year, month, d);
+    if (date.getDay() === c.weeklyOffDay) {
+      weeklyOffs++;
+    } else {
+      workingDays++;
+    }
+  }
 
   const perDayRate = workingDays > 0 ? baseSalary / workingDays : 0;
-  const hourlyRate = workingDays > 0 ? baseSalary / (workingDays * WORKING_HOURS_PER_DAY) : 0;
 
-  // Filter records for this employee's month
+  // Filter records for this employee's month (from joining date onward)
   const monthRecords = attendanceRecords.filter(r => {
     const d = new Date(r.date);
-    return d.getFullYear() === year && d.getMonth() === month;
+    if (d.getFullYear() !== year || d.getMonth() !== month) return false;
+    if (d.getDate() < firstDay) return false;
+    return true;
   });
 
   const monthLeaves = leaveRequests.filter(lr => {
     const start = new Date(lr.startDate);
     const end = new Date(lr.endDate);
-    // Overlaps with this month
     const monthStart = new Date(year, month, 1);
     const monthEnd = new Date(year, month + 1, 0);
     return start <= monthEnd && end >= monthStart;
@@ -171,19 +178,18 @@ export function calculateMonthlySalary(
     return d.getFullYear() === year && d.getMonth() === month;
   });
 
-  // Count present, half_day, permission attendance
+  // Count present, half_day, permission attendance + late count
   let presentDays = 0;
   let halfDays = 0;
   let permissionAttendanceDays = 0;
   let compLeavesEarned = 0;
-  let totalLateMinutes = 0;
-  let totalEarlyMinutes = 0;
+  let lateCount = 0;
 
   for (const record of monthRecords) {
-    // Check if this is a Tuesday (weekly off) — earns comp leave (full or half) based on hours worked
-    if (isWeeklyOff(record.date)) {
-      compLeavesEarned += compLeaveValue(record);
-      continue; // Don't count Tuesday attendance in regular present count
+    // Check if this is a weekly off — earns comp leave based on status
+    if (isWeeklyOff(record.date, c)) {
+      compLeavesEarned += compLeaveValue(record, c);
+      continue; // Don't count weekly off attendance in regular present count
     }
 
     switch (record.status) {
@@ -199,34 +205,63 @@ export function calculateMonthlySalary(
         break;
     }
 
-    // Calculate punch shortage
-    if (record.checkIn || record.checkOut) {
-      const shortage = calculatePunchShortage(record);
-      totalLateMinutes += shortage.lateMinutes;
-      totalEarlyMinutes += shortage.earlyMinutes;
+    // Count late check-ins (only for non-weekly-off working days)
+    if (isLateCheckIn(record, c)) {
+      lateCount++;
     }
   }
 
-  // Count approved leaves (all types)
-  let approvedLeaves = 0;
-  let approvedCompLeaves = 0;
+  // Count approved leaves (all types) — deduplicate by date
+  const leaveDatesByType = { leave: new Set<string>(), compensation: new Set<string>(), earned: new Set<string>() };
   for (const lr of monthLeaves) {
     if (lr.status !== 'approved') continue;
     const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(year, month, 1).getTime()));
     const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(year, month + 1, 0).getTime()));
-    let days = 0;
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== WEEKLY_OFF_DAY) days++; // Don't count weekly offs within leave range
-    }
-    if (lr.type === 'compensation') {
-      approvedCompLeaves += days;
-    } else {
-      approvedLeaves += days;
+      if (d.getDay() === c.weeklyOffDay) continue;
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (lr.type === 'compensation') {
+        leaveDatesByType.compensation.add(ds);
+      } else if (lr.type === 'earned') {
+        leaveDatesByType.earned.add(ds);
+      } else {
+        leaveDatesByType.leave.add(ds);
+      }
     }
   }
+  const approvedLeaves = leaveDatesByType.leave.size;
+  const approvedCompLeaves = leaveDatesByType.compensation.size;
+  const approvedEarnedLeaves = leaveDatesByType.earned.size;
 
-  // Comp leaves used = approved compensation leave days
-  const compLeavesUsed = approvedCompLeaves;
+  // Half-day absent portion: try to cover with comp balance first, then earned leave balance
+  let halfDaysCoveredByComp = 0;
+  let halfDaysCoveredByEL = 0;
+  const halfDayAbsentPortion = halfDays * 0.5;
+
+  const compBalanceAvailable = Math.max(0, compLeavesEarned - approvedCompLeaves);
+
+  // Step 1: Cover with comp balance
+  halfDaysCoveredByComp = Math.min(halfDayAbsentPortion, compBalanceAvailable);
+  let remainingHalfAbsent = halfDayAbsentPortion - halfDaysCoveredByComp;
+
+  // Step 2: Cover with earned leave balance
+  let earnedLeaveBalance = 0;
+  if (c.monthlyLeaveAllowance > 0 && joiningDate) {
+    const jd = new Date(joiningDate);
+    const now = new Date();
+    if (jd <= now) {
+      const monthsDiff = (now.getFullYear() - jd.getFullYear()) * 12 + (now.getMonth() - jd.getMonth());
+      const completedMonths = now.getDate() >= jd.getDate() ? monthsDiff + 1 : monthsDiff;
+      const totalELEarned = Math.max(0, completedMonths) * c.monthlyLeaveAllowance;
+      const totalELUsed = leaveRequests.filter(lr => lr.status === 'approved' && lr.type === 'earned').length;
+      earnedLeaveBalance = Math.max(0, totalELEarned - totalELUsed);
+    }
+  }
+  halfDaysCoveredByEL = Math.min(remainingHalfAbsent, earnedLeaveBalance);
+  remainingHalfAbsent -= halfDaysCoveredByEL;
+
+  const compLeavesUsed = approvedCompLeaves + halfDaysCoveredByComp;
+  const earnedLeavesUsed = approvedEarnedLeaves + halfDaysCoveredByEL;
 
   // Count approved permission hours
   let totalPermissionHours = 0;
@@ -236,42 +271,44 @@ export function calculateMonthlySalary(
     totalPermissionHours += timeDiffHours(pr.fromTime, pr.toTime);
   }
 
-  const freePermissionHours = FREE_PERMISSION_HOURS;
+  const freePermissionHours = c.freePermissionHours;
   const excessPermissionHours = Math.max(0, totalPermissionHours - freePermissionHours);
 
   // Calculate absent days
-  // Total accounted for: present + half (0.5 each) + approved leaves + comp leaves used
-  // Today or future dates in the month shouldn't be counted as absent
   const today = new Date();
   const lastCountableDay = Math.min(
     totalDays,
     today.getFullYear() === year && today.getMonth() === month ? today.getDate() : totalDays,
   );
 
-  // Count actual working days up to lastCountableDay
   let workingDaysSoFar = 0;
-  for (let d = 1; d <= lastCountableDay; d++) {
+  for (let d = firstDay; d <= lastCountableDay; d++) {
     const date = new Date(year, month, d);
-    if (date.getDay() !== WEEKLY_OFF_DAY) workingDaysSoFar++;
+    if (date.getDay() !== c.weeklyOffDay) workingDaysSoFar++;
   }
 
-  const accountedDays = presentDays + (halfDays * 0.5) + approvedLeaves + compLeavesUsed;
+  const accountedDays = presentDays + (halfDays * 0.5) + approvedLeaves + compLeavesUsed + earnedLeavesUsed;
   const absentDays = Math.max(0, workingDaysSoFar - accountedDays);
 
-  // Deductions
-  // 1. Day deduction: absent days + leave days + half days (0.5) - comp leaves used
-  const deductibleDays = absentDays + approvedLeaves + (halfDays * 0.5) - compLeavesUsed;
-  const dayDeduction = Math.max(0, deductibleDays) * perDayRate;
+  // Earned salary
+  const earnedDays = presentDays + (halfDays * 0.5) + compLeavesUsed + earnedLeavesUsed;
+  const earnedSalary = earnedDays * perDayRate;
 
-  // 2. Permission deduction: excess hours beyond free allowance
-  const permissionDeduction = excessPermissionHours * hourlyRate;
+  // ── Deductions (day-based) ──
 
-  // 3. Short hours deduction: late punch-in + early punch-out
-  const totalShortHours = (totalLateMinutes + totalEarlyMinutes) / 60;
-  const shortHoursDeduction = totalShortHours * hourlyRate;
+  // 1. Late penalty: floor(lateCount / latesPerHalfDay) × 0.5 day
+  const latesPerHalfDay = c.latesPerHalfDay > 0 ? c.latesPerHalfDay : 3;
+  const latePenaltyDays = Math.floor(lateCount / latesPerHalfDay) * 0.5;
+  const lateDeduction = latePenaltyDays * perDayRate;
 
-  const totalDeduction = dayDeduction + permissionDeduction + shortHoursDeduction;
-  const netSalary = Math.max(0, baseSalary - totalDeduction);
+  // 2. Permission penalty: proportional — excessHours / shiftHours × perDayRate
+  const permissionPenaltyDays = excessPermissionHours > 0
+    ? parseFloat((excessPermissionHours / c.workingHoursPerDay).toFixed(4))
+    : 0;
+  const permissionDeduction = permissionPenaltyDays * perDayRate;
+
+  const totalDeduction = lateDeduction + permissionDeduction;
+  const netSalary = Math.max(0, earnedSalary - totalDeduction);
 
   return {
     baseSalary,
@@ -279,24 +316,27 @@ export function calculateMonthlySalary(
     weeklyOffs,
     workingDays,
     perDayRate,
-    hourlyRate,
     presentDays,
     halfDays,
     approvedLeaves,
     approvedCompLeaves,
+    approvedEarnedLeaves,
     approvedPermissions,
     absentDays,
     compLeavesEarned,
     compLeavesUsed,
+    earnedLeavesUsed,
     totalPermissionHours,
     freePermissionHours,
     excessPermissionHours,
-    totalLateMinutes,
-    totalEarlyMinutes,
-    totalShortHours,
-    dayDeduction,
+    lateCount,
+    latesPerHalfDay,
+    latePenaltyDays,
+    permissionPenaltyDays,
+    earnedDays,
+    earnedSalary,
+    lateDeduction,
     permissionDeduction,
-    shortHoursDeduction,
     totalDeduction,
     netSalary,
   };

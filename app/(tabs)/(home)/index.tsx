@@ -33,11 +33,10 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
 import { useAlert } from '@/providers/AlertProvider';
-import { formatCurrency, isToday } from '@/utils/format';
-import { WORKING_HOURS_PER_DAY } from '@/utils/salary';
+import { formatCurrency, isToday, toLocalDateString } from '@/utils/format';
+import { isWeeklyOff } from '@/utils/salary';
 import { Sale, Expense, CustomerSubscription, Customer } from '@/types';
 import AttendanceCard from '@/components/AttendanceCard';
-import SalaryCard from '@/components/SalaryCard';
 import AttendanceOverview from '@/components/AttendanceOverview';
 
 const isThisCalendarMonth = (dateStr: string) => {
@@ -48,7 +47,7 @@ const isThisCalendarMonth = (dateStr: string) => {
 
 export default function DashboardScreen() {
   const { user, logout, isAdmin } = useAuth();
-  const { stats, sales, allExpenses, customerSubscriptions, customers, users, reload, dataLoading, loadError, attendance, leaveRequests, permissionRequests, employeeSalaries, addAttendance, updateAttendance } = useData();
+  const { stats, sales, allExpenses, customerSubscriptions, customers, users, reload, dataLoading, loadError, attendance, leaveRequests, permissionRequests, addAttendance, updateAttendance, salonConfig } = useData();
   const { showAlert } = useAlert();
   const [refreshing, setRefreshing] = React.useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -60,7 +59,7 @@ export default function DashboardScreen() {
     if (!user) return;
     setCheckingIn(true);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = toLocalDateString(new Date());
       await addAttendance({
         employeeId: user.id,
         employeeName: user.name,
@@ -81,8 +80,18 @@ export default function DashboardScreen() {
       const now = new Date();
       const ci = new Date(checkInTime);
       const workedHours = (now.getTime() - ci.getTime()) / (1000 * 60 * 60);
+      const todayStr = toLocalDateString(now);
+      const onWeeklyOff = isWeeklyOff(todayStr, salonConfig);
       // Auto-determine status based on hours worked
-      const status = workedHours >= WORKING_HOURS_PER_DAY ? 'present' : 'half_day';
+      // On weekly offs, always keep 'present' — comp leave value handles hours separately
+      let status: 'present' | 'half_day' | 'absent';
+      if (onWeeklyOff || workedHours >= salonConfig.workingHoursPerDay) {
+        status = 'present';
+      } else if (workedHours >= salonConfig.workingHoursPerDay / 2) {
+        status = 'half_day';
+      } else {
+        status = 'absent';
+      }
       await updateAttendance({
         id: recordId,
         checkOut: now.toISOString(),
@@ -529,16 +538,6 @@ export default function DashboardScreen() {
         />
       )}
 
-      {/* Employee Salary Card */}
-      {!isAdmin && user && (
-        <SalaryCard
-          attendance={attendance}
-          leaveRequests={leaveRequests}
-          permissionRequests={permissionRequests}
-          employeeSalaries={employeeSalaries}
-          userId={user.id}
-        />
-      )}
 
     </ScrollView>
   );

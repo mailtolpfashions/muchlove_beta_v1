@@ -1,3 +1,11 @@
+/** Format a Date as YYYY-MM-DD using local timezone (avoids UTC shift bugs) */
+export function toLocalDateString(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 /** Capitalize first letter of each word */
 export function capitalizeWords(str: string): string {
   if (!str || typeof str !== 'string') return str;

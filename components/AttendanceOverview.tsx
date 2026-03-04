@@ -4,6 +4,7 @@ import { CalendarCheck, Users, AlertCircle, Clock } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import type { Attendance, LeaveRequest, PermissionRequest, User } from '@/types';
+import { toLocalDateString } from '@/utils/format';
 
 interface AttendanceOverviewProps {
   attendance: Attendance[];
@@ -19,7 +20,7 @@ export default function AttendanceOverview({
   users,
 }: AttendanceOverviewProps) {
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = toLocalDateString(today);
   const month = today.getMonth();
   const year = today.getFullYear();
 

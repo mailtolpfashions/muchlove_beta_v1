@@ -4,7 +4,9 @@ import { CalendarCheck, LogIn, LogOut, Clock, CheckCircle } from 'lucide-react-n
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import type { Attendance, LeaveRequest, PermissionRequest } from '@/types';
-import { isWeeklyOff, compLeaveValue, SHIFT_START_HOUR, SHIFT_START_MIN, GRACE_MINUTES, calculatePunchShortage } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, isLateCheckIn } from '@/utils/salary';
+import { toLocalDateString } from '@/utils/format';
+import { useData } from '@/providers/DataProvider';
 
 interface AttendanceCardProps {
   attendance: Attendance[];
@@ -28,7 +30,8 @@ export default function AttendanceCard({
   checkingOut,
 }: AttendanceCardProps) {
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = toLocalDateString(today);
+  const { salonConfig } = useData();
 
   const todayRecord = useMemo(() => {
     return attendance.find(a => a.employeeId === userId && a.date === todayStr);
@@ -47,12 +50,11 @@ export default function AttendanceCard({
     let absent = 0;
     let halfDay = 0;
     let compEarned = 0;
-    let totalLateMin = 0;
-    let totalEarlyMin = 0;
+    let lateCount = 0;
 
     myRecords.forEach(r => {
-      if (isWeeklyOff(r.date)) {
-        compEarned += compLeaveValue(r);
+      if (isWeeklyOff(r.date, salonConfig)) {
+        compEarned += compLeaveValue(r, salonConfig);
         return;
       }
       switch (r.status) {
@@ -61,10 +63,8 @@ export default function AttendanceCard({
         case 'half_day': halfDay++; break;
         case 'permission': present++; break;
       }
-      if (r.checkIn || r.checkOut) {
-        const shortage = calculatePunchShortage(r);
-        totalLateMin += shortage.lateMinutes;
-        totalEarlyMin += shortage.earlyMinutes;
+      if (isLateCheckIn(r, salonConfig)) {
+        lateCount++;
       }
     });
 
@@ -94,13 +94,21 @@ export default function AttendanceCard({
       permHours += Math.max(0, (toMin - fromMin) / 60);
     });
 
-    return { present, absent, halfDay, myLeaves, myPermissions, compEarned, permHours, totalLateMin, totalEarlyMin };
-  }, [attendance, leaveRequests, permissionRequests, userId, today]);
+    return { present, absent, halfDay, myLeaves, myPermissions, compEarned, permHours, lateCount };
+  }, [attendance, leaveRequests, permissionRequests, userId, today, salonConfig]);
 
   const hasCheckedIn = !!todayRecord?.checkIn;
   const hasCheckedOut = !!todayRecord?.checkOut;
-  const isTuesday = today.getDay() === 2;
-  const todayCompValue = todayRecord ? compLeaveValue(todayRecord) : 0;
+  const isTuesday = today.getDay() === salonConfig.weeklyOffDay;
+  const todayCompValue = todayRecord ? compLeaveValue(todayRecord, salonConfig) : 0;
+
+  // Show check-in/out only during shift time (1 hour before shift start → 2 hours after shift end)
+  const isWithinShiftWindow = useMemo(() => {
+    const nowMin = today.getHours() * 60 + today.getMinutes();
+    const shiftStart = salonConfig.shiftStartHour * 60 + salonConfig.shiftStartMin;
+    const shiftEnd = salonConfig.shiftEndHour * 60 + salonConfig.shiftEndMin;
+    return nowMin >= shiftStart - 60 && nowMin <= shiftEnd + 120;
+  }, [today, salonConfig]);
 
   const formatTime = (isoStr: string) => {
     const d = new Date(isoStr);
@@ -112,8 +120,8 @@ export default function AttendanceCard({
     if (!todayRecord?.checkIn) return false;
     const ci = new Date(todayRecord.checkIn);
     const ciMin = ci.getHours() * 60 + ci.getMinutes();
-    return ciMin > SHIFT_START_HOUR * 60 + SHIFT_START_MIN + GRACE_MINUTES;
-  }, [todayRecord]);
+    return ciMin > salonConfig.shiftStartHour * 60 + salonConfig.shiftStartMin + salonConfig.graceMinutes;
+  }, [todayRecord, salonConfig]);
 
   return (
     <View style={styles.card}>
@@ -135,7 +143,16 @@ export default function AttendanceCard({
           </View>
         )}
 
-        {!hasCheckedIn && (
+        {!isWithinShiftWindow && !hasCheckedIn && !hasCheckedOut && (
+          <View style={styles.outsideShiftBanner}>
+            <Clock size={14} color="#6B7280" />
+            <Text style={styles.outsideShiftText}>
+              Check-in available during shift hours ({String(salonConfig.shiftStartHour).padStart(2, '0')}:{String(salonConfig.shiftStartMin).padStart(2, '0')} – {String(salonConfig.shiftEndHour).padStart(2, '0')}:{String(salonConfig.shiftEndMin).padStart(2, '0')})
+            </Text>
+          </View>
+        )}
+
+        {isWithinShiftWindow && !hasCheckedIn && (
           <TouchableOpacity
             style={[styles.checkBtn, isTuesday ? styles.checkInCompBtn : styles.checkInBtn]}
             onPress={onCheckIn}
@@ -211,9 +228,9 @@ export default function AttendanceCard({
           <Text style={[styles.statNum, { color: '#DC2626' }]}>{monthStats.absent}</Text>
           <Text style={[styles.statLabel, { color: '#DC2626' }]}>Absent</Text>
         </View>
-        <View style={[styles.statPill, { backgroundColor: '#DBEAFE' }]}>
-          <Text style={[styles.statNum, { color: '#2563EB' }]}>{monthStats.myLeaves}</Text>
-          <Text style={[styles.statLabel, { color: '#2563EB' }]}>Leaves</Text>
+        <View style={[styles.statPill, { backgroundColor: '#FFEDD5' }]}>
+          <Text style={[styles.statNum, { color: '#EA580C' }]}>{monthStats.myLeaves}</Text>
+          <Text style={[styles.statLabel, { color: '#EA580C' }]}>Leaves</Text>
         </View>
         <View style={[styles.statPill, { backgroundColor: '#FEF3C7' }]}>
           <Text style={[styles.statNum, { color: '#D97706' }]}>{monthStats.myPermissions}</Text>
@@ -226,24 +243,18 @@ export default function AttendanceCard({
       </View>
 
       {/* Extra info row */}
-      {(monthStats.totalLateMin > 0 || monthStats.totalEarlyMin > 0 || monthStats.permHours > 0) && (
+      {(monthStats.lateCount > 0 || monthStats.permHours > 0) && (
         <View style={styles.extraRow}>
-          {monthStats.totalLateMin > 0 && (
+          {monthStats.lateCount > 0 && (
             <View style={styles.extraItem}>
               <Clock size={12} color={Colors.danger} />
-              <Text style={styles.extraText}>Late: {(monthStats.totalLateMin / 60).toFixed(1)}h</Text>
-            </View>
-          )}
-          {monthStats.totalEarlyMin > 0 && (
-            <View style={styles.extraItem}>
-              <Clock size={12} color={Colors.warning} />
-              <Text style={styles.extraText}>Early: {(monthStats.totalEarlyMin / 60).toFixed(1)}h</Text>
+              <Text style={styles.extraText}>Lates: {monthStats.lateCount} ({salonConfig.latesPerHalfDay} = ½ day ded.)</Text>
             </View>
           )}
           {monthStats.permHours > 0 && (
             <View style={styles.extraItem}>
               <Clock size={12} color="#2563EB" />
-              <Text style={styles.extraText}>Perm: {monthStats.permHours.toFixed(1)}h / 2h free</Text>
+              <Text style={styles.extraText}>Perm: {monthStats.permHours.toFixed(1)}h / {salonConfig.freePermissionHours}h free</Text>
             </View>
           )}
         </View>
@@ -355,6 +366,22 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     fontWeight: '500',
     color: '#D97706',
+  },
+  outsideShiftBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.md,
+    marginBottom: 8,
+  },
+  outsideShiftText: {
+    fontSize: FontSize.sm,
+    fontWeight: '500',
+    color: '#6B7280',
+    flex: 1,
   },
   compBadge: {
     backgroundColor: '#EDE9FE',

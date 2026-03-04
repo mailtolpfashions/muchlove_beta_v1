@@ -15,7 +15,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles } from 'lucide-react-native';
+import { Scissors, Lock, Mail, User, Eye, EyeOff, Sparkles, Phone } from 'lucide-react-native';
 import { APP_NAME } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -45,6 +45,7 @@ export default function LoginScreen() {
   const [isForgot, setIsForgot] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +65,7 @@ export default function LoginScreen() {
   const sparkle1 = useRef(new Animated.Value(0)).current;
   const sparkle2 = useRef(new Animated.Value(0)).current;
   const nameRef = useRef<TextInput>(null);
+  const mobileRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -177,11 +179,21 @@ export default function LoginScreen() {
       shake();
       return;
     }
+    if (isSignUp && !mobile.trim()) {
+      setError('Please enter your mobile number');
+      shake();
+      return;
+    }
+    if (isSignUp && !/^[6-9]\d{9}$/.test(mobile.trim())) {
+      setError('Please enter a valid 10-digit mobile number');
+      shake();
+      return;
+    }
 
     setLoading(true);
 
     if (isSignUp) {
-      const result = await signUp(email, password, name);
+      const result = await signUp(email, password, name, mobile);
       if (!result.success) {
         setError(result.error || 'Sign up failed');
         shake();
@@ -355,8 +367,35 @@ export default function LoginScreen() {
                     onChangeText={setName}
                     autoCapitalize="words"
                     returnKeyType="next"
-                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    onSubmitEditing={() => mobileRef.current?.focus()}
                     testID="signup-name"
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* Mobile (sign-up only) */}
+            {isSignUp && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Mobile Number</Text>
+                <View style={styles.inputContainer}>
+                  <Phone
+                    size={18}
+                    color={Salon.roseSoft}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    ref={mobileRef}
+                    style={styles.input}
+                    placeholder="10-digit mobile number"
+                    placeholderTextColor={Salon.textLight}
+                    value={mobile}
+                    onChangeText={setMobile}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    returnKeyType="next"
+                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    testID="signup-mobile"
                   />
                 </View>
               </View>

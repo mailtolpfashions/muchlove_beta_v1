@@ -155,7 +155,7 @@ export default function SubscriptionPlansScreen() {
       />
 
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: 24 + insets.bottom }]}
         onPress={() => {
           setIsEditing(false);
           setEditingId(null);

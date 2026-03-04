@@ -324,7 +324,7 @@ export default function ExpensesScreen() {
       />
 
       {/* FAB row */}
-      <View style={styles.fabRow}>
+      <View style={[styles.fabRow, { bottom: 24 + insets.bottom }]}>
         <TouchableOpacity style={styles.fabSecondary} onPress={() => setShowCategoryModal(true)}>
           <Tag size={18} color={Colors.primary} />
         </TouchableOpacity>

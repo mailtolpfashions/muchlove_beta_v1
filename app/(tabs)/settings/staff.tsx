@@ -11,17 +11,18 @@ import {
   Switch,
   ActivityIndicator,
 } from 'react-native';
-import { Trash2, X, Search, Users, Shield, UserCheck, Lock, AlertTriangle } from 'lucide-react-native';
+import { Trash2, X, Search, Users, Shield, UserCheck, Lock, AlertTriangle, Calendar, Phone } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { User } from '@/types';
 import { useAlert } from '@/providers/AlertProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { capitalizeWords, isValidName } from '@/utils/format';
+import { capitalizeWords, isValidName, toLocalDateString } from '@/utils/format';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/lib/supabase';
 import BottomSheetModal from '@/components/BottomSheetModal';
+import DatePickerModal from '@/components/DatePickerModal';
 
 export default function StaffScreen() {
   const { users, updateUser, deleteUser, reload } = useData();
@@ -41,20 +42,25 @@ export default function StaffScreen() {
 
   // Form state
   const [name, setName] = useState<string>('');
+  const [mobile, setMobile] = useState<string>('');
   const [role, setRole] = useState<User['role']>('employee');
   const [approved, setApproved] = useState<boolean>(true);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [fraudLogs, setFraudLogs] = useState<any[]>([]);
   const [loadingFraudLogs, setLoadingFraudLogs] = useState(false);
+  const [joiningDate, setJoiningDate] = useState<Date>(new Date());
+  const [showJoiningDatePicker, setShowJoiningDatePicker] = useState(false);
 
   const resetForm = () => {
     setName('');
+    setMobile('');
     setRole('employee');
     setApproved(true);
     setIsEditing(false);
     setEditingId(null);
     setFraudLogs([]);
+    setJoiningDate(new Date());
   };
 
   /** Load fraud logs for a specific user when editing */
@@ -101,6 +107,22 @@ export default function StaffScreen() {
       showAlert('Error', 'Name must be at least 4 letters and contain only letters and spaces.');
       return;
     }
+    if (!mobile.trim()) {
+      showAlert('Error', 'Mobile number is required');
+      return;
+    }
+    if (!/^[6-9]\d{9}$/.test(mobile.trim())) {
+      showAlert('Error', 'Please enter a valid 10-digit mobile number');
+      return;
+    }
+    // Check mobile uniqueness
+    try {
+      const { data: dup } = await supabase.from('profiles').select('id').eq('mobile', mobile.trim()).neq('id', editingId ?? '').maybeSingle();
+      if (dup) {
+        showAlert('Error', 'This mobile number is already used by another employee.');
+        return;
+      }
+    } catch {}
     try {
       if (isEditing && editingId) {
         await updateUser({
@@ -108,6 +130,8 @@ export default function StaffScreen() {
           name: capitalizeWords(name.trim()),
           role,
           approved,
+          joiningDate: toLocalDateString(joiningDate),
+          mobile: mobile.trim(),
         });
       }
       setshowStaffForm(false);
@@ -148,8 +172,10 @@ export default function StaffScreen() {
           setIsEditing(true);
           setEditingId(item.id);
           setName(item.name);
+          setMobile(item.mobile || '');
           setRole(item.role);
           setApproved(item.approved ?? true);
+          setJoiningDate(new Date(item.joiningDate || item.createdAt));
           setshowStaffForm(true);
           loadFraudLogs(item.id);
         }}
@@ -221,7 +247,7 @@ export default function StaffScreen() {
         }
       />
 
-      <BottomSheetModal visible={showStaffForm} onRequestClose={() => setshowStaffForm(false)}>
+      <BottomSheetModal visible={showStaffForm} onRequestClose={() => setshowStaffForm(false)} maxHeight="85%">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Edit Employee</Text>
                 <TouchableOpacity onPress={() => setshowStaffForm(false)}>
@@ -237,6 +263,19 @@ export default function StaffScreen() {
                 value={name}
                 onChangeText={setName}
               />
+              <Text style={styles.label}>Mobile Number *</Text>
+              <View style={styles.mobileRow}>
+                <Phone size={16} color={Colors.primary} />
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={mobile}
+                  onChangeText={setMobile}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
               <Text style={styles.label}>Role</Text>
               <View style={styles.roleRow}>
                 <TouchableOpacity
@@ -252,6 +291,15 @@ export default function StaffScreen() {
                   <Text style={[styles.roleBtnText, role === 'admin' && styles.roleBtnTextActive]}>Admin</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Joining Date */}
+              <Text style={styles.label}>Joining Date</Text>
+              <TouchableOpacity style={styles.datePickerBtn} onPress={() => setShowJoiningDatePicker(true)}>
+                <Calendar size={16} color={Colors.primary} />
+                <Text style={styles.datePickerText}>
+                  {joiningDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </Text>
+              </TouchableOpacity>
 
               {/* Account Active Toggle */}
               <Text style={styles.label}>Account Status</Text>
@@ -309,6 +357,14 @@ export default function StaffScreen() {
                 <Text style={styles.saveBtnText}>Save Changes</Text>
               </TouchableOpacity>
       </BottomSheetModal>
+
+      <DatePickerModal
+        visible={showJoiningDatePicker}
+        value={joiningDate}
+        title="Select Joining Date"
+        onSelect={(d) => { if (d) setJoiningDate(d); setShowJoiningDatePicker(false); }}
+        onClose={() => setShowJoiningDatePicker(false)}
+      />
     </View>
   );
 }
@@ -482,6 +538,17 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body,
     color: Colors.text,
   },
+  mobileRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    backgroundColor: Colors.inputBg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: 0,
+  },
   saveBtn: {
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.lg,
@@ -579,5 +646,21 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs ?? 11,
     color: Colors.textTertiary,
     marginTop: 2,
+  },
+  datePickerBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    backgroundColor: Colors.inputBg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    paddingHorizontal: Spacing.lg,
+    height: 44,
+  },
+  datePickerText: {
+    fontSize: FontSize.body,
+    color: Colors.text,
+    fontWeight: '500' as const,
   },
 });

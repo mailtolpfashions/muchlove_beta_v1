@@ -19,12 +19,13 @@ import type {
   LeaveRequest,
   PermissionRequest,
   EmployeeSalary,
+  SalonConfig,
 } from '@/types';
 import { generateId } from '@/utils/hash';
 
 // Row Mappers (DB snake_case -> App camelCase)
 // These functions remain the same...
-function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, email: r.email as string, name: r.name as string, role: r.role as User['role'], approved: (r.approved as boolean) ?? false, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
+function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, email: r.email as string, name: r.name as string, mobile: (r.mobile as string) ?? undefined, role: r.role as User['role'], approved: (r.approved as boolean) ?? false, joiningDate: (r.joining_date as string) ?? (r.created_at as string) ?? new Date().toISOString(), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapCustomer(r: Record<string, unknown>): Customer { return { id: r.id as string, name: r.name as string, age: (r.age as string) ?? '', mobile: r.mobile as string, altNumber: (r.alt_number as string) ?? '', location: (r.location as string) ?? '', isStudent: (r.is_student as boolean) ?? false, visitCount: (r.visit_count as number) ?? 0, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
 function mapService(r: Record<string, unknown>): Service { return { id: r.id as string, name: r.name as string, code: r.code as string, price: Number(r.price), kind: ((r.kind as string) ?? 'service') as Service['kind'], mrp: r.mrp != null ? Number(r.mrp) : undefined, offerPrice: r.offer_price != null ? Number(r.offer_price) : undefined, createdAt: (r.created_at as string) ?? new Date().toISOString(), paymentMethod: r.payment_method as Service['paymentMethod'] }; }
 function mapSubscriptionPlan(r: Record<string, unknown>): SubscriptionPlan { return { id: r.id as string, name: r.name as string, durationMonths: Number(r.duration_months), price: Number(r.price), discountPercent: r.discount_percent != null ? Number(r.discount_percent) : 30, maxCartValue: r.max_cart_value != null ? Number(r.max_cart_value) : 2000, createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
@@ -67,13 +68,19 @@ export const users = {
   useUpdate: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (user: Pick<User, 'id' | 'name' | 'role'> & { approved?: boolean }) => {
+      mutationFn: async (user: Pick<User, 'id' | 'name' | 'role'> & { approved?: boolean; joiningDate?: string; mobile?: string }) => {
         const updateData: Record<string, any> = {
           name: user.name,
           role: user.role,
         };
         if (user.approved !== undefined) {
           updateData.approved = user.approved;
+        }
+        if (user.joiningDate !== undefined) {
+          updateData.joining_date = user.joiningDate;
+        }
+        if (user.mobile !== undefined) {
+          updateData.mobile = user.mobile;
         }
         const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
         if (error) throw error;
@@ -795,7 +802,12 @@ export const attendanceDb = {
           marked_by: record.markedBy ?? null,
         };
         const { data, error } = await supabase.from('attendance').insert(row).select().single();
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505') {
+            throw new Error(`Attendance for ${record.employeeName} on ${record.date} has already been marked.`);
+          }
+          throw error;
+        }
         return mapAttendance(data);
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['attendance'] }); if (onSuccess) await onSuccess(); },
@@ -994,6 +1006,58 @@ export const employeeSalariesDb = {
         if (error) throw error;
       },
       onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['employeeSalaries'] }); if (onSuccess) await onSuccess(); },
+    });
+  },
+};
+
+// ── Salon Config ──────────────────────────────────────────────────────────
+
+function mapSalonConfig(r: Record<string, unknown>): SalonConfig {
+  return {
+    id: r.id as string,
+    weeklyOffDay: Number(r.weekly_off_day),
+    shiftStartHour: Number(r.shift_start_hour),
+    shiftStartMin: Number(r.shift_start_min),
+    shiftEndHour: Number(r.shift_end_hour),
+    shiftEndMin: Number(r.shift_end_min),
+    workingHoursPerDay: Number(r.working_hours_per_day),
+    graceMinutes: Number(r.grace_minutes),
+    freePermissionHours: Number(r.free_permission_hours),
+    monthlyLeaveAllowance: Number(r.monthly_leave_allowance ?? 0),
+    latesPerHalfDay: Number(r.lates_per_half_day ?? 3),
+    updatedAt: (r.updated_at as string) ?? new Date().toISOString(),
+  };
+}
+
+export const salonConfigDb = {
+  get: async (): Promise<SalonConfig | null> => {
+    const { data, error } = await supabase
+      .from('salon_config')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapSalonConfig(data) : null;
+  },
+  useUpdate: (onSuccess?: () => void | Promise<void>) => {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn: async (config: Partial<Omit<SalonConfig, 'id' | 'updatedAt'>> & { id: string }) => {
+        const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+        if (config.weeklyOffDay !== undefined) updates.weekly_off_day = config.weeklyOffDay;
+        if (config.shiftStartHour !== undefined) updates.shift_start_hour = config.shiftStartHour;
+        if (config.shiftStartMin !== undefined) updates.shift_start_min = config.shiftStartMin;
+        if (config.shiftEndHour !== undefined) updates.shift_end_hour = config.shiftEndHour;
+        if (config.shiftEndMin !== undefined) updates.shift_end_min = config.shiftEndMin;
+        if (config.workingHoursPerDay !== undefined) updates.working_hours_per_day = config.workingHoursPerDay;
+        if (config.graceMinutes !== undefined) updates.grace_minutes = config.graceMinutes;
+        if (config.freePermissionHours !== undefined) updates.free_permission_hours = config.freePermissionHours;
+        if (config.monthlyLeaveAllowance !== undefined) updates.monthly_leave_allowance = config.monthlyLeaveAllowance;
+        if (config.latesPerHalfDay !== undefined) updates.lates_per_half_day = config.latesPerHalfDay;
+        const { error } = await supabase.from('salon_config').update(updates).eq('id', config.id);
+        if (error) throw error;
+      },
+      onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['salonConfig'] }); if (onSuccess) await onSuccess(); },
     });
   },
 };

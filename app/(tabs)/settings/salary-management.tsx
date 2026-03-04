@@ -9,8 +9,9 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  LayoutAnimation,
 } from 'react-native';
-import { ChevronDown, IndianRupee, Edit2 } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, IndianRupee, Edit2, X, Banknote, TrendingDown, Download } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
@@ -20,10 +21,12 @@ import BottomSheetModal from '@/components/BottomSheetModal';
 import DatePickerModal from '@/components/DatePickerModal';
 import type { EmployeeSalary } from '@/types';
 import { calculateMonthlySalary } from '@/utils/salary';
+import { toLocalDateString, formatCurrency } from '@/utils/format';
+import { shareSalarySlip } from '@/utils/salarySlip';
 
 export default function SalaryManagementScreen() {
   const { user } = useAuth();
-  const { users, employeeSalaries, attendance, leaveRequests, permissionRequests, addEmployeeSalary, updateEmployeeSalary, reload } = useData();
+  const { users, employeeSalaries, attendance, leaveRequests, permissionRequests, addEmployeeSalary, updateEmployeeSalary, reload, salonConfig } = useData();
   const { showAlert } = useAlert();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -39,6 +42,9 @@ export default function SalaryManagementScreen() {
 
   // Employee picker
   const [showEmployeePicker, setShowEmployeePicker] = useState(false);
+  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -66,11 +72,19 @@ export default function SalaryManagementScreen() {
     return map;
   }, [employeeSalaries]);
 
+  const { viewMonth, viewYear, viewMonthName } = useMemo(() => {
+    const d = new Date(new Date().getFullYear(), new Date().getMonth() + monthOffset, 1);
+    return {
+      viewMonth: d.getMonth(),
+      viewYear: d.getFullYear(),
+      viewMonthName: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+    };
+  }, [monthOffset]);
+
   // Employee list with current salary and this month's calculation
   const employeeList = useMemo(() => {
-    const now = new Date();
-    const month = now.getMonth();
-    const year = now.getFullYear();
+    const month = viewMonth;
+    const year = viewYear;
 
     return employees.map((emp: any) => {
       const salaryRecords = employeeSalaryMap.get(emp.id) ?? [];
@@ -85,18 +99,21 @@ export default function SalaryManagementScreen() {
             permissionRequests.filter((pr: any) => pr.employeeId === emp.id),
             year,
             month,
+            emp.joiningDate,
+            salonConfig,
           )
         : null;
 
       return {
         id: emp.id,
         name: emp.name,
+        mobile: emp.mobile as string | undefined,
+        joiningDate: emp.joiningDate as string | undefined,
         currentSalary,
-        netSalary: breakdown?.netSalary ?? null,
-        totalDeduction: breakdown?.totalDeduction ?? null,
+        breakdown,
       };
     });
-  }, [employees, employeeSalaryMap, attendance, leaveRequests, permissionRequests]);
+  }, [employees, employeeSalaryMap, attendance, leaveRequests, permissionRequests, viewMonth, viewYear]);
 
   const handleOpenForm = (empId: string, existing?: EmployeeSalary) => {
     setSelectedEmployee(empId);
@@ -129,7 +146,7 @@ export default function SalaryManagementScreen() {
         employeeId: selectedEmployee,
         employeeName: empName,
         baseSalary: amount,
-        effectiveFrom: effectiveFrom.toISOString().split('T')[0],
+        effectiveFrom: toLocalDateString(effectiveFrom),
       };
       if (editingId) {
         await updateEmployeeSalary({ id: editingId, ...payload });
@@ -145,15 +162,47 @@ export default function SalaryManagementScreen() {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return '₹' + amount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  const toggleExpand = useCallback((empId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedEmployee(prev => prev === empId ? null : empId);
+  }, []);
+
+  const handleDownloadSlip = async (empId: string, empName: string) => {
+    const emp = employeeList.find(e => e.id === empId);
+    if (!emp?.breakdown || !emp.currentSalary) return;
+    setDownloadingId(empId);
+    try {
+      await shareSalarySlip({
+        employeeName: empName,
+        employeeMobile: emp?.mobile,
+        month: viewMonth,
+        year: viewYear,
+        baseSalary: emp.currentSalary.baseSalary,
+        effectiveFrom: emp.currentSalary.effectiveFrom,
+        breakdown: emp.breakdown,
+      });
+    } catch { /* cancelled */ }
+    setDownloadingId(null);
   };
 
   const renderEmployee = ({ item }: { item: typeof employeeList[0] }) => {
     const hasSalary = !!item.currentSalary;
+    const isExpanded = expandedEmployee === item.id;
+    const b = item.breakdown;
+
+    // Check if selected month is before employee joining
+    let isBeforeJoining = false;
+    if (item.joiningDate) {
+      const jd = new Date(item.joiningDate);
+      isBeforeJoining = viewYear < jd.getFullYear() || (viewYear === jd.getFullYear() && viewMonth < jd.getMonth());
+    }
     return (
       <View style={styles.empCard}>
-        <View style={styles.empHeader}>
+        <TouchableOpacity
+          style={styles.empHeader}
+          onPress={() => hasSalary && toggleExpand(item.id)}
+          activeOpacity={hasSalary ? 0.7 : 1}
+        >
           <View style={{ flex: 1 }}>
             <Text style={styles.empName}>{item.name}</Text>
             {hasSalary ? (
@@ -164,32 +213,112 @@ export default function SalaryManagementScreen() {
               <Text style={styles.empNoSalary}>Salary not configured</Text>
             )}
           </View>
-          <TouchableOpacity
-            style={styles.editBtn}
-            onPress={() => handleOpenForm(item.id, item.currentSalary ?? undefined)}
-          >
-            <Edit2 size={14} color={Colors.primary} />
-            <Text style={styles.editText}>{hasSalary ? 'Edit' : 'Set'}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {hasSalary && item.netSalary !== null && (
-          <View style={styles.salaryBreakdown}>
-            <View style={styles.salaryRow}>
-              <Text style={styles.salaryLabel}>This Month Net</Text>
-              <Text style={styles.salaryValue}>{formatCurrency(item.netSalary!)}</Text>
-            </View>
-            {item.totalDeduction! > 0 && (
-              <View style={styles.salaryRow}>
-                <Text style={styles.deductLabel}>Deductions</Text>
-                <Text style={styles.deductValue}>-{formatCurrency(item.totalDeduction!)}</Text>
-              </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              style={styles.downloadBtn}
+              onPress={() => handleDownloadSlip(item.id, item.name)}
+              disabled={!hasSalary || downloadingId === item.id}
+            >
+              {downloadingId === item.id ? (
+                <ActivityIndicator size={12} color="#059669" />
+              ) : (
+                <Download size={14} color={hasSalary ? '#059669' : Colors.textTertiary} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.editBtn}
+              onPress={() => handleOpenForm(item.id, item.currentSalary ?? undefined)}
+            >
+              <Edit2 size={14} color={Colors.primary} />
+              <Text style={styles.editText}>{hasSalary ? 'Edit' : 'Set'}</Text>
+            </TouchableOpacity>
+            {hasSalary && (
+              isExpanded
+                ? <ChevronUp size={16} color={Colors.textTertiary} />
+                : <ChevronDown size={16} color={Colors.textTertiary} />
             )}
-            <View style={styles.salaryRow}>
-              <Text style={styles.effectiveLabel}>
-                Effective from {new Date(item.currentSalary!.effectiveFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </Text>
+          </View>
+        </TouchableOpacity>
+
+        {hasSalary && !isExpanded && (
+          isBeforeJoining ? (
+            <View style={styles.salaryPreview}>
+              <Text style={styles.noRecordText}>No record found</Text>
             </View>
+          ) : b ? (
+            <View style={styles.salaryPreview}>
+              <Text style={styles.previewNet}>Net: {formatCurrency(b.netSalary)}</Text>
+              {b.totalDeduction > 0 && (
+                <Text style={styles.previewDeduct}>-{formatCurrency(b.totalDeduction)}</Text>
+              )}
+            </View>
+          ) : null
+        )}
+
+        {hasSalary && b && isExpanded && !isBeforeJoining && (
+          <View style={salaryStyles.container}>
+            <View style={salaryStyles.header}>
+              <Banknote size={16} color="#059669" />
+              <Text style={salaryStyles.title}>Salary — {viewMonthName}</Text>
+            </View>
+
+            <View style={salaryStyles.netRow}>
+              <Text style={salaryStyles.netLabel}>Net Payable</Text>
+              <Text style={salaryStyles.netValue}>{formatCurrency(b.netSalary)}</Text>
+            </View>
+
+            <View style={salaryStyles.breakdownSection}>
+              <SalaryRow label="Base Salary" value={formatCurrency(b.baseSalary)} />
+              <SalaryRow label="Working Days" value={`${b.workingDays} days`} />
+              <SalaryRow label="Per Day Rate" value={formatCurrency(b.perDayRate)} />
+              <SalaryDivider />
+              <SalaryRow label="Present" value={`${b.presentDays} days`} color="#059669" />
+              {b.halfDays > 0 && <SalaryRow label="Half Days" value={`${b.halfDays} (×0.5)`} color="#D97706" />}
+              {b.compLeavesUsed > 0 && <SalaryRow label="Comp Used" value={`${b.compLeavesUsed} days`} color="#7C3AED" />}
+              {b.earnedLeavesUsed > 0 && <SalaryRow label="EL Used" value={`${b.earnedLeavesUsed} days`} color="#059669" />}
+              <SalaryRow label="Earned Days" value={`${b.earnedDays} days`} color="#059669" />
+              <SalaryRow label="Earned Salary" value={formatCurrency(b.earnedSalary)} color="#059669" />
+              <SalaryDivider />
+              <SalaryRow label="Absent" value={`${b.absentDays} days`} color="#DC2626" />
+              <SalaryRow label="Leaves Taken" value={`${b.approvedLeaves} days`} color="#EA580C" />
+              <SalaryRow label="Comp Earned" value={`${b.compLeavesEarned} days`} color="#7C3AED" />
+              {b.totalPermissionHours > 0 && (
+                <SalaryRow
+                  label={`Permission (${b.totalPermissionHours.toFixed(1)}h, free: ${b.freePermissionHours}h)`}
+                  value={b.excessPermissionHours > 0 ? `-${formatCurrency(b.permissionDeduction)} (${b.permissionPenaltyDays}d)` : 'Free'}
+                  color={b.excessPermissionHours > 0 ? '#DC2626' : '#059669'}
+                  isDeduction={b.excessPermissionHours > 0}
+                />
+              )}
+              {b.lateCount > 0 && b.latePenaltyDays > 0 && (
+                <SalaryRow
+                  label={`Late Penalty (${b.lateCount} lates → ${b.latePenaltyDays}d)`}
+                  value={`-${formatCurrency(b.lateDeduction)}`}
+                  color="#DC2626"
+                  isDeduction
+                />
+              )}
+              {b.totalDeduction > 0 && (
+                <>
+                  <SalaryDivider />
+                  <View style={salaryStyles.totalDeductionRow}>
+                    <TrendingDown size={14} color="#DC2626" />
+                    <Text style={salaryStyles.totalDeductionLabel}>Total Deduction</Text>
+                    <Text style={salaryStyles.totalDeductionValue}>-{formatCurrency(b.totalDeduction)}</Text>
+                  </View>
+                </>
+              )}
+            </View>
+
+            <Text style={salaryStyles.effectiveLabel}>
+              Effective from {new Date(item.currentSalary!.effectiveFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </Text>
+          </View>
+        )}
+
+        {hasSalary && isExpanded && isBeforeJoining && (
+          <View style={styles.noRecordContainer}>
+            <Text style={styles.noRecordText}>No record found</Text>
           </View>
         )}
       </View>
@@ -204,6 +333,25 @@ export default function SalaryManagementScreen() {
         renderItem={renderEmployee}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.monthNav}>
+            <TouchableOpacity
+              onPress={() => setMonthOffset(o => Math.max(o - 1, -2))}
+              disabled={monthOffset <= -2}
+              style={[styles.monthArrow, monthOffset <= -2 && { opacity: 0.3 }]}
+            >
+              <ChevronLeft size={18} color={Colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.monthLabel}>{viewMonthName}</Text>
+            <TouchableOpacity
+              onPress={() => setMonthOffset(o => Math.min(o + 1, 0))}
+              disabled={monthOffset >= 0}
+              style={[styles.monthArrow, monthOffset >= 0 && { opacity: 0.3 }]}
+            >
+              <ChevronRight size={18} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No employees found</Text>
@@ -213,10 +361,17 @@ export default function SalaryManagementScreen() {
 
       {/* Salary Form */}
       <BottomSheetModal visible={showForm} onRequestClose={() => setShowForm(false)}>
-        <Text style={styles.formTitle}>{editingId ? 'Update Salary' : 'Set Salary'}</Text>
-        <Text style={styles.formSubtitle}>
-          {employees.find((e: any) => e.id === selectedEmployee)?.name ?? 'Employee'}
-        </Text>
+        <View style={styles.formHeader}>
+          <View>
+            <Text style={styles.formTitle}>{editingId ? 'Update Salary' : 'Set Salary'}</Text>
+            <Text style={styles.formSubtitle}>
+              {employees.find((e: any) => e.id === selectedEmployee)?.name ?? 'Employee'}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.closeBtn} onPress={() => setShowForm(false)}>
+            <X size={18} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <Text style={styles.fieldLabel}>Base Salary (₹/month) *</Text>
@@ -272,6 +427,33 @@ const styles = StyleSheet.create({
     padding: Spacing.screen,
     paddingBottom: 100,
   },
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+    gap: 12,
+  },
+  monthArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  monthLabel: {
+    fontSize: FontSize.body,
+    fontWeight: '700',
+    color: Colors.text,
+    minWidth: 140,
+    textAlign: 'center',
+  },
   empCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
@@ -286,6 +468,25 @@ const styles = StyleSheet.create({
   empHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  salaryPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
+  },
+  previewNet: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  previewDeduct: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: '#DC2626',
   },
   empName: {
     fontSize: FontSize.body,
@@ -317,42 +518,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
-  salaryBreakdown: {
+  noRecordContainer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
     marginTop: Spacing.sm,
-    paddingTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  salaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
     alignItems: 'center',
-    marginBottom: 4,
   },
-  salaryLabel: {
+  noRecordText: {
     fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  salaryValue: {
-    fontSize: FontSize.body,
-    fontWeight: '700',
-    color: '#059669',
-  },
-  deductLabel: {
-    fontSize: FontSize.xs,
-    color: '#DC2626',
-  },
-  deductValue: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: '#DC2626',
-  },
-  effectiveLabel: {
-    fontSize: FontSize.xs,
     color: Colors.textTertiary,
-    fontStyle: 'italic',
+    fontWeight: '500',
   },
+  downloadBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
@@ -360,6 +547,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: FontSize.body,
     color: Colors.textTertiary,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.lg,
   },
   formTitle: {
     fontSize: FontSize.heading,
@@ -370,7 +563,14 @@ const styles = StyleSheet.create({
   formSubtitle: {
     fontSize: FontSize.body,
     color: Colors.textSecondary,
-    marginBottom: Spacing.lg,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.inputBg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fieldLabel: {
     fontSize: FontSize.sm,
@@ -426,5 +626,108 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: FontSize.body,
+  },
+});
+
+// ── Salary Breakdown helpers ──────────────────────────────────
+
+function SalaryRow({ label, value, color, isDeduction }: { label: string; value: string; color?: string; isDeduction?: boolean }) {
+  return (
+    <View style={salaryStyles.row}>
+      <Text style={salaryStyles.rowLabel}>{label}</Text>
+      <Text style={[salaryStyles.rowValue, color ? { color } : null, isDeduction ? { fontWeight: '700' } : null]}>{value}</Text>
+    </View>
+  );
+}
+
+function SalaryDivider() {
+  return <View style={salaryStyles.divider} />;
+}
+
+const salaryStyles = StyleSheet.create({
+  container: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: Spacing.sm,
+  },
+  title: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  netRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  netLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  netValue: {
+    fontSize: FontSize.md,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  breakdownSection: {
+    gap: 1,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  rowLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+    flex: 1,
+  },
+  rowValue: {
+    fontSize: FontSize.xs,
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.borderLight,
+    marginVertical: 3,
+  },
+  totalDeductionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+  },
+  totalDeductionLabel: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  totalDeductionValue: {
+    fontSize: FontSize.body,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  effectiveLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    fontStyle: 'italic',
+    marginTop: Spacing.sm,
   },
 });

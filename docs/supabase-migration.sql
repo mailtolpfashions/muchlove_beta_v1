@@ -13,15 +13,19 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Unique mobile (partial index – NULLs allowed for legacy rows)
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_mobile_unique ON profiles (mobile) WHERE mobile IS NOT NULL;
+
 -- Auto-create a profile when a new user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, name, role, approved)
+  INSERT INTO public.profiles (id, email, name, mobile, role, approved)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data ->> 'name', split_part(NEW.email, '@', 1)),
+    NEW.raw_user_meta_data ->> 'mobile',
     'employee',
     false
   );

@@ -4,8 +4,10 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  mobile?: string;
   role: UserRole;
   approved: boolean;
+  joiningDate: string;
   createdAt: string;
 }
 
@@ -162,9 +164,9 @@ export interface Expense {
 
 // ── Attendance & HR ─────────────────────────────────────────
 
-export type AttendanceStatus = 'present' | 'absent' | 'half_day' | 'permission';
+export type AttendanceStatus = 'present' | 'absent' | 'half_day' | 'permission' | 'leave';
 export type RequestStatus = 'pending' | 'approved' | 'rejected';
-export type LeaveType = 'leave' | 'compensation';
+export type LeaveType = 'leave' | 'compensation' | 'earned';
 
 export interface Attendance {
   id: string;
@@ -215,3 +217,34 @@ export interface EmployeeSalary {
   effectiveFrom: string;
   createdAt: string;
 }
+
+// ── Salon Configuration ─────────────────────────────────────
+
+export interface SalonConfig {
+  id: string;
+  weeklyOffDay: number;       // JS Date.getDay(): 0=Sun,1=Mon,2=Tue…
+  shiftStartHour: number;     // e.g. 9
+  shiftStartMin: number;      // e.g. 0
+  shiftEndHour: number;       // e.g. 20
+  shiftEndMin: number;        // e.g. 0
+  workingHoursPerDay: number;  // Net working hours (shift minus breaks)
+  graceMinutes: number;       // Late check-in grace period
+  latesPerHalfDay: number;     // How many late check-ins = 0.5 day deduction (e.g. 3)
+  freePermissionHours: number; // Free permission hours per month
+  monthlyLeaveAllowance: number; // Paid leave days earned per month (e.g. 0.5 or 1)
+  updatedAt: string;
+}
+
+/** Default configuration values (used as fallback) */
+export const DEFAULT_SALON_CONFIG: Omit<SalonConfig, 'id' | 'updatedAt'> = {
+  weeklyOffDay: 2,            // Tuesday
+  shiftStartHour: 9,          // 9:00 AM
+  shiftStartMin: 0,
+  shiftEndHour: 20,           // 8:00 PM
+  shiftEndMin: 0,
+  workingHoursPerDay: 9,      // 11hr shift − 2hr break
+  graceMinutes: 15,
+  latesPerHalfDay: 3,          // 3 lates = 0.5 day salary deduction
+  freePermissionHours: 2,
+  monthlyLeaveAllowance: 0,   // 0 = disabled, 0.5 or 1 = days per month
+};

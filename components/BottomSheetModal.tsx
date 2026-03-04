@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Modal, StyleSheet, ModalProps, DimensionValue, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
 import { BorderRadius, Spacing } from '@/constants/typography';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
@@ -27,6 +28,8 @@ interface BottomSheetModalProps extends Omit<ModalProps, 'transparent' | 'animat
  */
 export default function BottomSheetModal({ children, maxHeight = '70%', ...rest }: BottomSheetModalProps) {
   const kbHeight = useKeyboardHeight();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Spacing.modalBottom);
 
   // When keyboard is open, allow the sheet to use all available space above it
   // instead of being limited by the percentage-based maxHeight.
@@ -38,7 +41,7 @@ export default function BottomSheetModal({ children, maxHeight = '70%', ...rest 
   return (
     <Modal animationType="slide" transparent {...rest}>
       <View style={[styles.overlay, kbHeight > 0 && { paddingBottom: kbHeight }]}>
-        <View style={[styles.content, { maxHeight: effectiveMaxHeight }]}>
+        <View style={[styles.content, { maxHeight: effectiveMaxHeight, paddingBottom: kbHeight > 0 ? Spacing.modal : bottomInset }]}>
           {children}
         </View>
       </View>

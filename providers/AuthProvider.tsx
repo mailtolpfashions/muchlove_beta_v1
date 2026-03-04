@@ -57,8 +57,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       id: data.id,
       email: data.email ?? email,
       name: data.name,
+      mobile: data.mobile ?? undefined,
       role: data.role,
       approved: data.approved ?? false,
+      joiningDate: data.joining_date ?? data.created_at,
       createdAt: data.created_at,
     };
   }, []);
@@ -254,13 +256,19 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     }
   }, [fetchProfile]);
 
-  const signUp = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string; needsApproval?: boolean }> => {
+  const signUp = useCallback(async (email: string, password: string, name: string, mobile: string): Promise<{ success: boolean; error?: string; needsApproval?: boolean }> => {
     try {
+      // Check mobile uniqueness
+      const { data: existing } = await supabase.from('profiles').select('id').eq('mobile', mobile.trim()).maybeSingle();
+      if (existing) {
+        return { success: false, error: 'This mobile number is already registered.' };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password,
         options: {
-          data: { name: name.trim() },
+          data: { name: name.trim(), mobile: mobile.trim() },
         },
       });
 

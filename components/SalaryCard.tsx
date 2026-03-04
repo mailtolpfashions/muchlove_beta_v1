@@ -1,11 +1,13 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Banknote, TrendingDown } from 'lucide-react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Banknote, TrendingDown, Download, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { formatCurrency } from '@/utils/format';
-import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary } from '@/types';
+import type { Attendance, LeaveRequest, PermissionRequest, EmployeeSalary, SalonConfig } from '@/types';
 import { calculateMonthlySalary } from '@/utils/salary';
+import { shareSalarySlip } from '@/utils/salarySlip';
+import { useData } from '@/providers/DataProvider';
 
 interface SalaryCardProps {
   attendance: Attendance[];
@@ -13,6 +15,9 @@ interface SalaryCardProps {
   permissionRequests: PermissionRequest[];
   employeeSalaries: EmployeeSalary[];
   userId: string;
+  joiningDate?: string;
+  userName?: string;
+  userMobile?: string;
 }
 
 export default function SalaryCard({
@@ -21,34 +26,74 @@ export default function SalaryCard({
   permissionRequests,
   employeeSalaries,
   userId,
+  joiningDate,
+  userName,
+  userMobile,
 }: SalaryCardProps) {
   const now = new Date();
-  const month = now.getMonth();
-  const year = now.getFullYear();
-  const monthName = now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const [monthOffset, setMonthOffset] = useState(0); // 0 = current, -1 = last, -2 = two months ago
+  const { salonConfig } = useData();
+
+  const { month, year, monthName } = useMemo(() => {
+    const d = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    return {
+      month: d.getMonth(),
+      year: d.getFullYear(),
+      monthName: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+    };
+  }, [monthOffset]);
 
   const currentSalary = useMemo(() => {
     const mySalaries = employeeSalaries
       .filter(s => s.employeeId === userId)
       .sort((a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime());
-    // Find the most recent salary effective on or before today
-    return mySalaries.find(s => new Date(s.effectiveFrom) <= now) ?? mySalaries[0] ?? null;
-  }, [employeeSalaries, userId]);
+    const ref = new Date(year, month + 1, 0); // end of selected month
+    return mySalaries.find(s => new Date(s.effectiveFrom) <= ref) ?? mySalaries[0] ?? null;
+  }, [employeeSalaries, userId, month, year]);
 
   const breakdown = useMemo(() => {
     if (!currentSalary) return null;
     const myAttendance = attendance.filter(a => a.employeeId === userId);
     const myLeaves = leaveRequests.filter(lr => lr.employeeId === userId);
     const myPermissions = permissionRequests.filter(pr => pr.employeeId === userId);
-    return calculateMonthlySalary(currentSalary.baseSalary, myAttendance, myLeaves, myPermissions, year, month);
-  }, [currentSalary, attendance, leaveRequests, permissionRequests, userId, year, month]);
+    return calculateMonthlySalary(currentSalary.baseSalary, myAttendance, myLeaves, myPermissions, year, month, joiningDate, salonConfig);
+  }, [currentSalary, attendance, leaveRequests, permissionRequests, userId, year, month, salonConfig]);
+
+  // Check if selected month is before joining
+  const isBeforeJoining = useMemo(() => {
+    if (!joiningDate) return false;
+    const jd = new Date(joiningDate);
+    const joinMonth = jd.getMonth();
+    const joinYear = jd.getFullYear();
+    // Selected month is before the joining month
+    return year < joinYear || (year === joinYear && month < joinMonth);
+  }, [joiningDate, month, year]);
+
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (!breakdown || !currentSalary) return;
+    setDownloading(true);
+    try {
+      await shareSalarySlip({
+        employeeName: userName || 'My',
+        employeeMobile: userMobile,
+        month,
+        year,
+        baseSalary: currentSalary.baseSalary,
+        effectiveFrom: currentSalary.effectiveFrom,
+        breakdown,
+      });
+    } catch { /* cancelled */ }
+    setDownloading(false);
+  };
 
   if (!currentSalary) {
     return (
       <View style={styles.card}>
         <View style={styles.header}>
           <Banknote size={18} color="#059669" />
-          <Text style={styles.title}>Salary — {monthName}</Text>
+          <Text style={styles.title}>Salary</Text>
         </View>
         <View style={styles.notConfigured}>
           <Text style={styles.notConfiguredText}>Salary not configured. Contact admin.</Text>
@@ -61,14 +106,54 @@ export default function SalaryCard({
 
   return (
     <View style={styles.card}>
+      {/* Header with month navigation */}
       <View style={styles.header}>
         <Banknote size={18} color="#059669" />
-        <Text style={styles.title}>Salary — {monthName}</Text>
+        <Text style={styles.title}>Salary</Text>
+        <View style={{ flex: 1 }} />
+        {!isBeforeJoining && (
+          <TouchableOpacity
+            onPress={handleDownload}
+            disabled={downloading}
+            style={styles.downloadBtn}
+          >
+            {downloading ? (
+              <ActivityIndicator size={14} color="#059669" />
+            ) : (
+              <Download size={16} color="#059669" />
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Net salary highlight */}
+      {/* Month selector */}
+      <View style={styles.monthNav}>
+        <TouchableOpacity
+          onPress={() => setMonthOffset(o => Math.max(o - 1, -2))}
+          disabled={monthOffset <= -2}
+          style={[styles.monthArrow, monthOffset <= -2 && { opacity: 0.3 }]}
+        >
+          <ChevronLeft size={18} color={Colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.monthLabel}>{monthName}</Text>
+        <TouchableOpacity
+          onPress={() => setMonthOffset(o => Math.min(o + 1, 0))}
+          disabled={monthOffset >= 0}
+          style={[styles.monthArrow, monthOffset >= 0 && { opacity: 0.3 }]}
+        >
+          <ChevronRight size={18} color={Colors.text} />
+        </TouchableOpacity>
+      </View>
+
+      {isBeforeJoining ? (
+        <View style={styles.noRecord}>
+          <Text style={styles.noRecordText}>No record found</Text>
+        </View>
+      ) : (
+        <>
+      {/* Net payable highlight */}
       <View style={styles.netRow}>
-        <Text style={styles.netLabel}>Net Salary</Text>
+        <Text style={styles.netLabel}>Net Payable</Text>
         <Text style={styles.netValue}>{formatCurrency(breakdown.netSalary)}</Text>
       </View>
 
@@ -76,29 +161,30 @@ export default function SalaryCard({
       <View style={styles.breakdownSection}>
         <Row label="Base Salary" value={formatCurrency(breakdown.baseSalary)} />
         <Row label="Working Days" value={`${breakdown.workingDays} days`} />
-        <Row label="Per Day / Per Hour" value={`${formatCurrency(breakdown.perDayRate)} / ${formatCurrency(breakdown.hourlyRate)}`} />
+        <Row label="Per Day Rate" value={formatCurrency(breakdown.perDayRate)} />
         <Divider />
         <Row label="Present" value={`${breakdown.presentDays} days`} color="#059669" />
-        {breakdown.halfDays > 0 && <Row label="Half Days" value={`${breakdown.halfDays}`} color="#D97706" />}
-        <Row label="Leaves Taken" value={`${breakdown.approvedLeaves} days`} color="#2563EB" />
-        <Row label="Comp Earned / Used" value={`${breakdown.compLeavesEarned} / ${breakdown.compLeavesUsed}`} color="#7C3AED" />
-        <Row label="Absent" value={`${breakdown.absentDays} days`} color="#DC2626" />
+        {breakdown.halfDays > 0 && <Row label="Half Days" value={`${breakdown.halfDays} (×0.5)`} color="#D97706" />}
+        {breakdown.compLeavesUsed > 0 && <Row label="Comp Used" value={`${breakdown.compLeavesUsed} days`} color="#7C3AED" />}
+        {breakdown.earnedLeavesUsed > 0 && <Row label="EL Used" value={`${breakdown.earnedLeavesUsed} days`} color="#059669" />}
+        <Row label="Earned Days" value={`${breakdown.earnedDays} days`} color="#059669" />
+        <Row label="Earned Salary" value={formatCurrency(breakdown.earnedSalary)} color="#059669" />
         <Divider />
-        {breakdown.dayDeduction > 0 && (
-          <Row label="Day Deduction" value={`-${formatCurrency(breakdown.dayDeduction)}`} color="#DC2626" isDeduction />
-        )}
+        <Row label="Absent" value={`${breakdown.absentDays} days`} color="#DC2626" />
+        <Row label="Leaves Taken" value={`${breakdown.approvedLeaves} days`} color="#EA580C" />
+        <Row label="Comp Earned" value={`${breakdown.compLeavesEarned} days`} color="#7C3AED" />
         {breakdown.totalPermissionHours > 0 && (
           <Row
             label={`Permission (${breakdown.totalPermissionHours.toFixed(1)}h, free: ${breakdown.freePermissionHours}h)`}
-            value={breakdown.excessPermissionHours > 0 ? `-${formatCurrency(breakdown.permissionDeduction)}` : 'Free'}
+            value={breakdown.excessPermissionHours > 0 ? `-${formatCurrency(breakdown.permissionDeduction)} (${breakdown.permissionPenaltyDays}d)` : 'Free'}
             color={breakdown.excessPermissionHours > 0 ? '#DC2626' : '#059669'}
             isDeduction={breakdown.excessPermissionHours > 0}
           />
         )}
-        {breakdown.totalShortHours > 0 && (
+        {breakdown.lateCount > 0 && breakdown.latePenaltyDays > 0 && (
           <Row
-            label={`Late/Early (${breakdown.totalShortHours.toFixed(1)}h)`}
-            value={`-${formatCurrency(breakdown.shortHoursDeduction)}`}
+            label={`Late Penalty (${breakdown.lateCount} lates → ${breakdown.latePenaltyDays}d)`}
+            value={`-${formatCurrency(breakdown.lateDeduction)}`}
             color="#DC2626"
             isDeduction
           />
@@ -114,6 +200,8 @@ export default function SalaryCard({
           </>
         )}
       </View>
+        </>
+      )}
     </View>
   );
 }
@@ -147,12 +235,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   title: {
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.text,
+  },
+  downloadBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+    gap: 12,
+  },
+  monthArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabel: {
+    fontSize: FontSize.body,
+    fontWeight: '600',
+    color: Colors.text,
+    minWidth: 140,
+    textAlign: 'center',
   },
   notConfigured: {
     backgroundColor: '#FFF3E0',
@@ -163,6 +281,18 @@ const styles = StyleSheet.create({
   notConfiguredText: {
     fontSize: FontSize.body,
     color: '#E65100',
+    fontWeight: '500',
+  },
+  noRecord: {
+    backgroundColor: Colors.inputBg,
+    paddingVertical: 20,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  noRecordText: {
+    fontSize: FontSize.body,
+    color: Colors.textTertiary,
     fontWeight: '500',
   },
   netRow: {

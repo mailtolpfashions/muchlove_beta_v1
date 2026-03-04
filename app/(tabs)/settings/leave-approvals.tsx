@@ -118,9 +118,9 @@ export default function LeaveApprovalsScreen() {
               Requested {formatDate(item.createdAt)}
             </Text>
           </View>
-          <View style={[styles.typeBadge, { backgroundColor: isLeave ? '#DBEAFE' : '#FEF3C7' }]}>
-            <Text style={[styles.typeText, { color: isLeave ? '#2563EB' : '#D97706' }]}>
-              {isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : 'LEAVE') : 'PERMISSION'}
+          <View style={[styles.typeBadge, { backgroundColor: isLeave ? (leaveItem.type === 'earned' ? '#D1FAE5' : leaveItem.type === 'compensation' ? '#EDE9FE' : '#FFEDD5') : '#FEF3C7' }]}>
+            <Text style={[styles.typeText, { color: isLeave ? (leaveItem.type === 'earned' ? '#059669' : leaveItem.type === 'compensation' ? '#7C3AED' : '#EA580C') : '#D97706' }]}>
+              {isLeave ? (leaveItem.type === 'compensation' ? 'COMP LEAVE' : leaveItem.type === 'earned' ? 'EARNED LEAVE' : 'LEAVE') : 'PERMISSION'}
             </Text>
           </View>
         </View>

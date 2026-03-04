@@ -713,7 +713,7 @@ export default function BillingScreen() {
 
       {/* Sticky Checkout Footer */}
       {totalItems > 0 && selectedCustomer && (
-        <View style={[styles.checkoutBar, { paddingBottom: Spacing.md }]}>
+        <View style={[styles.checkoutBar, { paddingBottom: Spacing.md + insets.bottom }]}>
           <View style={styles.checkoutBarInfo}>
             <ShoppingBag size={18} color={Colors.surface} />
             <Text style={styles.checkoutBarItems}>{totalItems} item{totalItems !== 1 ? 's' : ''}</Text>
@@ -733,7 +733,7 @@ export default function BillingScreen() {
       {/* Quick Payment FAB */}
       {upiList.length > 0 && totalItems === 0 && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: 20 + insets.bottom }]}
           onPress={() => setShowQuickPayment(true)}
           activeOpacity={0.85}
         >

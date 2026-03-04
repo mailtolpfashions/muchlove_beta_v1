@@ -7,17 +7,13 @@ export default function SettingsLayout() {
       screenOptions={{
         headerStyle: {
           backgroundColor: Colors.primary,
-          shadowColor: Colors.shadow,
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          elevation: 6,
         },
+        headerShadowVisible: true,
         headerTintColor: Colors.headerText,
         headerTitleAlign: 'left',
         headerTitleStyle: {
           fontWeight: '700',
           fontSize: 18,
-          letterSpacing: 0.3,
         },
       }}
     >
@@ -41,6 +37,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="attendance-management" options={{ title: 'Attendance Records' }} />
       <Stack.Screen name="leave-approvals" options={{ title: 'Leave & Permission Approvals' }} />
       <Stack.Screen name="salary-management" options={{ title: 'Salary Management' }} />
+      <Stack.Screen name="my-salary" options={{ title: 'My Salary' }} />
+      <Stack.Screen name="attendance-config" options={{ title: 'Attendance Config' }} />
     </Stack>
   );
 }
