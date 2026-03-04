@@ -165,22 +165,15 @@ export default function SalaryCard({
         <Divider />
         <Row label="Present" value={`${breakdown.presentDays} days`} color="#059669" />
         {breakdown.halfDays > 0 && <Row label="Half Days" value={`${breakdown.halfDays} (×0.5)`} color="#D97706" />}
-        {breakdown.compLeavesUsed > 0 && <Row label="Comp Used" value={`${breakdown.compLeavesUsed} days`} color="#7C3AED" />}
-        {breakdown.earnedLeavesUsed > 0 && <Row label="EL Used" value={`${breakdown.earnedLeavesUsed} days`} color="#059669" />}
+        {breakdown.paidLeaves > 0 && <Row label="Paid Leaves" value={`${parseFloat(breakdown.paidLeaves.toFixed(1))} days`} color="#7C3AED" />}
         <Row label="Earned Days" value={`${breakdown.earnedDays} days`} color="#059669" />
         <Row label="Earned Salary" value={formatCurrency(breakdown.earnedSalary)} color="#059669" />
         <Divider />
         <Row label="Absent" value={`${breakdown.absentDays} days`} color="#DC2626" />
-        <Row label="Leaves Taken" value={`${breakdown.approvedLeaves} days`} color="#EA580C" />
+        <Row label="Leave Balance" value={`${parseFloat(breakdown.leaveBalance.toFixed(1))} (EL:${parseFloat(breakdown.earnedLeaveBalance.toFixed(1))} C:${parseFloat(breakdown.compBalance.toFixed(1))} P:${parseFloat(breakdown.freePermDays.toFixed(1))})`} color="#059669" />
+        <Row label="Leave Used" value={`${parseFloat(breakdown.leaveConsumed.toFixed(1))} days`} color="#EA580C" />
+        {breakdown.excessLeaves > 0 && <Row label="Excess Leaves" value={`${parseFloat(breakdown.excessLeaves.toFixed(1))} days`} color="#DC2626" />}
         <Row label="Comp Earned" value={`${breakdown.compLeavesEarned} days`} color="#7C3AED" />
-        {breakdown.totalPermissionHours > 0 && (
-          <Row
-            label={`Permission (${breakdown.totalPermissionHours.toFixed(1)}h, free: ${breakdown.freePermissionHours}h)`}
-            value={breakdown.excessPermissionHours > 0 ? `-${formatCurrency(breakdown.permissionDeduction)} (${breakdown.permissionPenaltyDays}d)` : 'Free'}
-            color={breakdown.excessPermissionHours > 0 ? '#DC2626' : '#059669'}
-            isDeduction={breakdown.excessPermissionHours > 0}
-          />
-        )}
         {breakdown.lateCount > 0 && breakdown.latePenaltyDays > 0 && (
           <Row
             label={`Late Penalty (${breakdown.lateCount} lates → ${breakdown.latePenaltyDays}d)`}

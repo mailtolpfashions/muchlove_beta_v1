@@ -78,35 +78,117 @@ export interface SalaryBreakdown {
   weeklyOffs: number;
   workingDays: number;
   perDayRate: number;
+
+  /* Attendance */
   presentDays: number;
   halfDays: number;
-  approvedLeaves: number;
-  approvedCompLeaves: number;
-  approvedEarnedLeaves: number;
-  approvedPermissions: number;
-  absentDays: number;
-  compLeavesEarned: number;
-  compLeavesUsed: number;
-  earnedLeavesUsed: number;
-  totalPermissionHours: number;
-  freePermissionHours: number;
-  excessPermissionHours: number;
-  /** Number of late check-ins this month */
+  absentDays: number;          // true absents (no record & no leave) + excess leave overflow
+
+  /* Comp leave */
+  compLeavesEarned: number;    // from working on weekly offs this month
+
+  /* Leave balance */
+  earnedLeaveBalance: number;  // cumulative EL accrued − all EL ever used
+  compBalance: number;         // cumulative comp earned − all comp ever used
+  freePermDays: number;        // freePermissionHours / workingHoursPerDay (per month)
+  leaveBalance: number;        // earnedLeaveBalance + compBalance + freePermDays
+
+  /* Leave consumed this month */
+  halfDayLeave: number;        // halfDays × 0.5
+  permissionLeaveDays: number; // total approved permission hours ÷ workingHoursPerDay
+  approvedLeaveDays: number;   // approved leave request days this month (all types)
+  leaveConsumed: number;       // halfDayLeave + permissionLeaveDays + approvedLeaveDays
+
+  /* Paid vs excess */
+  paidLeaves: number;          // min(leaveConsumed, leaveBalance)
+  excessLeaves: number;        // max(0, leaveConsumed − leaveBalance)
+
+  /* Late penalty */
   lateCount: number;
-  /** Config: how many lates = 0.5 day deduction */
   latesPerHalfDay: number;
-  /** Days deducted due to lates (e.g. 0.5, 1, 1.5…) */
   latePenaltyDays: number;
-  /** Days deducted due to excess permission hours */
-  permissionPenaltyDays: number;
-  earnedDays: number;
+
+  /* Salary */
+  earnedDays: number;          // presentDays + halfDays×0.5 + paidLeaves
   earnedSalary: number;
-  /** Late penalty in currency */
   lateDeduction: number;
-  /** Permission penalty in currency */
-  permissionDeduction: number;
-  totalDeduction: number;
+  totalDeduction: number;      // lateDeduction only (excess leaves already reduce earnedDays)
   netSalary: number;
+}
+
+// ── Leave Balance Helpers (shared with UI) ──────────────────
+
+/** Compute cumulative comp balance across ALL attendance records */
+export function computeCompBalance(
+  allAttendance: Attendance[],
+  allLeaveRequests: LeaveRequest[],
+  cfg?: Partial<SalaryConfig>,
+): number {
+  const c = resolveConfig(cfg);
+  // Total comp earned across all time
+  let totalCompEarned = 0;
+  for (const rec of allAttendance) {
+    totalCompEarned += compLeaveValue(rec, c);
+  }
+  // Total comp used — count DAYS (not requests) across all non-rejected compensation leaves
+  let totalCompUsed = 0;
+  for (const lr of allLeaveRequests) {
+    if (lr.status === 'rejected' || lr.type !== 'compensation') continue;
+    const start = new Date(lr.startDate);
+    const end = new Date(lr.endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() !== c.weeklyOffDay) totalCompUsed++;
+    }
+  }
+  return Math.max(0, totalCompEarned - totalCompUsed);
+}
+
+/** Compute cumulative earned leave balance */
+export function computeEarnedLeaveBalance(
+  allLeaveRequests: LeaveRequest[],
+  joiningDate: string | undefined,
+  cfg?: Partial<SalaryConfig>,
+): number {
+  const c = resolveConfig(cfg);
+  if (!c.monthlyLeaveAllowance || c.monthlyLeaveAllowance <= 0 || !joiningDate) return 0;
+  const jd = new Date(joiningDate);
+  const now = new Date();
+  if (jd > now) return 0;
+  const monthsDiff = (now.getFullYear() - jd.getFullYear()) * 12 + (now.getMonth() - jd.getMonth());
+  const completedMonths = now.getDate() >= jd.getDate() ? monthsDiff + 1 : monthsDiff;
+  const totalELEarned = Math.max(0, completedMonths) * c.monthlyLeaveAllowance;
+  // Count DAYS (not requests) across all non-rejected earned leaves
+  let totalELUsed = 0;
+  for (const lr of allLeaveRequests) {
+    if (lr.status === 'rejected' || lr.type !== 'earned') continue;
+    const start = new Date(lr.startDate);
+    const end = new Date(lr.endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      totalELUsed++;
+    }
+  }
+  return Math.max(0, totalELEarned - totalELUsed);
+}
+
+/** Compute total leave balance = EL + comp + free permission days */
+export function computeLeaveBalance(
+  allAttendance: Attendance[],
+  allLeaveRequests: LeaveRequest[],
+  joiningDate: string | undefined,
+  cfg?: Partial<SalaryConfig>,
+): { earnedLeaveBalance: number; compBalance: number; freePermDays: number; totalBalance: number } {
+  const c = resolveConfig(cfg);
+  const earnedLeaveBalance = computeEarnedLeaveBalance(allLeaveRequests, joiningDate, c);
+  const compBalance = computeCompBalance(allAttendance, allLeaveRequests, c);
+  const freePermDays = c.workingHoursPerDay > 0
+    ? parseFloat((c.freePermissionHours / c.workingHoursPerDay).toFixed(4))
+    : 0;
+  return {
+    earnedLeaveBalance,
+    compBalance,
+    freePermDays,
+    totalBalance: earnedLeaveBalance + compBalance + freePermDays,
+  };
 }
 
 export function calculateMonthlySalary(
@@ -155,33 +237,22 @@ export function calculateMonthlySalary(
     return true;
   });
 
-  const monthLeaves = leaveRequests.filter(lr => {
-    const start = new Date(lr.startDate);
-    const end = new Date(lr.endDate);
-    const monthStart = new Date(year, month, 1);
-    const monthEnd = new Date(year, month + 1, 0);
-    return start <= monthEnd && end >= monthStart;
-  });
-
   const monthPermissions = permissionRequests.filter(pr => {
     const d = new Date(pr.date);
     return d.getFullYear() === year && d.getMonth() === month;
   });
 
-  // Count present, half_day, permission attendance + late count
+  // ── Count present, half_day, comp earned + late count ──
   let presentDays = 0;
   let halfDays = 0;
-  let permissionAttendanceDays = 0;
   let compLeavesEarned = 0;
   let lateCount = 0;
 
   for (const record of monthRecords) {
-    // Check if this is a weekly off — earns comp leave based on status
     if (isWeeklyOff(record.date, c)) {
       compLeavesEarned += compLeaveValue(record, c);
-      continue; // Don't count weekly off attendance in regular present count
+      continue;
     }
-
     switch (record.status) {
       case 'present':
         presentDays++;
@@ -190,114 +261,79 @@ export function calculateMonthlySalary(
         halfDays++;
         break;
       case 'permission':
-        permissionAttendanceDays++;
-        presentDays++; // Permission day is counted as present
+        presentDays++; // Permission day is counted as present for attendance
         break;
     }
-
-    // Count late check-ins (only for non-weekly-off working days)
     if (isLateCheckIn(record, c)) {
       lateCount++;
     }
   }
 
-  // Count approved leaves (all types) — deduplicate by date
-  const leaveDatesByType = { leave: new Set<string>(), compensation: new Set<string>(), earned: new Set<string>() };
-  for (const lr of monthLeaves) {
-    if (lr.status !== 'approved') continue;
+  // ── Leave balance (cumulative, all-time) ──
+  const balanceResult = computeLeaveBalance(attendanceRecords, leaveRequests, joiningDate, c);
+  const { earnedLeaveBalance, compBalance, freePermDays } = balanceResult;
+  const leaveBalance = balanceResult.totalBalance;
+
+  // ── Leave consumed this month ──
+
+  // 1. Half-day leave: each half_day status = 0.5 leave consumed
+  const halfDayLeave = halfDays * 0.5;
+
+  // 2. Permission leave: total non-rejected permission hours / workingHoursPerDay
+  let totalPermissionHours = 0;
+  for (const pr of monthPermissions) {
+    if (pr.status === 'rejected') continue;
+    totalPermissionHours += timeDiffHours(pr.fromTime, pr.toTime);
+  }
+  const permissionLeaveDays = c.workingHoursPerDay > 0
+    ? parseFloat((totalPermissionHours / c.workingHoursPerDay).toFixed(4))
+    : 0;
+
+  // 3. Non-rejected leave request days this month (all types: regular + comp + earned)
+  let approvedLeaveDays = 0;
+  for (const lr of leaveRequests) {
+    if (lr.status === 'rejected') continue;
     const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(year, month, 1).getTime()));
     const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(year, month + 1, 0).getTime()));
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       if (d.getDay() === c.weeklyOffDay) continue;
-      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      if (lr.type === 'compensation') {
-        leaveDatesByType.compensation.add(ds);
-      } else if (lr.type === 'earned') {
-        leaveDatesByType.earned.add(ds);
-      } else {
-        leaveDatesByType.leave.add(ds);
-      }
+      approvedLeaveDays++;
     }
   }
-  const approvedLeaves = leaveDatesByType.leave.size;
-  const approvedCompLeaves = leaveDatesByType.compensation.size;
-  const approvedEarnedLeaves = leaveDatesByType.earned.size;
 
-  // Half-day absent portion: try to cover with comp balance first, then earned leave balance
-  let halfDaysCoveredByComp = 0;
-  let halfDaysCoveredByEL = 0;
-  const halfDayAbsentPortion = halfDays * 0.5;
+  const leaveConsumed = halfDayLeave + permissionLeaveDays + approvedLeaveDays;
 
-  const compBalanceAvailable = Math.max(0, compLeavesEarned - approvedCompLeaves);
+  // ── Paid vs excess ──
+  const paidLeaves = Math.min(leaveConsumed, leaveBalance);
+  const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
 
-  // Step 1: Cover with comp balance
-  halfDaysCoveredByComp = Math.min(halfDayAbsentPortion, compBalanceAvailable);
-  let remainingHalfAbsent = halfDayAbsentPortion - halfDaysCoveredByComp;
-
-  // Step 2: Cover with earned leave balance
-  let earnedLeaveBalance = 0;
-  if (c.monthlyLeaveAllowance > 0 && joiningDate) {
-    const jd = new Date(joiningDate);
-    const now = new Date();
-    if (jd <= now) {
-      const monthsDiff = (now.getFullYear() - jd.getFullYear()) * 12 + (now.getMonth() - jd.getMonth());
-      const completedMonths = now.getDate() >= jd.getDate() ? monthsDiff + 1 : monthsDiff;
-      const totalELEarned = Math.max(0, completedMonths) * c.monthlyLeaveAllowance;
-      const totalELUsed = leaveRequests.filter(lr => lr.status === 'approved' && lr.type === 'earned').length;
-      earnedLeaveBalance = Math.max(0, totalELEarned - totalELUsed);
-    }
-  }
-  halfDaysCoveredByEL = Math.min(remainingHalfAbsent, earnedLeaveBalance);
-  remainingHalfAbsent -= halfDaysCoveredByEL;
-
-  const compLeavesUsed = approvedCompLeaves + halfDaysCoveredByComp;
-  const earnedLeavesUsed = approvedEarnedLeaves + halfDaysCoveredByEL;
-
-  // Count approved permission hours
-  let totalPermissionHours = 0;
-  const approvedPermissions = monthPermissions.filter(p => p.status === 'approved').length;
-  for (const pr of monthPermissions) {
-    if (pr.status !== 'approved') continue;
-    totalPermissionHours += timeDiffHours(pr.fromTime, pr.toTime);
-  }
-
-  const freePermissionHours = c.freePermissionHours;
-  const excessPermissionHours = Math.max(0, totalPermissionHours - freePermissionHours);
-
-  // Calculate absent days
+  // ── Absent days = unaccounted working days + excess leaves ──
   const today = new Date();
   const lastCountableDay = Math.min(
     totalDays,
     today.getFullYear() === year && today.getMonth() === month ? today.getDate() : totalDays,
   );
-
   let workingDaysSoFar = 0;
   for (let d = firstDay; d <= lastCountableDay; d++) {
     const date = new Date(year, month, d);
     if (date.getDay() !== c.weeklyOffDay) workingDaysSoFar++;
   }
 
-  const accountedDays = presentDays + (halfDays * 0.5) + approvedLeaves + compLeavesUsed + earnedLeavesUsed;
-  const absentDays = Math.max(0, workingDaysSoFar - accountedDays);
+  const accountedDays = presentDays + (halfDays * 0.5) + approvedLeaveDays;
+  const trueAbsent = Math.max(0, workingDaysSoFar - accountedDays);
+  const absentDays = trueAbsent + excessLeaves;
 
-  // Earned salary
-  const earnedDays = presentDays + (halfDays * 0.5) + compLeavesUsed + earnedLeavesUsed;
+  // ── Earned salary: present + half×0.5 + paid leaves (within balance) ──
+  const earnedDays = presentDays + (halfDays * 0.5) + paidLeaves;
   const earnedSalary = earnedDays * perDayRate;
 
-  // ── Deductions (day-based) ──
-
-  // 1. Late penalty: floor(lateCount / latesPerHalfDay) × 0.5 day
+  // ── Deductions ──
   const latesPerHalfDay = c.latesPerHalfDay > 0 ? c.latesPerHalfDay : 3;
   const latePenaltyDays = Math.floor(lateCount / latesPerHalfDay) * 0.5;
   const lateDeduction = latePenaltyDays * perDayRate;
 
-  // 2. Permission penalty: proportional — excessHours / shiftHours × perDayRate
-  const permissionPenaltyDays = excessPermissionHours > 0
-    ? parseFloat((excessPermissionHours / c.workingHoursPerDay).toFixed(4))
-    : 0;
-  const permissionDeduction = permissionPenaltyDays * perDayRate;
-
-  const totalDeduction = lateDeduction + permissionDeduction;
+  // No separate permission deduction — permissions consume from leave balance
+  const totalDeduction = lateDeduction;
   const netSalary = Math.max(0, earnedSalary - totalDeduction);
 
   return {
@@ -308,25 +344,24 @@ export function calculateMonthlySalary(
     perDayRate,
     presentDays,
     halfDays,
-    approvedLeaves,
-    approvedCompLeaves,
-    approvedEarnedLeaves,
-    approvedPermissions,
     absentDays,
     compLeavesEarned,
-    compLeavesUsed,
-    earnedLeavesUsed,
-    totalPermissionHours,
-    freePermissionHours,
-    excessPermissionHours,
+    earnedLeaveBalance,
+    compBalance,
+    freePermDays,
+    leaveBalance,
+    halfDayLeave,
+    permissionLeaveDays,
+    approvedLeaveDays,
+    leaveConsumed,
+    paidLeaves,
+    excessLeaves,
     lateCount,
     latesPerHalfDay,
     latePenaltyDays,
-    permissionPenaltyDays,
     earnedDays,
     earnedSalary,
     lateDeduction,
-    permissionDeduction,
     totalDeduction,
     netSalary,
   };

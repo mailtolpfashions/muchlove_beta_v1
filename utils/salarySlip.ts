@@ -21,8 +21,8 @@ function buildSalarySlipHtml(params: SlipParams): string {
   const generatedOn = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   const deductionRows: string[] = [];
-  if (b.totalPermissionHours > 0 && b.excessPermissionHours > 0) {
-    deductionRows.push(`<tr><td>Permission (${b.totalPermissionHours.toFixed(1)}h, free: ${b.freePermissionHours}h, ${b.permissionPenaltyDays} day ded.)</td><td class="right bold" style="color:#DC2626;">-${formatCurrency(b.permissionDeduction)}</td></tr>`);
+  if (b.excessLeaves > 0) {
+    deductionRows.push(`<tr><td>Excess Leave (${b.leaveConsumed.toFixed(1)} used, balance: ${b.leaveBalance.toFixed(1)} → ${b.excessLeaves.toFixed(1)} excess)</td><td class="right bold" style="color:#DC2626;">Unpaid</td></tr>`);
   }
   if (b.lateCount > 0 && b.latePenaltyDays > 0) {
     deductionRows.push(`<tr><td>Late Penalty (${b.lateCount} lates → ${b.latePenaltyDays} day ded.)</td><td class="right bold" style="color:#DC2626;">-${formatCurrency(b.lateDeduction)}</td></tr>`);
@@ -208,8 +208,8 @@ function buildSalarySlipHtml(params: SlipParams): string {
         <div class="val" style="color:#DC2626;">${b.absentDays}</div>
       </div>
       <div class="summary-card">
-        <div class="lbl">Leaves</div>
-        <div class="val" style="color:#EA580C;">${b.approvedLeaves}</div>
+        <div class="lbl">Leave Balance</div>
+        <div class="val" style="color:#EA580C;">${parseFloat(b.leaveBalance.toFixed(1))}</div>
       </div>
       <div class="summary-card">
         <div class="lbl">Weekly Off</div>
@@ -231,8 +231,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
           <tr><td>Per Day Rate</td><td class="right">${formatCurrency(b.perDayRate)}</td></tr>
           <tr><td>Present Days</td><td class="right" style="color:#059669;">${b.presentDays} days</td></tr>
           ${b.halfDays > 0 ? `<tr><td>Half Days (×0.5)</td><td class="right" style="color:#D97706;">${b.halfDays}</td></tr>` : ''}
-          ${b.compLeavesUsed > 0 ? `<tr><td>Comp Leave Used</td><td class="right" style="color:#7C3AED;">${b.compLeavesUsed} days</td></tr>` : ''}
-          ${b.earnedLeavesUsed > 0 ? `<tr><td>Earned Leave Used</td><td class="right" style="color:#059669;">${b.earnedLeavesUsed} days</td></tr>` : ''}
+          ${b.paidLeaves > 0 ? `<tr><td>Paid Leaves (within balance)</td><td class="right" style="color:#7C3AED;">${parseFloat(b.paidLeaves.toFixed(1))} days</td></tr>` : ''}
           <tr><td class="bold">Earned Days</td><td class="right bold" style="color:#059669;">${b.earnedDays} days</td></tr>
           <tr><td class="bold">Earned Salary</td><td class="right bold" style="color:#059669;">${formatCurrency(b.earnedSalary)}</td></tr>
         </tbody>
@@ -241,7 +240,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
 
     <!-- Attendance summary table -->
     <div class="table-section">
-      <div class="section-label">Attendance Summary</div>
+      <div class="section-label">Attendance & Leave Summary</div>
       <table>
         <thead>
           <tr>
@@ -251,8 +250,10 @@ function buildSalarySlipHtml(params: SlipParams): string {
         </thead>
         <tbody>
           <tr><td>Absent</td><td class="right" style="color:#DC2626;">${b.absentDays} days</td></tr>
-          <tr><td>Leaves Taken</td><td class="right" style="color:#EA580C;">${b.approvedLeaves} days</td></tr>
-          <tr><td>Comp Earned</td><td class="right" style="color:#7C3AED;">${b.compLeavesEarned} days</td></tr>
+          <tr><td>Comp Earned (weekly off work)</td><td class="right" style="color:#7C3AED;">${b.compLeavesEarned} days</td></tr>
+          <tr><td>Leave Balance (EL: ${parseFloat(b.earnedLeaveBalance.toFixed(1))}, Comp: ${parseFloat(b.compBalance.toFixed(1))}, Perm: ${parseFloat(b.freePermDays.toFixed(1))})</td><td class="right" style="color:#059669;">${parseFloat(b.leaveBalance.toFixed(1))} days</td></tr>
+          <tr><td>Leave Used (Half: ${parseFloat(b.halfDayLeave.toFixed(1))}, Perm: ${parseFloat(b.permissionLeaveDays.toFixed(1))}, Leave: ${b.approvedLeaveDays})</td><td class="right" style="color:#EA580C;">${parseFloat(b.leaveConsumed.toFixed(1))} days</td></tr>
+          ${b.excessLeaves > 0 ? `<tr><td class="bold" style="color:#DC2626;">Excess Leaves (deducted)</td><td class="right bold" style="color:#DC2626;">${parseFloat(b.excessLeaves.toFixed(1))} days</td></tr>` : ''}
           <tr><td>Weekly Offs</td><td class="right">${b.weeklyOffs} days</td></tr>
         </tbody>
       </table>
@@ -263,11 +264,6 @@ function buildSalarySlipHtml(params: SlipParams): string {
     <div class="totals-section">
       <div class="section-label" style="margin-bottom:6px;">Deductions</div>
       <div class="totals-box">
-        ${b.totalPermissionHours > 0 && b.excessPermissionHours > 0 ? `
-        <div class="totals-row deduct">
-          <span class="totals-label">Permission (${b.totalPermissionHours.toFixed(1)}h, free: ${b.freePermissionHours}h, ${b.permissionPenaltyDays} day ded.)</span>
-          <span class="totals-value">-${formatCurrency(b.permissionDeduction)}</span>
-        </div>` : ''}
         ${b.lateCount > 0 && b.latePenaltyDays > 0 ? `
         <div class="totals-row deduct">
           <span class="totals-label">Late Penalty (${b.lateCount} lates → ${b.latePenaltyDays} day ded.)</span>

@@ -20,7 +20,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import BottomSheetModal from '@/components/BottomSheetModal';
 import DatePickerModal from '@/components/DatePickerModal';
 import type { LeaveRequest, PermissionRequest, Attendance } from '@/types';
-import { isWeeklyOff, compLeaveValue } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, computeCompBalance, computeEarnedLeaveBalance, computeLeaveBalance } from '@/utils/salary';
 import { toLocalDateString } from '@/utils/format';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -147,7 +147,7 @@ export default function AttendanceScreen() {
 
   /* ── Monthly stats ── */
   const monthlyStats = useMemo(() => {
-    if (!user) return { present: 0, absent: 0, off: 0, leave: 0, compOff: 0 };
+    if (!user) return { present: 0, absent: 0, off: 0, leaveConsumed: 0, leaveBalance: 0, paidLeaves: 0, compOff: 0 };
     const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
     const today = new Date();
     const lastDay = (today.getFullYear() === viewYear && today.getMonth() === viewMonth) ? today.getDate() : totalDays;
@@ -156,7 +156,7 @@ export default function AttendanceScreen() {
     const monthStart = new Date(viewYear, viewMonth, 1);
     const firstDay = jd && jd > monthStart ? jd.getDate() : 1;
     if (jd && (jd.getFullYear() > viewYear || (jd.getFullYear() === viewYear && jd.getMonth() > viewMonth))) {
-      return { present: 0, absent: 0, off: 0, leave: 0, compOff: 0 };
+      return { present: 0, absent: 0, off: 0, leaveConsumed: 0, leaveBalance: 0, paidLeaves: 0, compOff: 0 };
     }
 
     const recordMap = new Map<string, Attendance>();
@@ -167,7 +167,7 @@ export default function AttendanceScreen() {
 
     const leaveDates = new Set<string>();
     for (const lr of myLeaveRequests) {
-      if (lr.status !== 'approved') continue;
+      if (lr.status === 'rejected') continue;
       const start = new Date(Math.max(new Date(lr.startDate).getTime(), monthStart.getTime()));
       const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(viewYear, viewMonth + 1, 0).getTime()));
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -178,7 +178,7 @@ export default function AttendanceScreen() {
       }
     }
 
-    let present = 0, absent = 0, off = 0, leave = 0, compOff = 0;
+    let present = 0, absent = 0, off = 0, leaveConsumed = 0, compOff = 0;
     for (let day = firstDay; day <= lastDay; day++) {
       const d = new Date(viewYear, viewMonth, day);
       const ds = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
@@ -192,18 +192,44 @@ export default function AttendanceScreen() {
         else if (cv > 0) { present++; compOff += cv; }
         else off++;
       } else if (hasLeave && !rec) {
-        leave++;
+        leaveConsumed++;
       } else if (rec) {
-        if (rec.status === 'present' || rec.status === 'permission') present++;
-        else if (rec.status === 'half_day') { present += 0.5; absent += 0.5; }
+        if (rec.status === 'present') present++;
+        else if (rec.status === 'permission') { present++; } // permission hours tracked separately
+        else if (rec.status === 'half_day') { present += 0.5; leaveConsumed += 0.5; }
         else if (rec.status === 'absent') absent++;
-        else if (rec.status === 'leave') leave++;
+        else if (rec.status === 'leave') leaveConsumed++;
       } else {
         absent++;
       }
     }
-    return { present, absent, off, leave, compOff };
-  }, [myAttendance, myLeaveRequests, viewMonth, viewYear, user, salonConfig]);
+
+    // Add permission hours as leave days consumed
+    let permHours = 0;
+    myPermissionRequests.filter(pr => {
+      if (pr.status === 'rejected') return false;
+      const d = new Date(pr.date);
+      return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
+    }).forEach(pr => {
+      const from = pr.fromTime.split(':');
+      const to = pr.toTime.split(':');
+      const fromMin = parseInt(from[0]) * 60 + parseInt(from[1]);
+      const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
+      permHours += Math.max(0, (toMin - fromMin) / 60);
+    });
+    if (salonConfig.workingHoursPerDay > 0) {
+      leaveConsumed += permHours / salonConfig.workingHoursPerDay;
+    }
+
+    // Compute leave balance
+    const balResult = computeLeaveBalance(myAttendance, myLeaveRequests, user.joiningDate, salonConfig);
+    const leaveBalance = balResult.totalBalance;
+    const paidLeaves = Math.min(leaveConsumed, leaveBalance);
+    const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
+    absent += excessLeaves;
+
+    return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compOff };
+  }, [myAttendance, myLeaveRequests, myPermissionRequests, viewMonth, viewYear, user, salonConfig]);
 
   /* ── Calendar day data ── */
   const calendarData = useMemo(() => {
@@ -219,7 +245,7 @@ export default function AttendanceScreen() {
 
     const leaveDates = new Set<string>();
     for (const lr of myLeaveRequests) {
-      if (lr.status !== 'approved') continue;
+      if (lr.status === 'rejected') continue;
       const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(viewYear, viewMonth, 1).getTime()));
       const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(viewYear, viewMonth + 1, 0).getTime()));
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -264,35 +290,21 @@ export default function AttendanceScreen() {
   /* ── Balances ── */
   const compBalance = useMemo(() => {
     if (!user) return 0;
-    const month = now.getMonth();
-    const year = now.getFullYear();
-    const earned = attendance
-      .filter(a => {
-        if (a.employeeId !== user.id) return false;
-        const d = new Date(a.date);
-        return d.getMonth() === month && d.getFullYear() === year;
-      })
-      .reduce((sum, a) => sum + compLeaveValue(a, salonConfig), 0);
-    const used = leaveRequests.filter(lr => {
-      if (lr.employeeId !== user.id || lr.type !== 'compensation' || lr.status !== 'approved') return false;
-      const d = new Date(lr.startDate);
-      return d.getMonth() === month && d.getFullYear() === year;
-    }).length;
-    return earned - used;
-  }, [attendance, leaveRequests, user]);
+    return computeCompBalance(
+      attendance.filter(a => a.employeeId === user.id),
+      leaveRequests.filter(lr => lr.employeeId === user.id),
+      salonConfig,
+    );
+  }, [attendance, leaveRequests, user, salonConfig]);
 
   const earnedLeaveBalance = useMemo(() => {
-    if (!user || !salonConfig.monthlyLeaveAllowance) return 0;
-    const jd = new Date(user.joiningDate);
-    if (jd > now) return 0;
-    const monthsDiff = (now.getFullYear() - jd.getFullYear()) * 12 + (now.getMonth() - jd.getMonth());
-    const completedMonths = now.getDate() >= jd.getDate() ? monthsDiff + 1 : monthsDiff;
-    const totalEarned = Math.max(0, completedMonths) * salonConfig.monthlyLeaveAllowance;
-    const used = leaveRequests.filter(lr =>
-      lr.employeeId === user.id && lr.type === 'earned' && lr.status === 'approved'
-    ).length;
-    return Math.max(0, totalEarned - used);
-  }, [leaveRequests, user, salonConfig.monthlyLeaveAllowance]);
+    if (!user) return 0;
+    return computeEarnedLeaveBalance(
+      leaveRequests.filter(lr => lr.employeeId === user.id),
+      user.joiningDate,
+      salonConfig,
+    );
+  }, [leaveRequests, user, salonConfig]);
 
   /* ── Month records for list ── */
   const monthRecords = useMemo(() => {
@@ -506,12 +518,8 @@ export default function AttendanceScreen() {
               <Text style={[styles.summaryLabel, { color: '#3730A3' }]}>Off</Text>
             </View>
             <View style={[styles.summaryPill, { backgroundColor: '#FED7AA' }]}>
-              <Text style={[styles.summaryNum, { color: '#C2410C' }]}>{monthlyStats.leave}</Text>
+              <Text style={[styles.summaryNum, { color: '#C2410C' }]}>{parseFloat(monthlyStats.leaveBalance.toFixed(1))}</Text>
               <Text style={[styles.summaryLabel, { color: '#C2410C' }]}>Leave</Text>
-            </View>
-            <View style={[styles.summaryPill, { backgroundColor: '#FBCFE8' }]}>
-              <Text style={[styles.summaryNum, { color: '#9D174D' }]}>{monthlyStats.compOff}</Text>
-              <Text style={[styles.summaryLabel, { color: '#9D174D' }]}>Comp</Text>
             </View>
           </View>
 

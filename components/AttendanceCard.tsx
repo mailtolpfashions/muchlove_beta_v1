@@ -4,7 +4,7 @@ import { CalendarCheck, LogIn, LogOut, Clock, CheckCircle } from 'lucide-react-n
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import type { Attendance, LeaveRequest, PermissionRequest } from '@/types';
-import { isWeeklyOff, compLeaveValue, isLateCheckIn } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, isLateCheckIn, computeLeaveBalance } from '@/utils/salary';
 import { toLocalDateString } from '@/utils/format';
 import { useData } from '@/providers/DataProvider';
 
@@ -13,6 +13,7 @@ interface AttendanceCardProps {
   leaveRequests: LeaveRequest[];
   permissionRequests: PermissionRequest[];
   userId: string;
+  joiningDate?: string;
   onCheckIn: () => void;
   onCheckOut: (recordId: string, checkInTime: string) => void;
   checkingIn: boolean;
@@ -24,6 +25,7 @@ export default function AttendanceCard({
   leaveRequests,
   permissionRequests,
   userId,
+  joiningDate,
   onCheckIn,
   onCheckOut,
   checkingIn,
@@ -48,42 +50,59 @@ export default function AttendanceCard({
 
     let present = 0;
     let absent = 0;
-    let halfDay = 0;
+    let off = 0;
+    let leaveConsumed = 0;
     let compEarned = 0;
     let lateCount = 0;
 
+    // Count weekly off days in the month (up to today) that have no attendance record
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const lastDay = (today.getFullYear() === year && today.getMonth() === month) ? today.getDate() : totalDays;
+    const recordDates = new Set(myRecords.map(r => r.date));
+    for (let day = 1; day <= lastDay; day++) {
+      const d = new Date(year, month, day);
+      const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (d.getDay() === salonConfig.weeklyOffDay && !recordDates.has(ds)) {
+        off++;
+      }
+    }
+
     myRecords.forEach(r => {
       if (isWeeklyOff(r.date, salonConfig)) {
-        compEarned += compLeaveValue(r, salonConfig);
+        const cv = compLeaveValue(r, salonConfig);
+        if (cv > 0) {
+          if (r.status === 'half_day') { present += 0.5; off += 0.5; }
+          else { present++; }
+          compEarned += cv;
+        } else {
+          off++;
+        }
         return;
       }
       switch (r.status) {
         case 'present': present++; break;
         case 'absent': absent++; break;
-        case 'half_day': halfDay++; break;
-        case 'permission': present++; break;
+        case 'half_day': present += 0.5; leaveConsumed += 0.5; break;
+        case 'permission': present++; break; // permission hours tracked separately
+        case 'leave': leaveConsumed++; break;
       }
       if (isLateCheckIn(r, salonConfig)) {
         lateCount++;
       }
     });
 
+    // Non-rejected leave requests this month
     const myLeaves = leaveRequests.filter(lr => {
-      if (lr.employeeId !== userId || lr.status !== 'approved') return false;
+      if (lr.employeeId !== userId || lr.status === 'rejected') return false;
       const start = new Date(lr.startDate);
       return start.getMonth() === month && start.getFullYear() === year;
     }).length;
+    leaveConsumed += myLeaves;
 
-    const myPermissions = permissionRequests.filter(pr => {
-      if (pr.employeeId !== userId || pr.status !== 'approved') return false;
-      const d = new Date(pr.date);
-      return d.getMonth() === month && d.getFullYear() === year;
-    }).length;
-
-    // Calculate total permission hours used
+    // Permission hours → leave days consumed
     let permHours = 0;
     permissionRequests.filter(pr => {
-      if (pr.employeeId !== userId || pr.status !== 'approved') return false;
+      if (pr.employeeId !== userId || pr.status === 'rejected') return false;
       const d = new Date(pr.date);
       return d.getMonth() === month && d.getFullYear() === year;
     }).forEach(pr => {
@@ -93,9 +112,24 @@ export default function AttendanceCard({
       const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
       permHours += Math.max(0, (toMin - fromMin) / 60);
     });
+    const permLeaveDays = salonConfig.workingHoursPerDay > 0
+      ? permHours / salonConfig.workingHoursPerDay
+      : 0;
+    leaveConsumed += permLeaveDays;
 
-    return { present, absent, halfDay, myLeaves, myPermissions, compEarned, permHours, lateCount };
-  }, [attendance, leaveRequests, permissionRequests, userId, today, salonConfig]);
+    // Compute leave balance
+    const myAllAttendance = attendance.filter(a => a.employeeId === userId);
+    const myAllLeaves = leaveRequests.filter(lr => lr.employeeId === userId);
+    const balResult = computeLeaveBalance(myAllAttendance, myAllLeaves, joiningDate, salonConfig);
+    const leaveBalance = balResult.totalBalance;
+
+    // Paid vs excess
+    const paidLeaves = Math.min(leaveConsumed, leaveBalance);
+    const excessLeaves = Math.max(0, leaveConsumed - leaveBalance);
+    absent += excessLeaves;
+
+    return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compEarned, permHours, lateCount };
+  }, [attendance, leaveRequests, permissionRequests, userId, joiningDate, today, salonConfig]);
 
   const hasCheckedIn = !!todayRecord?.checkIn;
   const hasCheckedOut = !!todayRecord?.checkOut;
@@ -228,17 +262,13 @@ export default function AttendanceCard({
           <Text style={[styles.statNum, { color: '#DC2626' }]}>{monthStats.absent}</Text>
           <Text style={[styles.statLabel, { color: '#DC2626' }]}>Absent</Text>
         </View>
+        <View style={[styles.statPill, { backgroundColor: '#E0E7FF' }]}>
+          <Text style={[styles.statNum, { color: '#3730A3' }]}>{monthStats.off}</Text>
+          <Text style={[styles.statLabel, { color: '#3730A3' }]}>Off</Text>
+        </View>
         <View style={[styles.statPill, { backgroundColor: '#FFEDD5' }]}>
-          <Text style={[styles.statNum, { color: '#EA580C' }]}>{monthStats.myLeaves}</Text>
-          <Text style={[styles.statLabel, { color: '#EA580C' }]}>Leaves</Text>
-        </View>
-        <View style={[styles.statPill, { backgroundColor: '#FEF3C7' }]}>
-          <Text style={[styles.statNum, { color: '#D97706' }]}>{monthStats.myPermissions}</Text>
-          <Text style={[styles.statLabel, { color: '#D97706' }]}>Perm.</Text>
-        </View>
-        <View style={[styles.statPill, { backgroundColor: '#EDE9FE' }]}>
-          <Text style={[styles.statNum, { color: '#7C3AED' }]}>{monthStats.compEarned}</Text>
-          <Text style={[styles.statLabel, { color: '#7C3AED' }]}>Comp</Text>
+          <Text style={[styles.statNum, { color: '#EA580C' }]}>{parseFloat(monthStats.leaveBalance.toFixed(1))}</Text>
+          <Text style={[styles.statLabel, { color: '#EA580C' }]}>Leave</Text>
         </View>
       </View>
 

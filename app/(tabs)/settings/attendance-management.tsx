@@ -10,7 +10,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, UserCheck, UserX, Clock, UserMinus, CalendarOff, X, Check, Trash2, Gift } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, UserCheck, UserX, Clock, UserMinus, CalendarOff, X, Check, Trash2 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useAuth } from '@/providers/AuthProvider';
@@ -19,14 +19,34 @@ import { useAlert } from '@/providers/AlertProvider';
 import BottomSheetModal from '@/components/BottomSheetModal';
 import type { Attendance, AttendanceStatus, LeaveRequest, PermissionRequest, RequestStatus } from '@/types';
 import { toLocalDateString } from '@/utils/format';
-import { isWeeklyOff, compLeaveValue } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, computeLeaveBalance } from '@/utils/salary';
 
-const STATUS_OPTIONS: { value: AttendanceStatus; label: string; icon: any; color: string }[] = [
+type FormCategory = 'present' | 'absent' | 'leave';
+type PresentSubType = 'full_day' | 'half_day';
+type LeaveSubType = 'half_day' | 'permission' | 'leave';
+type DeductFrom = 'el' | 'comp' | 'free_perm';
+
+const FORM_CATEGORIES: { value: FormCategory; label: string; icon: any; color: string }[] = [
   { value: 'present', label: 'Present', icon: UserCheck, color: '#059669' },
   { value: 'absent', label: 'Absent', icon: UserX, color: '#DC2626' },
-  { value: 'half_day', label: 'Half Day', icon: Clock, color: '#D97706' },
-  { value: 'permission', label: 'Permission', icon: UserMinus, color: '#2563EB' },
   { value: 'leave', label: 'Leave', icon: CalendarOff, color: '#EA580C' },
+];
+
+const PRESENT_SUB_TYPES: { value: PresentSubType; label: string; icon: any; color: string }[] = [
+  { value: 'full_day', label: 'Full Day', icon: UserCheck, color: '#059669' },
+  { value: 'half_day', label: 'Half Day', icon: Clock, color: '#D97706' },
+];
+
+const LEAVE_SUB_TYPES: { value: LeaveSubType; label: string; icon: any; color: string; cost: number }[] = [
+  { value: 'leave', label: 'Full Day', icon: CalendarOff, color: '#EA580C', cost: 1 },
+  { value: 'half_day', label: 'Half Day', icon: Clock, color: '#D97706', cost: 0.5 },
+  { value: 'permission', label: 'Permission', icon: UserMinus, color: '#2563EB', cost: 0 },
+];
+
+const DEDUCT_OPTIONS: { value: DeductFrom; label: string; color: string }[] = [
+  { value: 'el', label: 'Earned Leave', color: '#059669' },
+  { value: 'comp', label: 'Comp Off', color: '#7C3AED' },
+  { value: 'free_perm', label: 'Free Permission', color: '#2563EB' },
 ];
 
 const REQUEST_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -63,7 +83,7 @@ const CAL_LEGEND_ITEMS: { label: string; status: DayStatus }[] = [
 
 export default function AttendanceManagementScreen() {
   const { user } = useAuth();
-  const { attendance, users, addAttendance, updateAttendance, deleteAttendance, leaveRequests, permissionRequests, updateLeaveRequest, updatePermissionRequest, addLeaveRequest, reload, salonConfig } = useData();
+  const { attendance, users, addAttendance, updateAttendance, deleteAttendance, leaveRequests, permissionRequests, updateLeaveRequest, updatePermissionRequest, addLeaveRequest, addPermissionRequest, reload, salonConfig } = useData();
   const { showAlert } = useAlert();
 
   // Top-level tab
@@ -86,14 +106,25 @@ export default function AttendanceManagementScreen() {
   // Form state
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
-  const [selectedStatus, setSelectedStatus] = useState<AttendanceStatus>('present');
+  const [formCategory, setFormCategory] = useState<FormCategory>('present');
+  const [presentType, setPresentType] = useState<PresentSubType>('full_day');
+  const [leaveType, setLeaveType] = useState<LeaveSubType>('leave');
+  const [deductFrom, setDeductFrom] = useState<DeductFrom>('el');
   const [notes, setNotes] = useState('');
+
+  // Derive the effective AttendanceStatus from form state
+  const effectiveStatus: AttendanceStatus =
+    formCategory === 'present' ? (presentType === 'full_day' ? 'present' : 'half_day') :
+    formCategory === 'absent' ? 'absent' :
+    leaveType as AttendanceStatus;
+
+  const presentHalfSelected = formCategory === 'present' && presentType !== 'full_day';
+
   const [permFromTime, setPermFromTime] = useState('');
   const [permToTime, setPermToTime] = useState('');
   const [halfDayPeriod, setHalfDayPeriod] = useState<'first_half' | 'second_half'>('first_half');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [checkInTime, setCheckInTime] = useState('');
-  const [checkOutTime, setCheckOutTime] = useState('');
+  const [permHours, setPermHours] = useState('');
   const [deleting, setDeleting] = useState(false);
 
   // Request tab state
@@ -114,6 +145,17 @@ export default function AttendanceManagementScreen() {
     () => users.filter((p: any) => p.role === 'employee'),
     [users],
   );
+
+  // Compute leave balance breakdown for selected employee
+  const empLeaveBreakdown = useMemo(() => {
+    if (!selectedEmployee) return { earnedLeaveBalance: 0, compBalance: 0, freePermDays: 0, totalBalance: 0 };
+    const emp = employees.find((e: any) => e.id === selectedEmployee);
+    const empAllAtt = attendance.filter(a => a.employeeId === selectedEmployee);
+    const empAllLeaves = leaveRequests.filter(lr => lr.employeeId === selectedEmployee);
+    return computeLeaveBalance(empAllAtt, empAllLeaves, (emp as any)?.joiningDate, salonConfig);
+  }, [selectedEmployee, attendance, leaveRequests, employees, salonConfig]);
+
+  const presentHalfHasBalance = presentHalfSelected && empLeaveBreakdown.totalBalance >= 0.5;
 
   const profileMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -154,7 +196,7 @@ export default function AttendanceManagementScreen() {
     const totalDays = new Date(year, month + 1, 0).getDate();
     const lastDay = (today.getFullYear() === year && today.getMonth() === month) ? today.getDate() : totalDays;
 
-    const map = new Map<string, { present: number; absent: number; off: number; leave: number; compOff: number }>();
+    const map = new Map<string, { present: number; absent: number; off: number; leave: number; leaveBalance: number; compOff: number }>();
 
     for (const emp of employees) {
       let present = 0, absent = 0, off = 0, leave = 0, compOff = 0;
@@ -165,7 +207,7 @@ export default function AttendanceManagementScreen() {
       const firstDay = empJoinDate && empJoinDate > monthStart ? empJoinDate.getDate() : 1;
       // If the employee joined after this month, skip entirely
       if (empJoinDate && (empJoinDate.getFullYear() > year || (empJoinDate.getFullYear() === year && empJoinDate.getMonth() > month))) {
-        map.set(emp.id, { present: 0, absent: 0, off: 0, leave: 0, compOff: 0 });
+        map.set(emp.id, { present: 0, absent: 0, off: 0, leave: 0, leaveBalance: 0, compOff: 0 });
         continue;
       }
 
@@ -177,9 +219,9 @@ export default function AttendanceManagementScreen() {
       const recordMap = new Map<string, Attendance>();
       empRecords.forEach(r => recordMap.set(r.date, r));
 
-      // Count approved leave days in this month for this employee
+      // Count non-rejected leave days in this month for this employee
       const empLeaves = leaveRequests.filter(lr =>
-        lr.employeeId === emp.id && lr.status === 'approved'
+        lr.employeeId === emp.id && lr.status !== 'rejected'
       );
       const leaveDates = new Set<string>();
       for (const lr of empLeaves) {
@@ -191,6 +233,22 @@ export default function AttendanceManagementScreen() {
         }
       }
 
+      // Count permission hours for leave consumption
+      let empPermHours = 0;
+      permissionRequests.filter(pr =>
+        pr.employeeId === emp.id && pr.status !== 'rejected' &&
+        new Date(pr.date).getFullYear() === year && new Date(pr.date).getMonth() === month
+      ).forEach(pr => {
+        const from = pr.fromTime.split(':');
+        const to = pr.toTime.split(':');
+        const fromMin = parseInt(from[0]) * 60 + parseInt(from[1]);
+        const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
+        empPermHours += Math.max(0, (toMin - fromMin) / 60);
+      });
+      const permLeaveDays = salonConfig.workingHoursPerDay > 0
+        ? empPermHours / salonConfig.workingHoursPerDay
+        : 0;
+
       for (let day = firstDay; day <= lastDay; day++) {
         const d = new Date(year, month, day);
         const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -201,34 +259,49 @@ export default function AttendanceManagementScreen() {
         if (isOff) {
           const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
           if (cv > 0 && rec?.status === 'half_day') {
-            present += 0.5; off += 0.5; compOff += cv; // Half day on off-day
+            present += 0.5; off += 0.5; compOff += cv;
           } else if (cv > 0) {
-            present++; compOff += cv; // Worked on off-day (comp: 0.5 or 1)
+            present++; compOff += cv;
           } else {
             off++;
           }
         } else if (hasLeave && !rec) {
           leave++;
         } else if (rec) {
-          if (rec.status === 'present' || rec.status === 'permission') {
+          if (rec.status === 'present') {
+            present++;
+          } else if (rec.status === 'permission') {
             present++;
           } else if (rec.status === 'half_day') {
-            present += 0.5; absent += 0.5;
+            present += 0.5; leave += 0.5;
           } else if (rec.status === 'absent') {
             absent++;
           } else if (rec.status === 'leave') {
             leave++;
           }
         } else {
-          // No record on a working day — count as absent only for past days
           absent++;
         }
       }
 
-      map.set(emp.id, { present, absent, off, leave, compOff });
+      // Add permission hours as leave consumed
+      leave += permLeaveDays;
+
+      // Compute leave balance for this employee
+      const empAllAttendance = attendance.filter(a => a.employeeId === emp.id);
+      const empAllLeaves = leaveRequests.filter(lr => lr.employeeId === emp.id);
+      const balResult = computeLeaveBalance(empAllAttendance, empAllLeaves, (emp as any).joiningDate, salonConfig);
+      const leaveBalance = balResult.totalBalance;
+
+      // Excess leaves become absent
+      const excessLeaves = Math.max(0, leave - leaveBalance);
+      absent += excessLeaves;
+      const paidLeave = Math.min(leave, leaveBalance);
+
+      map.set(emp.id, { present, absent, off, leave: paidLeave, leaveBalance, compOff });
     }
     return map;
-  }, [employees, attendance, leaveRequests, selectedDate]);
+  }, [employees, attendance, leaveRequests, permissionRequests, selectedDate, salonConfig]);
 
   // ── Monthly calendar data per employee (day → status color) ──
   const monthlyCalendarData = useMemo(() => {
@@ -254,7 +327,7 @@ export default function AttendanceManagementScreen() {
       empRecords.forEach(r => recordMap.set(r.date, r));
 
       const empLeaves = leaveRequests.filter(lr =>
-        lr.employeeId === emp.id && lr.status === 'approved'
+        lr.employeeId === emp.id && lr.status !== 'rejected'
       );
       const leaveDates = new Set<string>();
       for (const lr of empLeaves) {
@@ -343,20 +416,36 @@ export default function AttendanceManagementScreen() {
     const existing = dateAttendance.get(empId);
     if (existing) {
       setEditingId(existing.id);
-      setSelectedStatus(existing.status);
-      setNotes(existing.notes ?? '');
-      // Parse check-in/check-out times
-      if (existing.checkIn) {
-        const ci = new Date(existing.checkIn);
-        setCheckInTime(`${String(ci.getHours()).padStart(2, '0')}:${String(ci.getMinutes()).padStart(2, '0')}`);
+      if (existing.status === 'half_day') {
+        setFormCategory('present');
+        setPresentType('half_day');
+        setLeaveType('leave');
+      } else if (existing.status === 'permission') {
+        setFormCategory('leave');
+        setPresentType('full_day');
+        setLeaveType('permission');
+      } else if (existing.status === 'leave') {
+        setFormCategory('leave');
+        setPresentType('full_day');
+        setLeaveType('leave');
       } else {
-        setCheckInTime('');
+        setFormCategory(existing.status as FormCategory);
+        setPresentType('full_day');
+        setLeaveType('leave');
       }
-      if (existing.checkOut) {
-        const co = new Date(existing.checkOut);
-        setCheckOutTime(`${String(co.getHours()).padStart(2, '0')}:${String(co.getMinutes()).padStart(2, '0')}`);
+      setDeductFrom('el');
+      setNotes(existing.notes ?? '');
+      // Parse permission hours from existing permission request for this date
+      const existingPerm = permissionRequests.find(pr =>
+        pr.employeeId === empId && pr.date === dateStr && pr.status !== 'rejected'
+      );
+      if (existingPerm) {
+        const [fh, fm] = existingPerm.fromTime.split(':').map(Number);
+        const [th, tm] = existingPerm.toTime.split(':').map(Number);
+        const hrs = ((th * 60 + tm) - (fh * 60 + fm)) / 60;
+        setPermHours(hrs > 0 ? String(hrs) : '');
       } else {
-        setCheckOutTime('');
+        setPermHours('');
       }
       // Parse half day period from notes
       if (existing.status === 'half_day' && existing.notes) {
@@ -380,10 +469,23 @@ export default function AttendanceManagementScreen() {
       }
     } else {
       setEditingId(null);
-      setSelectedStatus(currentStatus ?? 'present');
+      // Map current status to form category
+      if (currentStatus === 'half_day') {
+        setFormCategory('present');
+        setPresentType('half_day');
+        setLeaveType('leave');
+      } else if (currentStatus === 'permission' || currentStatus === 'leave') {
+        setFormCategory('leave');
+        setPresentType('full_day');
+        setLeaveType(currentStatus as LeaveSubType);
+      } else {
+        setFormCategory((currentStatus ?? 'present') as FormCategory);
+        setPresentType('full_day');
+        setLeaveType('leave');
+      }
+      setDeductFrom('el');
       setNotes('');
-      setCheckInTime('');
-      setCheckOutTime('');
+      setPermHours('');
       setPermFromTime('');
       setPermToTime('');
       setHalfDayPeriod('first_half');
@@ -408,8 +510,102 @@ export default function AttendanceManagementScreen() {
 
   const handleSubmit = async () => {
     if (!selectedEmployee || !user) return;
+
+    // Handle Present half-day (first/second half)
+    if (presentHalfSelected) {
+      setSubmitting(true);
+      try {
+        const empName = employees.find((e: any) => e.id === selectedEmployee)?.name ?? '';
+        let finalNotes = notes.trim();
+        finalNotes = finalNotes ? `Half Day | ${finalNotes}` : 'Half Day';
+
+        // Mark attendance as half_day
+        const existing = dateAttendance.get(selectedEmployee);
+        if (existing) {
+          await updateAttendance({ id: existing.id, status: 'half_day', notes: finalNotes || undefined, markedBy: user.id });
+        } else {
+          await addAttendance({ employeeId: selectedEmployee, employeeName: empName, date: dateStr, status: 'half_day', notes: finalNotes || undefined, markedBy: user.id });
+        }
+
+        // Create permission request if permission hours entered
+        const parsedPH = permHours ? parseFloat(permHours) : 0;
+        if (!isNaN(parsedPH) && parsedPH > 0) {
+          const ph = Math.floor(parsedPH);
+          const pm = Math.round((parsedPH - ph) * 60);
+          const toTime = `${String(ph).padStart(2, '0')}:${String(pm).padStart(2, '0')}`;
+          await addPermissionRequest({
+            employeeId: selectedEmployee,
+            employeeName: empName,
+            date: dateStr,
+            fromTime: '00:00',
+            toTime,
+            reason: `Permission ${parsedPH}hrs (marked by admin)`,
+          });
+        }
+
+        // Remaining half: deduct from leave balance if available
+        if (presentHalfHasBalance) {
+          const leaveDate = toLocalDateString(selectedDate);
+          const leaveReason = `Half day present, remaining half deducted by admin`;
+          if (deductFrom === 'comp') {
+            await addLeaveRequest({ employeeId: selectedEmployee, employeeName: empName, type: 'compensation', startDate: leaveDate, endDate: leaveDate, reason: leaveReason });
+          } else if (deductFrom === 'el') {
+            await addLeaveRequest({ employeeId: selectedEmployee, employeeName: empName, type: 'earned', startDate: leaveDate, endDate: leaveDate, reason: leaveReason });
+          }
+          // free_perm: no leave request needed, salary engine handles it from balance
+        }
+        // If no balance: no leave request → salary engine treats excess leave as absent
+
+        setShowForm(false);
+        showAlert('Success', presentHalfHasBalance ? 'Half day saved, remaining half deducted from leave' : 'Half day saved, remaining half marked absent');
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Failed to update');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     // Validate permission times
-    if (selectedStatus === 'permission') {
+
+    // Handle Comp Off or EL deduction source — create leave request
+    if (formCategory === 'leave' && (deductFrom === 'comp' || deductFrom === 'el')) {
+      if (!selectedEmployee) return;
+      setSubmitting(true);
+      try {
+        const empName = employees.find((e: any) => e.id === selectedEmployee)?.name ?? '';
+        const leaveDateStr = toLocalDateString(selectedDate);
+        const leaveTypeLabel = deductFrom === 'comp' ? 'Comp off' : 'EL';
+        const requestType = deductFrom === 'comp' ? 'compensation' : 'earned';
+        await addLeaveRequest({ employeeId: selectedEmployee, employeeName: empName, type: requestType, startDate: leaveDateStr, endDate: leaveDateStr, reason: `${leaveTypeLabel} (${leaveType === 'half_day' ? 'half day' : leaveType === 'permission' ? 'permission' : 'full leave'}) by admin` });
+        // Also mark attendance status if half_day or permission
+        if (leaveType !== 'leave') {
+          const existing = dateAttendance.get(selectedEmployee);
+          let finalNotes = notes.trim();
+          if (leaveType === 'half_day') {
+            const periodLabel = halfDayPeriod === 'first_half' ? 'First Half' : 'Second Half';
+            finalNotes = finalNotes ? `${periodLabel} | ${finalNotes}` : periodLabel;
+          } else if (leaveType === 'permission') {
+            const timeRange = `Permission: ${permFromTime.padStart(5, '0')}–${permToTime.padStart(5, '0')}`;
+            finalNotes = finalNotes ? `${timeRange} | ${finalNotes}` : timeRange;
+          }
+          if (existing) {
+            await updateAttendance({ id: existing.id, status: leaveType as AttendanceStatus, notes: finalNotes || undefined, markedBy: user.id });
+          } else {
+            await addAttendance({ employeeId: selectedEmployee, employeeName: empName, date: dateStr, status: leaveType as AttendanceStatus, notes: finalNotes || undefined, markedBy: user.id });
+          }
+        }
+        setShowForm(false);
+        showAlert('Success', `Leave applied (deducted from ${leaveTypeLabel} balance)`);
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Failed to apply leave');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (effectiveStatus === 'permission') {
       if (!permFromTime || !permToTime) {
         showAlert('Error', 'Please enter from and to time for permission');
         return;
@@ -424,68 +620,60 @@ export default function AttendanceManagementScreen() {
     try {
       // Build notes with extra info
       let finalNotes = notes.trim();
-      if (selectedStatus === 'half_day') {
+      if (effectiveStatus === 'half_day') {
         const periodLabel = halfDayPeriod === 'first_half' ? 'First Half' : 'Second Half';
         finalNotes = finalNotes ? `${periodLabel} | ${finalNotes}` : periodLabel;
-      } else if (selectedStatus === 'permission') {
+      } else if (effectiveStatus === 'permission') {
         const timeRange = `Permission: ${permFromTime.padStart(5, '0')}–${permToTime.padStart(5, '0')}`;
         finalNotes = finalNotes ? `${timeRange} | ${finalNotes}` : timeRange;
       }
 
-      // Build check-in/check-out ISO strings from HH:MM input
-      let checkInISO: string | undefined;
-      let checkOutISO: string | undefined;
-      const timeRegex24 = /^\d{1,2}:\d{2}$/;
-      if (checkInTime && timeRegex24.test(checkInTime)) {
-        const [h, m] = checkInTime.split(':').map(Number);
-        const d = new Date(selectedDate);
-        d.setHours(h, m, 0, 0);
-        checkInISO = d.toISOString();
-      }
-      if (checkOutTime && timeRegex24.test(checkOutTime)) {
-        const [h, m] = checkOutTime.split(':').map(Number);
-        const d = new Date(selectedDate);
-        d.setHours(h, m, 0, 0);
-        checkOutISO = d.toISOString();
+      // Add permission hours to notes when present with hours
+      const parsedPermH = permHours ? parseFloat(permHours) : 0;
+      if (formCategory === 'present' && !isNaN(parsedPermH) && parsedPermH > 0) {
+        const permLabel = `Permission: ${parsedPermH}hrs`;
+        finalNotes = finalNotes ? `${permLabel} | ${finalNotes}` : permLabel;
       }
 
       if (editingId) {
         await updateAttendance({
           id: editingId,
-          status: selectedStatus,
+          status: effectiveStatus,
           notes: finalNotes || undefined,
           markedBy: user.id,
-          checkIn: checkInISO,
-          checkOut: checkOutISO,
         });
       } else {
         await addAttendance({
           employeeId: selectedEmployee,
           employeeName: selectedEmployeeName,
           date: dateStr,
-          status: selectedStatus,
+          status: effectiveStatus,
           notes: finalNotes || undefined,
           markedBy: user.id,
-          checkIn: checkInISO,
-          checkOut: checkOutISO,
         });
       }
+
+      // Create permission request if present with permission hours
+      if (formCategory === 'present' && !isNaN(parsedPermH) && parsedPermH > 0) {
+        const ph = Math.floor(parsedPermH);
+        const pm = Math.round((parsedPermH - ph) * 60);
+        const toTime = `${String(ph).padStart(2, '0')}:${String(pm).padStart(2, '0')}`;
+        await addPermissionRequest({
+          employeeId: selectedEmployee,
+          employeeName: selectedEmployeeName,
+          date: dateStr,
+          fromTime: '00:00',
+          toTime,
+          reason: `Permission ${parsedPermH}hrs (marked by admin)`,
+        });
+      }
+
       setShowForm(false);
       showAlert('Success', 'Attendance updated');
     } catch (err: any) {
       showAlert('Error', err?.message || 'Failed to update');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const getStatusStyle = (status: string | null) => {
-    switch (status) {
-      case 'present': return { bg: '#D1FAE5', text: '#059669' };
-      case 'absent': return { bg: '#FEE2E2', text: '#DC2626' };
-      case 'half_day': return { bg: '#FEF3C7', text: '#D97706' };
-      case 'permission': return { bg: '#DBEAFE', text: '#2563EB' };
-      default: return { bg: Colors.border, text: Colors.textTertiary };
     }
   };
 
@@ -614,7 +802,7 @@ export default function AttendanceManagementScreen() {
       { key: 'leave', label: 'Leave', bg: '#FFF7ED', color: '#EA580C', activeBg: '#FFEDD5' },
     ];
 
-    const empStats = monthlyStats.get(item.id) ?? { present: 0, absent: 0, off: 0, leave: 0, compOff: 0 };
+    const empStats = monthlyStats.get(item.id) ?? { present: 0, absent: 0, off: 0, leave: 0, leaveBalance: 0, compOff: 0 };
 
     const isExpanded = expandedEmpIds.has(item.id);
 
@@ -641,7 +829,9 @@ export default function AttendanceManagementScreen() {
             const isActive = activeStatus === pill.key;
             const isOff = pill.key === 'off';
             const isLeaveKey = pill.key === 'leave';
-            const count = empStats[pill.key];
+            const count = isLeaveKey
+              ? parseFloat(empStats.leaveBalance.toFixed(1))
+              : empStats[pill.key];
             return (
               <TouchableOpacity
                 key={pill.key}
@@ -668,10 +858,6 @@ export default function AttendanceManagementScreen() {
               </TouchableOpacity>
             );
           })}
-          <View style={[styles.quickPill, { backgroundColor: '#FDF2F8', borderWidth: 0 }]}>
-            <Text style={[styles.quickPillCount, { color: '#9D174D' }]}>{empStats.compOff}</Text>
-            <Text style={[styles.quickPillText, { color: '#9D174D' }]}>Comp</Text>
-          </View>
           </View>
 
           {/* Calendar grid */}
@@ -842,11 +1028,11 @@ export default function AttendanceManagementScreen() {
     );
   };
 
-  // Employees on approved leave for selected date
+  // Employees on leave (pending or approved) for selected date
   const employeesOnLeave = useMemo(() => {
     const set = new Set<string>();
     for (const lr of leaveRequests) {
-      if (lr.status !== 'approved') continue;
+      if (lr.status === 'rejected') continue;
       const start = new Date(lr.startDate);
       const end = new Date(lr.endDate);
       const sel = new Date(dateStr);
@@ -860,7 +1046,7 @@ export default function AttendanceManagementScreen() {
   // Summary counts — monthly totals across all employees (consistent with per-employee pills)
   const weeklyOffDate = isWeeklyOff(dateStr, salonConfig);
   const summaryTotals = useMemo(() => {
-    let present = 0, absent = 0, off = 0, leave = 0, compOff = 0;
+    let present = 0, absent = 0, off = 0, leave = 0;
     for (const emp of employeeList) {
       const s = monthlyStats.get(emp.id);
       if (s) {
@@ -868,16 +1054,14 @@ export default function AttendanceManagementScreen() {
         absent += s.absent;
         off += s.off;
         leave += s.leave;
-        compOff += s.compOff;
       }
     }
-    return { present, absent, off, leave, compOff };
+    return { present, absent, off, leave };
   }, [employeeList, monthlyStats]);
   const presentCount = summaryTotals.present;
   const absentCount = summaryTotals.absent;
   const offCount = summaryTotals.off;
   const leaveCount = summaryTotals.leave;
-  const compOffCount = summaryTotals.compOff;
 
   return (
     <View style={styles.container}>
@@ -947,10 +1131,6 @@ export default function AttendanceManagementScreen() {
             <View style={[styles.summaryPill, { backgroundColor: '#FED7AA' }]}>
               <Text style={[styles.summaryNum, { color: '#C2410C' }]}>{leaveCount}</Text>
               <Text style={[styles.summaryLabel, { color: '#C2410C' }]}>Leave</Text>
-            </View>
-            <View style={[styles.summaryPill, { backgroundColor: '#FBCFE8' }]}>
-              <Text style={[styles.summaryNum, { color: '#9D174D' }]}>{compOffCount}</Text>
-              <Text style={[styles.summaryLabel, { color: '#9D174D' }]}>Comp</Text>
             </View>
           </View>
 
@@ -1037,70 +1217,136 @@ export default function AttendanceManagementScreen() {
         <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Text style={styles.fieldLabel}>Status</Text>
         <View style={styles.statusOptions}>
-          {STATUS_OPTIONS.map(opt => {
+          {FORM_CATEGORIES.map(opt => {
             const Icon = opt.icon;
-            const isSelected = selectedStatus === opt.value;
+            const isSelected = formCategory === opt.value;
+            const isLeaveDisabled = opt.value === 'leave' && empLeaveBreakdown.totalBalance <= 0;
             return (
               <TouchableOpacity
                 key={opt.value}
-                style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }]}
-                onPress={() => setSelectedStatus(opt.value)}
+                style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isLeaveDisabled && { opacity: 0.35 }]}
+                onPress={() => !isLeaveDisabled && setFormCategory(opt.value)}
+                disabled={isLeaveDisabled}
               >
                 <Icon size={16} color={isSelected ? opt.color : Colors.textTertiary} />
                 <Text style={[styles.statusOptionText, isSelected && { color: opt.color, fontWeight: '700' }]}>
-                  {opt.label}
+                  {opt.label}{opt.value === 'leave' ? ` (${parseFloat(empLeaveBreakdown.totalBalance.toFixed(1))})` : ''}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* Comp Off Leave */}
-        {(() => {
-          const now = new Date();
-          const month = now.getMonth();
-          const year = now.getFullYear();
-          const empId = selectedEmployee;
-          if (!empId) return null;
-          const earned = attendance
-            .filter(a => a.employeeId === empId && new Date(a.date).getMonth() === month && new Date(a.date).getFullYear() === year)
-            .reduce((sum, a) => sum + compLeaveValue(a, salonConfig), 0);
-          const used = leaveRequests.filter(lr =>
-            lr.employeeId === empId && lr.type === 'compensation' && lr.status === 'approved' &&
-            new Date(lr.startDate).getMonth() === month && new Date(lr.startDate).getFullYear() === year
-          ).length;
-          const balance = earned - used;
-          const hasBalance = balance > 0;
-          return (
-            <TouchableOpacity
-              style={[styles.statusOption, { marginTop: 8, opacity: hasBalance ? 1 : 0.4 }, hasBalance && { backgroundColor: '#7C3AED18', borderColor: '#7C3AED' }]}
-              disabled={!hasBalance}
-              onPress={async () => {
-                if (!user || !empId) return;
-                const empName = employees.find((e: any) => e.id === empId)?.name ?? '';
-                const dateStr = toLocalDateString(selectedDate);
-                setSubmitting(true);
-                try {
-                  await addLeaveRequest({ employeeId: empId, employeeName: empName, type: 'compensation', startDate: dateStr, endDate: dateStr, reason: 'Comp off leave (by admin)' });
-                  setShowForm(false);
-                  showAlert('Success', 'Comp off leave applied');
-                } catch (err: any) {
-                  showAlert('Error', err?.message || 'Failed to apply comp off');
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-            >
-              <Gift size={16} color={hasBalance ? '#7C3AED' : Colors.textTertiary} />
-              <Text style={[styles.statusOptionText, hasBalance && { color: '#7C3AED', fontWeight: '700' }]}>
-                Comp Off Leave ({balance})
-              </Text>
-            </TouchableOpacity>
-          );
-        })()}
+        {/* Present sub-types */}
+        {formCategory === 'present' && (
+          <>
+            <Text style={styles.fieldLabel}>Present Type</Text>
+            <View style={styles.statusOptions}>
+              {PRESENT_SUB_TYPES.map(opt => {
+                const Icon = opt.icon;
+                const isSelected = presentType === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }]}
+                    onPress={() => setPresentType(opt.value)}
+                  >
+                    <Icon size={16} color={isSelected ? opt.color : Colors.textTertiary} />
+                    <Text style={[styles.statusOptionText, isSelected && { color: opt.color, fontWeight: '700' }]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-        {/* Half Day: First/Second Half selector */}
-        {selectedStatus === 'half_day' && (
+            {/* Deduct From — when present half-day and balance exists */}
+            {presentHalfSelected && presentHalfHasBalance && (
+              <>
+                <Text style={styles.fieldLabel}>Deduct Remaining Half From</Text>
+                <View style={styles.statusOptions}>
+                  {DEDUCT_OPTIONS.map(opt => {
+                    const isSelected = deductFrom === opt.value;
+                    const bal = opt.value === 'el' ? empLeaveBreakdown.earnedLeaveBalance
+                      : opt.value === 'comp' ? empLeaveBreakdown.compBalance
+                      : empLeaveBreakdown.freePermDays;
+                    const isDisabled = bal < 0.5;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isDisabled && { opacity: 0.35 }]}
+                        onPress={() => !isDisabled && setDeductFrom(opt.value)}
+                        disabled={isDisabled}
+                      >
+                        <Text style={[styles.statusOptionText, isSelected && { color: opt.color, fontWeight: '700' }]}>
+                          {opt.label} ({parseFloat(bal.toFixed(1))})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {presentHalfSelected && !presentHalfHasBalance && (
+              <Text style={{ fontSize: 11, color: '#DC2626', fontWeight: '600', marginTop: 4 }}>No leave balance — remaining half will be marked absent</Text>
+            )}
+          </>
+        )}
+
+        {/* Leave sub-types */}
+        {formCategory === 'leave' && (
+          <>
+            <Text style={styles.fieldLabel}>Leave Type</Text>
+            <View style={styles.statusOptions}>
+              {LEAVE_SUB_TYPES.map(opt => {
+                const Icon = opt.icon;
+                const isSelected = leaveType === opt.value;
+                const isDisabled = opt.cost > 0 && empLeaveBreakdown.totalBalance < opt.cost;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isDisabled && { opacity: 0.35 }]}
+                    onPress={() => !isDisabled && setLeaveType(opt.value)}
+                    disabled={isDisabled}
+                  >
+                    <Icon size={16} color={isSelected ? opt.color : Colors.textTertiary} />
+                    <Text style={[styles.statusOptionText, isSelected && { color: opt.color, fontWeight: '700' }]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.fieldLabel}>Deduct From</Text>
+            <View style={styles.statusOptions}>
+              {DEDUCT_OPTIONS.map(opt => {
+                const isSelected = deductFrom === opt.value;
+                const bal = opt.value === 'el' ? empLeaveBreakdown.earnedLeaveBalance
+                  : opt.value === 'comp' ? empLeaveBreakdown.compBalance
+                  : empLeaveBreakdown.freePermDays;
+                const leaveCost = leaveType === 'half_day' ? 0.5 : leaveType === 'permission' ? 0 : 1;
+                const isDisabled = leaveCost > 0 ? bal < leaveCost : bal <= 0;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isDisabled && { opacity: 0.35 }]}
+                    onPress={() => !isDisabled && setDeductFrom(opt.value)}
+                    disabled={isDisabled}
+                  >
+                    <Text style={[styles.statusOptionText, isSelected && { color: opt.color, fontWeight: '700' }]}>
+                      {opt.label} ({parseFloat(bal.toFixed(1))})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        {/* Half Day: First/Second Half selector — only for Leave half-day */}
+        {formCategory === 'leave' && leaveType === 'half_day' && (
           <>
             <Text style={styles.fieldLabel}>Period</Text>
             <View style={styles.statusOptions}>
@@ -1124,7 +1370,7 @@ export default function AttendanceManagementScreen() {
         )}
 
         {/* Permission: From/To time */}
-        {selectedStatus === 'permission' && (
+        {effectiveStatus === 'permission' && (
           <>
             <Text style={styles.fieldLabel}>From Time * (HH:MM, 24hr)</Text>
             <TextInput
@@ -1159,32 +1405,20 @@ export default function AttendanceManagementScreen() {
           numberOfLines={2}
         />
 
-        {/* Check-in / Check-out time fields — only for present */}
-        {selectedStatus === 'present' && (
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>Check-in (HH:MM)</Text>
-            <TextInput
-              style={styles.input}
-              value={checkInTime}
-              onChangeText={setCheckInTime}
-              placeholder="e.g. 09:00"
-              placeholderTextColor={Colors.textTertiary}
-              keyboardType="numbers-and-punctuation"
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.fieldLabel}>Check-out (HH:MM)</Text>
-            <TextInput
-              style={styles.input}
-              value={checkOutTime}
-              onChangeText={setCheckOutTime}
-              placeholder="e.g. 18:00"
-              placeholderTextColor={Colors.textTertiary}
-              keyboardType="numbers-and-punctuation"
-            />
-          </View>
-        </View>
+        {/* Permission hours — for all present types */}
+        {formCategory === 'present' && (
+        <>
+          <Text style={styles.fieldLabel}>Permission Hours (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={permHours}
+            onChangeText={setPermHours}
+            placeholder="e.g. 2"
+            placeholderTextColor={Colors.textTertiary}
+            keyboardType="decimal-pad"
+          />
+          {permHours ? <Text style={{ fontSize: 11, color: Colors.textTertiary, marginTop: 2 }}>Will be deducted from leave balance. If no balance, deducted from salary.</Text> : null}
+        </>
         )}
 
         <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} disabled={submitting}>

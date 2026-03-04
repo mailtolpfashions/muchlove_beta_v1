@@ -531,6 +531,7 @@ export default function DashboardScreen() {
           leaveRequests={leaveRequests}
           permissionRequests={permissionRequests}
           userId={user.id}
+          joiningDate={user.joiningDate}
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
           checkingIn={checkingIn}
