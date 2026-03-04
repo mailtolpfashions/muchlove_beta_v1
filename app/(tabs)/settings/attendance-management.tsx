@@ -1192,15 +1192,27 @@ export default function AttendanceManagementScreen() {
               </Text>
               {(() => {
                 const existing = selectedEmployee ? dateAttendance.get(selectedEmployee) : null;
-                if (!existing) return <Text style={{ fontSize: 11, color: '#9CA3AF', fontWeight: '600' }}>No record</Text>;
                 const statusMap: Record<string, { label: string; bg: string; color: string }> = {
                   present: { label: 'Present', bg: '#D1FAE5', color: '#059669' },
                   absent: { label: 'Absent', bg: '#FEE2E2', color: '#DC2626' },
                   half_day: { label: 'Half Day', bg: '#FEF3C7', color: '#D97706' },
                   permission: { label: 'Permission', bg: '#DBEAFE', color: '#2563EB' },
                   leave: { label: 'Leave', bg: '#FFEDD5', color: '#EA580C' },
+                  off: { label: 'Weekly Off', bg: '#E0E7FF', color: '#4338CA' },
+                  future: { label: 'Upcoming', bg: '#F3F4F6', color: '#9CA3AF' },
                 };
-                const s = statusMap[existing.status] ?? { label: existing.status, bg: '#F3F4F6', color: '#6B7280' };
+                if (existing) {
+                  const s = statusMap[existing.status] ?? { label: existing.status, bg: '#F3F4F6', color: '#6B7280' };
+                  return (
+                    <View style={{ backgroundColor: s.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: s.color }}>{s.label}</Text>
+                    </View>
+                  );
+                }
+                // No record — derive status from calendar data
+                const empCal = selectedEmployee ? monthlyCalendarData.get(selectedEmployee) : null;
+                const dayStatus = empCal?.get(selectedDate.getDate());
+                const s = dayStatus ? (statusMap[dayStatus] ?? { label: 'No record', bg: '#F3F4F6', color: '#9CA3AF' }) : { label: 'No record', bg: '#F3F4F6', color: '#9CA3AF' };
                 return (
                   <View style={{ backgroundColor: s.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: s.color }}>{s.label}</Text>

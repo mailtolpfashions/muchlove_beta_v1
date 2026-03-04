@@ -624,11 +624,14 @@ export default function AttendanceScreen() {
             <X size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
         </View>
-        {selectedDayData?.attendance && (
+        {selectedDayData && (
           <View style={styles.dateStatusRow}>
             <Text style={styles.dateStatusLabel}>Status:</Text>
-            <Text style={styles.dateStatusValue}>
-              {selectedDayData.status === 'off' ? 'Weekly Off' : selectedDayData.attendance.status.replace('_', ' ').toUpperCase()}
+            <Text style={[styles.dateStatusValue, { color: CAL_STATUS_COLORS[selectedDayData.status]?.text || Colors.text }]}>
+              {selectedDayData.status === 'off' ? 'WEEKLY OFF'
+                : selectedDayData.status === 'future' ? 'UPCOMING'
+                : selectedDayData.attendance ? selectedDayData.attendance.status.replace('_', ' ').toUpperCase()
+                : selectedDayData.status.replace('_', ' ').toUpperCase()}
             </Text>
           </View>
         )}

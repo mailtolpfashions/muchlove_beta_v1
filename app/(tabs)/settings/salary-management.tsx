@@ -281,6 +281,13 @@ export default function SalaryManagementScreen() {
               <SalaryRow label="Absent" value={`${b.absentDays} days`} color="#DC2626" />
               <SalaryRow label="Leave Balance" value={`${parseFloat(b.leaveBalance.toFixed(1))} (EL:${parseFloat(b.earnedLeaveBalance.toFixed(1))} C:${parseFloat(b.compBalance.toFixed(1))} P:${parseFloat(b.freePermDays.toFixed(1))})`} color="#059669" />
               <SalaryRow label="Leave Used" value={`${parseFloat(b.leaveConsumed.toFixed(1))} days`} color="#EA580C" />
+              {b.leaveConsumed > 0 && (
+                <View style={salaryStyles.leaveBreakdown}>
+                  {b.approvedLeaveDays > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Leave Req: {b.approvedLeaveDays}d</Text>}
+                  {b.halfDayLeave > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Half Day: {parseFloat(b.halfDayLeave.toFixed(1))}d</Text>}
+                  {b.permissionLeaveDays > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Permission: {parseFloat(b.permissionLeaveDays.toFixed(1))}d</Text>}
+                </View>
+              )}
               {b.excessLeaves > 0 && <SalaryRow label="Excess Leaves" value={`${parseFloat(b.excessLeaves.toFixed(1))} days`} color="#DC2626" />}
               <SalaryRow label="Comp Earned" value={`${b.compLeavesEarned} days`} color="#7C3AED" />
               {b.lateCount > 0 && b.latePenaltyDays > 0 && (
@@ -722,5 +729,15 @@ const salaryStyles = StyleSheet.create({
     color: Colors.textTertiary,
     fontStyle: 'italic',
     marginTop: Spacing.sm,
+  },
+  leaveBreakdown: {
+    paddingLeft: 12,
+    paddingBottom: 4,
+    marginTop: -2,
+  },
+  leaveBreakdownText: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    lineHeight: 16,
   },
 });

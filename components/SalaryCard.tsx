@@ -171,7 +171,24 @@ export default function SalaryCard({
         <Divider />
         <Row label="Absent" value={`${breakdown.absentDays} days`} color="#DC2626" />
         <Row label="Leave Balance" value={`${parseFloat(breakdown.leaveBalance.toFixed(1))} (EL:${parseFloat(breakdown.earnedLeaveBalance.toFixed(1))} C:${parseFloat(breakdown.compBalance.toFixed(1))} P:${parseFloat(breakdown.freePermDays.toFixed(1))})`} color="#059669" />
-        <Row label="Leave Used" value={`${parseFloat(breakdown.leaveConsumed.toFixed(1))} days`} color="#EA580C" />
+        <Row
+          label="Leave Used"
+          value={`${parseFloat(breakdown.leaveConsumed.toFixed(1))} days`}
+          color="#EA580C"
+        />
+        {breakdown.leaveConsumed > 0 && (
+          <View style={styles.leaveBreakdown}>
+            {breakdown.approvedLeaveDays > 0 && (
+              <Text style={styles.leaveBreakdownText}>• Leave Req: {breakdown.approvedLeaveDays}d</Text>
+            )}
+            {breakdown.halfDayLeave > 0 && (
+              <Text style={styles.leaveBreakdownText}>• Half Day: {parseFloat(breakdown.halfDayLeave.toFixed(1))}d</Text>
+            )}
+            {breakdown.permissionLeaveDays > 0 && (
+              <Text style={styles.leaveBreakdownText}>• Permission: {parseFloat(breakdown.permissionLeaveDays.toFixed(1))}d</Text>
+            )}
+          </View>
+        )}
         {breakdown.excessLeaves > 0 && <Row label="Excess Leaves" value={`${parseFloat(breakdown.excessLeaves.toFixed(1))} days`} color="#DC2626" />}
         <Row label="Comp Earned" value={`${breakdown.compLeavesEarned} days`} color="#7C3AED" />
         {breakdown.lateCount > 0 && breakdown.latePenaltyDays > 0 && (
@@ -352,5 +369,15 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '800',
     color: '#DC2626',
+  },
+  leaveBreakdown: {
+    paddingLeft: 12,
+    paddingBottom: 4,
+    marginTop: -2,
+  },
+  leaveBreakdownText: {
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    lineHeight: 16,
   },
 });
