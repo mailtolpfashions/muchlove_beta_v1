@@ -19,6 +19,7 @@ import {
   MutationOperation,
 } from '@/utils/offlineMutationQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -122,7 +123,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   const [offlineSalesEnabled, setOfflineSalesEnabled] = useState<boolean | null>(null);
 
   // Load from AsyncStorage on mount, then fetch from Supabase, then subscribe to Realtime
+  // Only run on native — on web the admin panel doesn't need this mobile-only setting
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const init = async () => {
@@ -203,22 +207,25 @@ export const [DataProvider, useData] = createContextHook(() => {
   // Also sends local push notifications to admin devices when other users record sales.
   useRealtimeSync({ currentUserId: user?.id, isAdmin });
 
-  const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll);
-  const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll);
-  const { data: subscriptions = [], isLoading: subscriptionsLoading, error: subscriptionsError, refetch: refetchSubscriptions } = useOfflineQuery(['subscriptions'], supabaseDb.subscriptions.getAll);
-  const { data: sales = [], isLoading: salesLoading, error: salesError, refetch: refetchSales } = useOfflineQuery(['sales'], supabaseDb.sales.getAll);
-  const { data: users = [], isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useOfflineQuery(['users'], supabaseDb.users.getAll);
-  const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll);
-  const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll);
-  const { data: combos = [], isLoading: combosLoading, error: combosError, refetch: refetchCombos } = useOfflineQuery(['combos'], supabaseDb.combos.getAll);
-  const { data: expenseCategories = [], isLoading: expCatLoading, error: expCatError, refetch: refetchExpCat } = useOfflineQuery(['expenseCategories'], supabaseDb.expenseCategories.getAll);
-  const { data: allExpenses = [], isLoading: expensesLoading, error: expensesError, refetch: refetchExpenses } = useOfflineQuery(['expenses'], supabaseDb.expenses.getAll);
+  // Gate all queries on auth — prevents 401 storm on web before login
+  const qEnabled = { enabled: !!user };
+
+  const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll, qEnabled);
+  const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll, qEnabled);
+  const { data: subscriptions = [], isLoading: subscriptionsLoading, error: subscriptionsError, refetch: refetchSubscriptions } = useOfflineQuery(['subscriptions'], supabaseDb.subscriptions.getAll, qEnabled);
+  const { data: sales = [], isLoading: salesLoading, error: salesError, refetch: refetchSales } = useOfflineQuery(['sales'], supabaseDb.sales.getAll, qEnabled);
+  const { data: users = [], isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useOfflineQuery(['users'], supabaseDb.users.getAll, qEnabled);
+  const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll, qEnabled);
+  const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll, qEnabled);
+  const { data: combos = [], isLoading: combosLoading, error: combosError, refetch: refetchCombos } = useOfflineQuery(['combos'], supabaseDb.combos.getAll, qEnabled);
+  const { data: expenseCategories = [], isLoading: expCatLoading, error: expCatError, refetch: refetchExpCat } = useOfflineQuery(['expenseCategories'], supabaseDb.expenseCategories.getAll, qEnabled);
+  const { data: allExpenses = [], isLoading: expensesLoading, error: expensesError, refetch: refetchExpenses } = useOfflineQuery(['expenses'], supabaseDb.expenses.getAll, qEnabled);
 
   // ── Attendance & HR ───────────────────────────────────────────────────
-  const { data: attendance = [], isLoading: attendanceLoading, error: attendanceError, refetch: refetchAttendance } = useOfflineQuery(['attendance'], supabaseDb.attendanceDb.getAll);
-  const { data: leaveRequests = [], isLoading: leaveRequestsLoading, error: leaveRequestsError, refetch: refetchLeaveRequests } = useOfflineQuery(['leaveRequests'], supabaseDb.leaveRequestsDb.getAll);
-  const { data: permissionRequests = [], isLoading: permissionRequestsLoading, error: permissionRequestsError, refetch: refetchPermissionRequests } = useOfflineQuery(['permissionRequests'], supabaseDb.permissionRequestsDb.getAll);
-  const { data: employeeSalaries = [], isLoading: salariesLoading, error: salariesError, refetch: refetchSalaries } = useOfflineQuery(['employeeSalaries'], supabaseDb.employeeSalariesDb.getAll);
+  const { data: attendance = [], isLoading: attendanceLoading, error: attendanceError, refetch: refetchAttendance } = useOfflineQuery(['attendance'], supabaseDb.attendanceDb.getAll, qEnabled);
+  const { data: leaveRequests = [], isLoading: leaveRequestsLoading, error: leaveRequestsError, refetch: refetchLeaveRequests } = useOfflineQuery(['leaveRequests'], supabaseDb.leaveRequestsDb.getAll, qEnabled);
+  const { data: permissionRequests = [], isLoading: permissionRequestsLoading, error: permissionRequestsError, refetch: refetchPermissionRequests } = useOfflineQuery(['permissionRequests'], supabaseDb.permissionRequestsDb.getAll, qEnabled);
+  const { data: employeeSalaries = [], isLoading: salariesLoading, error: salariesError, refetch: refetchSalaries } = useOfflineQuery(['employeeSalaries'], supabaseDb.employeeSalariesDb.getAll, qEnabled);
 
   // ── Salon Config ──────────────────────────────────────────────────────
   const { data: salonConfigRaw, refetch: refetchSalonConfig } = useOfflineQuery(
@@ -227,6 +234,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       const cfg = await supabaseDb.salonConfigDb.get();
       return cfg ? [cfg] : []; // wrap in array for useOfflineQuery compatibility
     },
+    qEnabled,
   );
   const salonConfig: SalonConfig = useMemo(() => {
     const cfg = salonConfigRaw?.[0];

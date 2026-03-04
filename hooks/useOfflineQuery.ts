@@ -2,6 +2,7 @@ import { useQuery, useQueryClient, QueryKey } from '@tanstack/react-query';
 import { useNetInfo } from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 /** Maximum offline cache age — 7 days in milliseconds */
 const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -31,6 +32,7 @@ function formatCacheAge(cachedAt: number): string {
 export function useOfflineQuery<T>(
   queryKey: QueryKey,
   queryFn: () => Promise<T>,
+  options?: { enabled?: boolean },
 ) {
   const netInfo = useNetInfo();
   const queryClient = useQueryClient();
@@ -84,12 +86,15 @@ export function useOfflineQuery<T>(
   // ── 2. Network-aware query ────────────────────────────────────────────────
   //    `netInfo.isConnected` starts as `null`; treat null as "maybe online" so
   //    the query fires immediately instead of waiting for the net-info check.
-  const isOnline = netInfo.isConnected !== false;
+  //    On web, netinfo is unreliable — treat as always online.
+  const isOnline = Platform.OS === 'web' ? true : netInfo.isConnected !== false;
+
+  const finalEnabled = isOnline && options?.enabled !== false;
 
   const queryResult = useQuery({
     queryKey,
     queryFn,
-    enabled: isOnline,
+    enabled: finalEnabled,
   });
 
   // ── 3. Persist fresh data to AsyncStorage with metadata ───────────────────

@@ -10,9 +10,12 @@ const isExpoGo =
   Constants.appOwnership === 'expo' ||
   (Constants as any).executionEnvironment === 'storeClient';
 
+// Notifications are not available on web or in Expo Go
+const isNotNative = isExpoGo || Platform.OS === 'web';
+
 // Configure how notifications appear when app is in foreground
 try {
-  if (!isExpoGo) {
+  if (!isNotNative) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldPlaySound: true,
@@ -27,7 +30,7 @@ try {
 }
 
 export async function registerForNotifications(): Promise<boolean> {
-  if (isExpoGo) return false;
+  if (isNotNative) return false;
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -66,7 +69,7 @@ export async function registerForNotifications(): Promise<boolean> {
  * The Edge Function uses these tokens to send background push notifications.
  */
 export async function registerPushToken(userId: string): Promise<void> {
-  if (isExpoGo) return;
+  if (isNotNative) return;
   try {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) return;
@@ -92,7 +95,7 @@ export async function registerPushToken(userId: string): Promise<void> {
  * Call this on logout so the device stops receiving push notifications.
  */
 export async function unregisterPushToken(userId: string): Promise<void> {
-  if (isExpoGo) return;
+  if (isNotNative) return;
   try {
     await supabase
       .from('push_tokens')
@@ -108,7 +111,7 @@ export async function sendSaleNotification(
   total: number,
   employeeName: string,
 ) {
-  if (isExpoGo) return;
+  if (isNotNative) return;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -131,7 +134,7 @@ export async function sendRequestNotification(
   employeeName: string,
   requestType: 'leave' | 'correction' | 'permission' | 'comp_leave' | 'earned_leave',
 ) {
-  if (isExpoGo) return;
+  if (isNotNative) return;
   try {
     const typeLabels: Record<string, string> = {
       leave: 'Leave Request',
@@ -162,7 +165,7 @@ export async function sendRequestActionNotification(
   action: 'approved' | 'rejected' | 'revoked',
   requestType: 'leave' | 'permission',
 ) {
-  if (isExpoGo) return;
+  if (isNotNative) return;
   try {
     const emoji = action === 'approved' ? '✅' : '❌';
     const typeLabel = requestType === 'leave' ? 'Leave request' : 'Permission request';

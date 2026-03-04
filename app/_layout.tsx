@@ -10,7 +10,7 @@ import { PaymentProvider } from '@/providers/PaymentProvider';
 import { AlertProvider } from '@/providers/AlertProvider';
 import { OfflineSyncProvider } from '@/providers/OfflineSyncProvider';
 import { Colors } from '@/constants/colors';
-import { View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, LogBox, Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import { HeaderRight } from '@/components/HeaderRight';
 import { registerForNotifications, registerPushToken } from '@/utils/notifications';
@@ -76,7 +76,28 @@ function RootLayoutNav() {
     if (!isInitialized || !fontsLoaded) return;
 
     const inTabsGroup = segmentKey.startsWith('(tabs)');
+    const inAdminGroup = segmentKey.startsWith('admin');
     const onLoginPage = segmentKey.startsWith('login');
+
+    // Admin group handles its own auth via WebGuard
+    if (inAdminGroup) {
+      navigatingRef.current = false;
+      return;
+    }
+
+    // On web, always route into the admin group
+    if (Platform.OS === 'web') {
+      const needsRedirect = !inAdminGroup;
+      if (needsRedirect && !navigatingRef.current) {
+        navigatingRef.current = true;
+        const target = isAuthenticated ? '/admin/dashboard' : '/admin/login';
+        setTimeout(() => {
+          router.replace(target as any);
+          navigatingRef.current = false;
+        }, 100);
+      }
+      return;
+    }
 
     const shouldGoToTabs = isAuthenticated && !inTabsGroup;
     const shouldGoToLogin = !isAuthenticated && !onLoginPage;
@@ -89,8 +110,6 @@ function RootLayoutNav() {
     navigatingRef.current = true;
 
     // Delay navigation so Fabric finishes the current mount batch.
-    // InteractionManager fires too early; a real timeout lets the
-    // SurfaceMountingManager settle before we swap screens.
     const timer = setTimeout(() => {
       if (shouldGoToTabs) {
         router.replace('/(tabs)/');
@@ -130,6 +149,7 @@ function RootLayoutNav() {
     >
       <Stack.Screen name="login" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="admin" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

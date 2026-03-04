@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Platform } from 'react-native';
 import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '@/types';
@@ -122,8 +123,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     const init = async () => {
       try {
-        // Run seeding in background — don't block auth init
-        initializeDatabase().catch(() => {});
+        // Run seeding in background — don't block auth init (skip on web — no cached session yet)
+        if (Platform.OS !== 'web') {
+          initializeDatabase().catch(() => {});
+        }
 
         // ── 1. Instant restore: load cached profile for zero-delay launch ──
         //    Like FB/Instagram — if we have a cached profile, the user is
@@ -259,6 +262,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         setSession(data.session);
         setUser(profile);
         await cacheProfile(profile);
+
+        // Seed default data if tables are empty (runs on all platforms after login)
+        initializeDatabase().catch(() => {});
+
         return { success: true };
       }
 
@@ -289,7 +296,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       }
 
       if (data.user) {
-        // Always sign out after signup – they need admin approval first
+        // Always sign out after signup — they need admin approval first
         await supabase.auth.signOut();
         return { success: true, needsApproval: true };
       }
