@@ -1,7 +1,7 @@
 import { Sale } from '@/types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Paths, File } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { formatCurrency, formatDate, formatDateTime } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 
@@ -326,19 +326,17 @@ export const shareInvoice = async (sale: Sale) => {
   const customerPart = sanitizeFileName(sale.customerName).slice(0, 10);
   const invoicePart = sale.id.slice(0, 8).toUpperCase();
   const fileName = `${customerPart}_${invoicePart}.pdf`;
-  const dest = new File(Paths.cache, fileName);
 
+  // Rename temp file in-place so the share dialog shows a friendly name
+  const file = new File(uri);
   try {
-    const src = new File(uri);
-    src.move(dest);
+    file.rename(fileName);
   } catch {
-    // If move fails, share from the original temp path
-    try { await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' }); } catch { /* cancelled */ }
-    return;
+    // rename failed — share with original temp name
   }
 
   try {
-    await Sharing.shareAsync(dest.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Sharing.shareAsync(file.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch {
     // User cancelled share — not an error
   }
@@ -542,24 +540,21 @@ export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilter
     throw new Error('Could not generate PDF. Please try with fewer sales.');
   }
 
-  // Rename to a friendly file name
+  // Rename temp file so the share dialog shows a friendly name
   const now = new Date();
   const pad = (n: number) => n.toString().padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const fileName = `SalesReport_${timestamp}.pdf`;
-  const dest = new File(Paths.cache, fileName);
 
+  const file = new File(uri);
   try {
-    const src = new File(uri);
-    src.move(dest);
+    file.rename(fileName);
   } catch {
-    // If move fails, share from the original temp path
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
-    return;
+    // rename failed — share with original temp name
   }
 
   try {
-    await Sharing.shareAsync(dest.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Sharing.shareAsync(file.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch {
     // User cancelled share — not an error
   }

@@ -1,5 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { File } from 'expo-file-system';
 import { formatCurrency } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import type { SalaryBreakdown } from './salary';
@@ -289,8 +290,28 @@ function buildSalarySlipHtml(params: SlipParams): string {
 </html>`;
 }
 
+const sanitizeFileName = (name: string): string =>
+  name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+
 export async function shareSalarySlip(params: SlipParams): Promise<void> {
   const html = buildSalarySlipHtml(params);
   const { uri } = await Print.printToFileAsync({ html });
-  await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+
+  // Rename temp file so the share dialog shows a friendly name
+  const monthName = new Date(params.year, params.month).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }).replace(' ', '');
+  const namePart = sanitizeFileName(params.employeeName).slice(0, 12);
+  const fileName = `Salary_${namePart}_${monthName}.pdf`;
+
+  const file = new File(uri);
+  try {
+    file.rename(fileName);
+  } catch {
+    // rename failed — share with original temp name
+  }
+
+  try {
+    await Sharing.shareAsync(file.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+  } catch {
+    // User cancelled share — not an error
+  }
 }
