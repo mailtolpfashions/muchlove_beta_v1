@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     padding: WebLayout.contentPadding,
     maxWidth: WebColors.contentMaxWidth,
     // Center content when viewport is very wide
-    alignSelf: 'stretch',
+    alignSelf: 'center',
     width: '100%',
   },
 });

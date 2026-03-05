@@ -319,9 +319,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   barTrack: {
-    flex: 1,
     width: '100%',
     maxWidth: 40,
+    height: 120,
     backgroundColor: '#FFF0F5',
     borderRadius: 6,
     justifyContent: 'flex-end',

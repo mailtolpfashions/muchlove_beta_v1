@@ -109,7 +109,7 @@ export default function DashboardScreen() {
     backgroundGradientFrom: Colors.surface,
     backgroundGradientTo: Colors.surface,
     decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(233, 30, 99, ${opacity})`,
+    color: (opacity = 1) => `rgba(233, 30, 99, ${Math.max(opacity, 0.7)})`,
     labelColor: () => Colors.textTertiary,
     barPercentage: 0.5,
     propsForBackgroundLines: {
