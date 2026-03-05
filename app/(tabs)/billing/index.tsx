@@ -731,7 +731,7 @@ export default function BillingScreen() {
       )}
 
       {/* Quick Payment FAB */}
-      {upiList.length > 0 && totalItems === 0 && (
+      {totalItems === 0 && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => setShowQuickPayment(true)}

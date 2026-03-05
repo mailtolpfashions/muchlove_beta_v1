@@ -4,12 +4,32 @@ import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { queryClient } from '@/lib/queryClient';
 import { initializeDatabase, withTimeout } from '@/utils/database';
 import { unregisterPushToken } from '@/utils/notifications';
 import type { Session } from '@supabase/supabase-js';
 
 const CACHED_PROFILE_KEY = '@cached_profile';
 const PROFILE_RECHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+/** Directly purge Supabase auth tokens from AsyncStorage.
+ *  This is the nuclear option when signOut({ scope: 'local' }) isn't enough
+ *  because the SDK keeps auto-refreshing with a dead token before we can
+ *  react to the event. */
+const purgeSupabaseAuthStorage = async () => {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const authKeys = keys.filter(
+      (k) => k.startsWith('sb-') && k.endsWith('-auth-token'),
+    );
+    if (authKeys.length > 0) {
+      await AsyncStorage.multiRemove(authKeys);
+    }
+  } catch { /* best effort */ }
+};
+
+const isRefreshTokenError = (e: any): boolean =>
+  /refresh.token/i.test(e?.message ?? e?.error_description ?? '');
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
@@ -81,9 +101,11 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           if (newSession) {
             setSession(newSession);
           } else {
-            // Refresh failed — clear the corrupt stored session so the
-            // SDK stops emitting errors.  Cached profile keeps UI alive;
-            // the 5-min recheck will catch truly dead sessions.
+            // Refresh failed — purge the corrupt stored session directly
+            // from AsyncStorage so the SDK stops retrying with a dead
+            // refresh token.  Cached profile keeps UI alive; the 5-min
+            // recheck will catch truly dead sessions.
+            await purgeSupabaseAuthStorage();
             try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
           }
           return;
@@ -148,13 +170,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
           // If the stored session has a dead refresh token, clear it
           // so the SDK stops retrying with the stale token.
-          if (result.error && /refresh.token/i.test(result.error.message ?? '')) {
+          if (result.error && isRefreshTokenError(result.error)) {
+            await purgeSupabaseAuthStorage();
             try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
           }
         } catch (e: any) {
           // AuthApiError thrown when the SDK internally tries to refresh
-          // with a stale refresh token — clear the bad session.
-          if (/refresh.token/i.test(e?.message ?? '')) {
+          // with a stale refresh token — purge from storage directly.
+          if (isRefreshTokenError(e)) {
+            await purgeSupabaseAuthStorage();
             try { await supabase.auth.signOut({ scope: 'local' }); } catch {}
           }
           // Keep cached profile regardless
@@ -262,6 +286,11 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         setSession(data.session);
         setUser(profile);
         await cacheProfile(profile);
+
+        // Force all React Query caches to refetch now that user is authenticated.
+        // Without this, queries gated by enabled:!!user may not fire reliably
+        // on first login (fresh install with no cached session).
+        setTimeout(() => queryClient.invalidateQueries(), 300);
 
         // Seed default data if tables are empty (runs on all platforms after login)
         initializeDatabase().catch(() => {});

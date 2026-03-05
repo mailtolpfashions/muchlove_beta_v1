@@ -1,7 +1,7 @@
 import { Sale } from '@/types';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import { Paths, File } from 'expo-file-system';
 import { formatCurrency, formatDate, formatDateTime } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 
@@ -326,10 +326,11 @@ export const shareInvoice = async (sale: Sale) => {
   const customerPart = sanitizeFileName(sale.customerName).slice(0, 10);
   const invoicePart = sale.id.slice(0, 8).toUpperCase();
   const fileName = `${customerPart}_${invoicePart}.pdf`;
-  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+  const dest = new File(Paths.cache, fileName);
 
   try {
-    await FileSystem.moveAsync({ from: uri, to: newUri });
+    const src = new File(uri);
+    src.move(dest);
   } catch {
     // If move fails, share from the original temp path
     try { await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' }); } catch { /* cancelled */ }
@@ -337,7 +338,7 @@ export const shareInvoice = async (sale: Sale) => {
   }
 
   try {
-    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Sharing.shareAsync(dest.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch {
     // User cancelled share — not an error
   }
@@ -546,10 +547,11 @@ export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilter
   const pad = (n: number) => n.toString().padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const fileName = `SalesReport_${timestamp}.pdf`;
-  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+  const dest = new File(Paths.cache, fileName);
 
   try {
-    await FileSystem.moveAsync({ from: uri, to: newUri });
+    const src = new File(uri);
+    src.move(dest);
   } catch {
     // If move fails, share from the original temp path
     await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
@@ -557,7 +559,7 @@ export const shareSalesReport = async (sales: Sale[], filters: SalesReportFilter
   }
 
   try {
-    await Sharing.shareAsync(newUri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Sharing.shareAsync(dest.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch {
     // User cancelled share — not an error
   }

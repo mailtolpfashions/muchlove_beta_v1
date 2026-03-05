@@ -415,7 +415,7 @@ export const customerSubscriptions = {
   useUpdate: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
-      mutationFn: async (subscription: CustomerSubscription) => {
+      mutationFn: async (subscription: Pick<CustomerSubscription, 'id' | 'status'>) => {
         const { error } = await supabase.from('customer_subscriptions').update({ status: subscription.status }).eq('id', subscription.id);
         if (error) throw error;
       },
