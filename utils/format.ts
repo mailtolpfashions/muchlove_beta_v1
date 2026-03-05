@@ -46,6 +46,14 @@ export function isValidMobile(mobile: string): boolean {
   return /^[6-9]\d{9}$/.test(mobile.trim());
 }
 
+/** Mask mobile for non-admin users: +91XXXXXX1234 */
+export function maskMobile(mobile: string, isAdmin: boolean): string {
+  if (isAdmin || !mobile) return mobile;
+  const digits = mobile.replace(/\D/g, '');
+  const last4 = digits.slice(-4);
+  return `+91XXXXXX${last4}`;
+}
+
 /** Format a Date or ISO string as DD-MM-YYYY */
 export function formatDateDDMMYYYY(d: Date | string): string {
   const date = typeof d === 'string' ? new Date(d) : d;

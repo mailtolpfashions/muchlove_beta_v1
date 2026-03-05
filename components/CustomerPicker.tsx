@@ -14,8 +14,9 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { Customer } from '@/types';
 import { useData } from '@/providers/DataProvider';
-import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
+import { capitalizeWords, isValidMobile, isValidName, maskMobile } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import SortPills, { SortOption } from '@/components/SortPills';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheetModal from '@/components/BottomSheetModal';
@@ -42,6 +43,7 @@ function CustomerPicker({
   const insets = useSafeAreaInsets();
   const { addCustomer } = useData();
   const { showAlert } = useAlert();
+  const { isAdmin } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('a-z');
   const [showAddForm, setShowAddForm] = useState(showAddFormInitially || addOnly);
@@ -197,7 +199,7 @@ function CustomerPicker({
                     <User size={18} color={selectedCustomer?.id === item.id ? Colors.primary : Colors.textSecondary} />
                     <View>
                       <Text style={styles.customerName}>{capitalizeWords(item.name)}</Text>
-                      <Text style={styles.customerMobile}>{item.mobile}</Text>
+                      <Text style={styles.customerMobile}>{maskMobile(item.mobile, isAdmin)}</Text>
                     </View>
                   </TouchableOpacity>
                 )}

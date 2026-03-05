@@ -16,8 +16,9 @@ import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { useData } from '@/providers/DataProvider';
 import { Customer } from '@/types';
-import { capitalizeWords, isValidMobile, isValidName } from '@/utils/format';
+import { capitalizeWords, isValidMobile, isValidName, maskMobile } from '@/utils/format';
 import { useAlert } from '@/providers/AlertProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SortPills, { SortOption, visitSortOptions } from '@/components/SortPills';
 import BottomSheetModal from '@/components/BottomSheetModal';
@@ -25,6 +26,7 @@ import BottomSheetModal from '@/components/BottomSheetModal';
 export default function CustomersScreen() {
   const { customers, addCustomer, updateCustomer, reload } = useData();
   const { showAlert } = useAlert();
+  const { isAdmin } = useAuth();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = React.useState(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -142,7 +144,7 @@ export default function CustomersScreen() {
     >
       <View style={styles.cardContent}>
         <Text style={styles.customerName}>{capitalizeWords(item.name)}</Text>
-        <Text style={styles.customerMobile}>{item.mobile}</Text>
+        <Text style={styles.customerMobile}>{maskMobile(item.mobile, isAdmin)}</Text>
       </View>
       <View style={styles.tags}>
         {item.isStudent && <Text style={styles.studentTag}>Student</Text>}

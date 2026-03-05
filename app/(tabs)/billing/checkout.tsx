@@ -18,7 +18,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
 import { CustomerSubscription } from '@/types';
 import { randomUUID } from 'expo-crypto';
-import { capitalizeWords } from '@/utils/format';
+import { capitalizeWords, maskMobile } from '@/utils/format';
 import BillSummary from '@/components/BillSummary';
 import SaleComplete from '@/components/SaleComplete';
 
@@ -163,7 +163,7 @@ export default function CheckoutScreen() {
       {selectedCustomer && (
         <View style={styles.customerBar}>
           <Text style={styles.customerBarName}>{capitalizeWords(selectedCustomer.name)}</Text>
-          <Text style={styles.customerBarMobile}>{selectedCustomer.mobile}</Text>
+          <Text style={styles.customerBarMobile}>{maskMobile(selectedCustomer.mobile, user?.role === 'admin')}</Text>
         </View>
       )}
 

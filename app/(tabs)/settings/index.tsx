@@ -33,6 +33,7 @@ import {
   CalendarCheck,
   Banknote,
   SlidersHorizontal,
+  CloudUpload,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/colors';
@@ -41,19 +42,21 @@ import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import { APP_AUTHOR, APP_NAME, APP_VERSION, BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import { useAuth } from '@/providers/AuthProvider';
 import { useData } from '@/providers/DataProvider';
+import { supabase } from '@/lib/supabase';
 import { CustomerSubscription } from '@/types';
 import { toLocalDateString } from '@/utils/format';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout, isAdmin } = useAuth();
-  const { showConfirm } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
   const { services, subscriptions, offers, combos, users, customers, customerSubscriptions, allExpenses, loadError, reload, offlineSalesEnabled, setOfflineSalesToggle, attendance, employeeSalaries } = useData();
   const subscribedCount = customerSubscriptions.filter((s: CustomerSubscription) => s.status === 'active').length;
   const [refreshing, setRefreshing] = useState(false);
   const [isAboutModalVisible, setAboutModalVisible] = useState(false);
   const [togglingOffline, setTogglingOffline] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [syncingContacts, setSyncingContacts] = useState(false);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -343,6 +346,47 @@ export default function SettingsScreen() {
                 />
               )}
             </View>
+
+            {/* Sync Google Contacts */}
+            <TouchableOpacity
+              style={[styles.menuItem, { paddingVertical: 14 }]}
+              activeOpacity={0.6}
+              onPress={() => {
+                showConfirm(
+                  'Sync All Contacts to Google?',
+                  'This will sync all existing customers to the salon\'s Google Contacts. New customers are synced automatically.',
+                  async () => {
+                    setSyncingContacts(true);
+                    try {
+                      const { data, error } = await supabase.functions.invoke('bulk-sync-google-contacts');
+                      if (error) throw error;
+                      showAlert('Sync Complete', `Synced: ${data.synced}, Skipped: ${data.skipped}, Errors: ${data.errors}`);
+                    } catch (e: any) {
+                      showAlert('Sync Failed', e.message || 'Failed to sync contacts');
+                    }
+                    setSyncingContacts(false);
+                  },
+                  'Sync Now',
+                );
+              }}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: '#E8F5E9' }]}>
+                {syncingContacts ? (
+                  <ActivityIndicator size="small" color="#2E7D32" />
+                ) : (
+                  <CloudUpload size={20} color="#2E7D32" strokeWidth={2} />
+                )}
+              </View>
+              <View style={styles.menuContent}>
+                <Text style={styles.menuTitle}>Sync Google Contacts</Text>
+                <Text style={styles.menuSubtitle}>
+                  {syncingContacts ? 'Syncing...' : 'Sync all customers to salon Gmail'}
+                </Text>
+              </View>
+              <View style={styles.chevronCircle}>
+                <ChevronRight size={14} color={Colors.textTertiary} />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       )}

@@ -39,7 +39,7 @@ import QuickPayment from '@/components/QuickPayment';
 import SaleComplete from '@/components/SaleComplete';
 import { useAuth } from '@/providers/AuthProvider';
 import { usePayment } from '@/providers/PaymentProvider';
-import { formatCurrency, capitalizeWords } from '@/utils/format';
+import { formatCurrency, capitalizeWords, maskMobile } from '@/utils/format';
 import { randomUUID } from 'expo-crypto';
 import { useAlert } from '@/providers/AlertProvider';
 import { useOfflineSync } from '@/providers/OfflineSyncProvider';
@@ -469,7 +469,7 @@ export default function BillingScreen() {
                         </View>
                       )}
                     </View>
-                    <Text style={styles.customerMeta}>{selectedCustomer.mobile}</Text>
+                    <Text style={styles.customerMeta}>{maskMobile(selectedCustomer.mobile, user?.role === 'admin')}</Text>
                   </View>
                 </View>
                 <TouchableOpacity onPress={() => setSelectedCustomer(null)}>

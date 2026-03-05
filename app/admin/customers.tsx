@@ -23,8 +23,10 @@ import {
   GraduationCap,
   PhoneCall,
   X,
+  CloudUpload,
 } from 'lucide-react-native';
 import { useData } from '@/providers/DataProvider';
+import { supabase } from '@/lib/supabase';
 import { Colors } from '@/constants/colors';
 import { WebTypo, WebColors } from '@/constants/web';
 import { AnimatedPage } from '@/components/web/AnimatedPage';
@@ -38,6 +40,7 @@ export default function AdminCustomers() {
     customers, addCustomer, updateCustomer, dataLoading,
   } = useData();
   const { showAlert, showConfirm } = useAlert();
+  const [syncingContacts, setSyncingContacts] = useState(false);
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -175,6 +178,31 @@ export default function AdminCustomers() {
           {search ? <Pressable onPress={() => setSearch('')}><X size={16} color={Colors.textTertiary} /></Pressable> : null}
         </View>
         <View style={s.toolbarRight}>
+          <Pressable
+            style={[s.exportBtn, syncingContacts && { opacity: 0.6 }]}
+            onPress={() => {
+              showConfirm(
+                'Sync All Contacts to Google?',
+                'This will sync all existing customers to the salon\'s Google Contacts. New customers are synced automatically.',
+                async () => {
+                  setSyncingContacts(true);
+                  try {
+                    const { data, error } = await supabase.functions.invoke('bulk-sync-google-contacts');
+                    if (error) throw error;
+                    showAlert('Sync Complete', `Synced: ${data.synced}, Skipped: ${data.skipped}, Errors: ${data.errors}`);
+                  } catch (e: any) {
+                    showAlert('Sync Failed', e.message || 'Failed to sync contacts');
+                  }
+                  setSyncingContacts(false);
+                },
+                'Sync Now',
+              );
+            }}
+            disabled={syncingContacts}
+          >
+            <CloudUpload size={16} color={syncingContacts ? Colors.primary : Colors.textSecondary} />
+            <Text style={s.exportText}>{syncingContacts ? 'Syncing...' : 'Sync Contacts'}</Text>
+          </Pressable>
           <Pressable style={s.exportBtn} onPress={exportCSV}>
             <Download size={16} color={Colors.textSecondary} />
             <Text style={s.exportText}>Export</Text>

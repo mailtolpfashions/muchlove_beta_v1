@@ -21,6 +21,8 @@ export interface Customer {
   isStudent: boolean;
   visitCount: number;
   createdAt: string;
+  /** Google People API resource name (e.g. "people/c12345") — set after sync */
+  googleContactResourceName?: string;
   /** true when created/updated offline and not yet synced */
   _offline?: boolean;
 }
