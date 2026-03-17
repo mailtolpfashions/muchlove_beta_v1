@@ -245,7 +245,7 @@ export function calculateMonthlySalary(
     }
   }
 
-  const perDayRate = workingDays > 0 ? baseSalary / workingDays : 0;
+  const perDayRate = workingDays > 0 ? Math.round(baseSalary / workingDays) : 0;
 
   // Filter records for this employee's month (from joining date onward)
   const monthRecords = attendanceRecords.filter(r => {
@@ -309,7 +309,7 @@ export function calculateMonthlySalary(
     totalPermissionHours += timeDiffHours(pr.fromTime, pr.toTime);
   }
   const permissionLeaveDays = c.workingHoursPerDay > 0
-    ? parseFloat((totalPermissionHours / c.workingHoursPerDay).toFixed(4))
+    ? Math.round((totalPermissionHours / c.workingHoursPerDay) * 10) / 10
     : 0;
 
   // 3. Non-rejected leave request days this month (all types: regular + comp + earned)
@@ -348,12 +348,12 @@ export function calculateMonthlySalary(
 
   // ── Earned salary: present + half×0.5 + paid leaves (within balance) ──
   const earnedDays = presentDays + (halfDays * 0.5) + paidLeaves;
-  const earnedSalary = earnedDays * perDayRate;
+  const earnedSalary = Math.round(earnedDays * perDayRate);
 
   // ── Deductions ──
   const latesPerHalfDay = c.latesPerHalfDay > 0 ? c.latesPerHalfDay : 3;
   const latePenaltyDays = Math.floor(lateCount / latesPerHalfDay) * 0.5;
-  const lateDeduction = latePenaltyDays * perDayRate;
+  const lateDeduction = Math.round(latePenaltyDays * perDayRate);
 
   // No separate permission deduction — permissions consume from leave balance
   const totalDeduction = lateDeduction;
@@ -362,7 +362,7 @@ export function calculateMonthlySalary(
   const incentivePercent = (cfg as any)?.incentivePercent ?? 0;
   const employeeSalesTotal = (cfg as any)?.employeeSalesTotal ?? 0;
   const incentiveAmount = incentivePercent > 0 && employeeSalesTotal > 0
-    ? parseFloat((employeeSalesTotal * incentivePercent / 100).toFixed(2))
+    ? Math.round(employeeSalesTotal * incentivePercent / 100)
     : 0;
 
   const netSalary = Math.max(0, earnedSalary - totalDeduction + incentiveAmount);

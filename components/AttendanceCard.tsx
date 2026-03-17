@@ -119,7 +119,7 @@ export default function AttendanceCard({
       permHours += Math.max(0, (toMin - fromMin) / 60);
     });
     const permLeaveDays = salonConfig.workingHoursPerDay > 0
-      ? permHours / salonConfig.workingHoursPerDay
+      ? Math.round((permHours / salonConfig.workingHoursPerDay) * 10) / 10
       : 0;
     leaveConsumed += permLeaveDays;
 
@@ -265,11 +265,11 @@ export default function AttendanceCard({
       {/* Monthly stats */}
       <View style={styles.statsRow}>
         <View style={[styles.statPill, { backgroundColor: '#D1FAE5' }]}>
-          <Text style={[styles.statNum, { color: '#059669' }]}>{monthStats.present}</Text>
+          <Text style={[styles.statNum, { color: '#059669' }]}>{parseFloat(monthStats.present.toFixed(1))}</Text>
           <Text style={[styles.statLabel, { color: '#059669' }]}>Present</Text>
         </View>
         <View style={[styles.statPill, { backgroundColor: '#FEE2E2' }]}>
-          <Text style={[styles.statNum, { color: '#DC2626' }]}>{monthStats.absent}</Text>
+          <Text style={[styles.statNum, { color: '#DC2626' }]}>{parseFloat(monthStats.absent.toFixed(1))}</Text>
           <Text style={[styles.statLabel, { color: '#DC2626' }]}>Absent</Text>
         </View>
         <View style={[styles.statPill, { backgroundColor: '#E0E7FF' }]}>

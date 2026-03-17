@@ -13,7 +13,7 @@ export function capitalizeWords(str: string): string {
 }
 
 export function formatCurrency(amount: number): string {
-  return `₹${amount.toFixed(2)}`;
+  return `₹${Math.round(amount)}`;
 }
 
 export function formatDate(dateString: string): string {

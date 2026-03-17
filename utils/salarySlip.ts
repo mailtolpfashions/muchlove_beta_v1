@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { File } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import { formatCurrency } from './format';
 import { BUSINESS_NAME, BUSINESS_ADDRESS, BUSINESS_CONTACT } from '@/constants/app';
 import type { SalaryBreakdown } from './salary';
@@ -34,6 +34,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
 <head>
 <meta charset="utf-8"/>
 <style>
+  @page { margin: 8mm; size: A4; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Roboto, sans-serif; background: #FFF5F7; color: #1A1A2E; padding: 0; margin: 0; }
 
@@ -45,78 +46,78 @@ function buildSalarySlipHtml(params: SlipParams): string {
   /* ── Header band ── */
   .header {
     background: linear-gradient(135deg, #E91E63, #AD1457);
-    color: #FFFFFF; padding: 32px 32px 40px; position: relative;
+    color: #FFFFFF; padding: 22px 24px 32px; position: relative;
   }
   .header::after {
     content: ''; position: absolute; bottom: 0px; left: 0; right: 0;
-    height: 20px; background: #FFFFFF; border-radius: 20px 20px 0 0;
+    height: 14px; background: #FFFFFF; border-radius: 14px 14px 0 0;
   }
-  .header h1 { font-size: 26px; font-weight: 800; letter-spacing: 1px; margin-bottom: 4px; }
-  .header .business-name { font-size: 14px; opacity: 0.9; font-weight: 500; }
-  .header .business-detail { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+  .header h1 { font-size: 20px; font-weight: 800; letter-spacing: 1px; margin-bottom: 2px; }
+  .header .business-name { font-size: 12px; opacity: 0.9; font-weight: 500; }
+  .header .business-detail { font-size: 10px; opacity: 0.75; margin-top: 1px; }
 
   /* ── Meta strip ── */
   .meta-strip {
     display: flex; justify-content: space-between; align-items: flex-start;
-    padding: 12px 32px 16px; background: #FFFFFF; flex-wrap: wrap; gap: 8px;
+    padding: 12px 24px 16px; background: #FFFFFF; flex-wrap: wrap; gap: 6px;
   }
   .meta-strip .meta-block { }
-  .meta-strip .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #9CA3AF; font-weight: 700; }
-  .meta-strip .value { font-size: 15px; font-weight: 600; color: #1A1A2E; margin-top: 2px; white-space: nowrap; }
+  .meta-strip .label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #9CA3AF; font-weight: 700; }
+  .meta-strip .value { font-size: 13px; font-weight: 600; color: #1A1A2E; margin-top: 1px; white-space: nowrap; }
 
   /* ── Info cards ── */
   .info-row {
-    display: flex; gap: 16px; padding: 0 32px 20px; flex-wrap: wrap;
+    display: flex; gap: 12px; padding: 0 24px 20px; flex-wrap: wrap;
   }
   .info-card {
-    flex: 1; min-width: 140px; background: #FFF5F7; border-radius: 12px;
-    padding: 14px 16px; border-left: 4px solid #E91E63;
+    flex: 1; min-width: 130px; background: #FFF5F7; border-radius: 8px;
+    padding: 12px 14px; border-left: 3px solid #E91E63;
   }
   .info-card .info-label {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-    color: #E91E63; font-weight: 700; margin-bottom: 4px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+    color: #E91E63; font-weight: 700; margin-bottom: 2px;
   }
-  .info-card .info-value { font-size: 14px; font-weight: 600; color: #1A1A2E; }
-  .info-card .info-sub { font-size: 11px; color: #9CA3AF; margin-top: 2px; }
+  .info-card .info-value { font-size: 12px; font-weight: 600; color: #1A1A2E; }
+  .info-card .info-sub { font-size: 10px; color: #9CA3AF; margin-top: 1px; }
 
   /* ── Net payable highlight ── */
-  .net-section { padding: 0 32px 20px; }
+  .net-section { padding: 0 24px 20px; }
   .net-box {
-    background: #D1FAE5; border-radius: 12px; padding: 16px 20px;
+    background: #D1FAE5; border-radius: 10px; padding: 10px 16px;
     display: flex; justify-content: space-between; align-items: center;
     border: 1px solid #A7F3D0;
   }
-  .net-box .net-label { font-size: 16px; font-weight: 700; color: #059669; }
-  .net-box .net-value { font-size: 24px; font-weight: 800; color: #059669; }
+  .net-box .net-label { font-size: 14px; font-weight: 700; color: #059669; }
+  .net-box .net-value { font-size: 20px; font-weight: 800; color: #059669; }
 
   /* ── Summary cards row ── */
   .summary-row {
-    display: flex; gap: 12px; padding: 0 32px 20px; flex-wrap: wrap;
+    display: flex; gap: 8px; padding: 0 24px 20px; flex-wrap: wrap;
   }
   .summary-card {
-    flex: 1; min-width: 90px; background: #FFF5F7; border-radius: 10px;
-    padding: 10px 12px; border-left: 3px solid #E91E63; text-align: center;
+    flex: 1; min-width: 70px; background: #FFF5F7; border-radius: 8px;
+    padding: 8px 8px; border-left: 3px solid #E91E63; text-align: center;
   }
-  .summary-card .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #E91E63; font-weight: 700; }
-  .summary-card .val { font-size: 16px; font-weight: 800; color: #1A1A2E; margin-top: 2px; }
+  .summary-card .lbl { font-size: 8px; text-transform: uppercase; letter-spacing: 0.8px; color: #E91E63; font-weight: 700; }
+  .summary-card .val { font-size: 13px; font-weight: 800; color: #1A1A2E; margin-top: 1px; }
 
   /* ── Section title ── */
   .section-label {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-    color: #E91E63; font-weight: 700; margin-bottom: 6px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+    color: #E91E63; font-weight: 700; margin-bottom: 4px;
   }
 
   /* ── Items table ── */
-  .table-section { padding: 0 32px 16px; }
+  .table-section { padding: 0 24px 18px; }
   .table-section table { width: 100%; border-collapse: collapse; }
   .table-section thead th {
     background: linear-gradient(135deg, #FCE4EC, #FFF0F5);
-    color: #AD1457; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
-    font-weight: 700; padding: 10px 12px; text-align: left;
+    color: #AD1457; font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px;
+    font-weight: 700; padding: 7px 8px; text-align: left;
   }
   .table-section thead th.right { text-align: right; }
   .table-section tbody td {
-    padding: 9px 12px; font-size: 13px; color: #1A1A2E;
+    padding: 7px 8px; font-size: 11px; color: #1A1A2E;
     border-bottom: 1px solid #FFF0F5;
   }
   .table-section tbody td.right { text-align: right; }
@@ -125,29 +126,29 @@ function buildSalarySlipHtml(params: SlipParams): string {
   .table-section tbody td:first-child { font-weight: 500; }
 
   /* ── Totals section ── */
-  .totals-section { padding: 0 32px 20px; }
+  .totals-section { padding: 0 24px 20px; }
   .totals-box {
-    background: #FFF5F7; border-radius: 12px; padding: 16px 20px;
+    background: #FFF5F7; border-radius: 10px; padding: 10px 14px;
     border: 1px solid #F3D5DE;
   }
   .totals-row {
-    display: flex; justify-content: space-between; padding: 4px 0;
-    font-size: 13px; color: #6B7280;
+    display: flex; justify-content: space-between; padding: 3px 0;
+    font-size: 11px; color: #6B7280;
   }
   .totals-row.deduct .totals-value { color: #DC2626; font-weight: 700; }
   .totals-row.grand {
-    margin-top: 8px; padding-top: 10px;
+    margin-top: 6px; padding-top: 6px;
     border-top: 2px solid #E91E63;
-    font-size: 18px; font-weight: 800; color: #E91E63;
+    font-size: 14px; font-weight: 800; color: #E91E63;
   }
 
   /* ── Footer ── */
   .footer {
-    text-align: center; padding: 20px 32px 28px;
+    text-align: center; padding: 18px 24px 22px;
     border-top: 1px solid #FFF0F5;
   }
-  .footer .thanks { font-size: 13px; font-weight: 700; color: #E91E63; margin-bottom: 4px; }
-  .footer .sub { font-size: 10px; color: #9CA3AF; }
+  .footer .thanks { font-size: 11px; font-weight: 700; color: #E91E63; margin-bottom: 2px; }
+  .footer .sub { font-size: 9px; color: #9CA3AF; }
 </style>
 </head>
 <body>
@@ -206,7 +207,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
       </div>
       <div class="summary-card">
         <div class="lbl">Absent</div>
-        <div class="val" style="color:#DC2626;">${b.absentDays}</div>
+        <div class="val" style="color:#DC2626;">${parseFloat(b.absentDays.toFixed(1))}</div>
       </div>
       <div class="summary-card">
         <div class="lbl">Leave Balance</div>
@@ -233,7 +234,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
           <tr><td>Present Days</td><td class="right" style="color:#059669;">${b.presentDays} days</td></tr>
           ${b.halfDays > 0 ? `<tr><td>Half Days (×0.5)</td><td class="right" style="color:#D97706;">${b.halfDays}</td></tr>` : ''}
           ${b.paidLeaves > 0 ? `<tr><td>Paid Leaves (within balance)</td><td class="right" style="color:#7C3AED;">${parseFloat(b.paidLeaves.toFixed(1))} days</td></tr>` : ''}
-          <tr><td class="bold">Earned Days</td><td class="right bold" style="color:#059669;">${b.earnedDays} days</td></tr>
+          <tr><td class="bold">Earned Days</td><td class="right bold" style="color:#059669;">${parseFloat(b.earnedDays.toFixed(1))} days</td></tr>
           <tr><td class="bold">Earned Salary</td><td class="right bold" style="color:#059669;">${formatCurrency(b.earnedSalary)}</td></tr>
           ${b.incentiveAmount > 0 ? `<tr><td class="bold">Sales Incentive (${b.incentivePercent}% of ${formatCurrency(b.employeeSalesTotal)})</td><td class="right bold" style="color:#059669;">+${formatCurrency(b.incentiveAmount)}</td></tr>` : ''}
         </tbody>
@@ -251,7 +252,7 @@ function buildSalarySlipHtml(params: SlipParams): string {
           </tr>
         </thead>
         <tbody>
-          <tr><td>Absent</td><td class="right" style="color:#DC2626;">${b.absentDays} days</td></tr>
+          <tr><td>Absent</td><td class="right" style="color:#DC2626;">${parseFloat(b.absentDays.toFixed(1))} days</td></tr>
           <tr><td>Comp Earned (weekly off work)</td><td class="right" style="color:#7C3AED;">${b.compLeavesEarned} days</td></tr>
           <tr><td>Leave Balance (EL: ${parseFloat(b.earnedLeaveBalance.toFixed(1))}, Comp: ${parseFloat(b.compBalance.toFixed(1))}, Perm: ${parseFloat(b.freePermDays.toFixed(1))})</td><td class="right" style="color:#059669;">${parseFloat(b.leaveBalance.toFixed(1))} days</td></tr>
           <tr><td>Leave Used (Half: ${parseFloat(b.halfDayLeave.toFixed(1))}, Perm: ${parseFloat(b.permissionLeaveDays.toFixed(1))}, Leave: ${b.approvedLeaveDays})</td><td class="right" style="color:#EA580C;">${parseFloat(b.leaveConsumed.toFixed(1))} days</td></tr>
@@ -295,22 +296,25 @@ const sanitizeFileName = (name: string): string =>
 
 export async function shareSalarySlip(params: SlipParams): Promise<void> {
   const html = buildSalarySlipHtml(params);
-  const { uri } = await Print.printToFileAsync({ html });
 
-  // Rename temp file so the share dialog shows a friendly name
   const monthName = new Date(params.year, params.month).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }).replace(' ', '');
   const namePart = sanitizeFileName(params.employeeName).slice(0, 12);
   const fileName = `Salary_${namePart}_${monthName}.pdf`;
 
-  const file = new File(uri);
+  const { uri: tempUri } = await Print.printToFileAsync({ html });
+
+  // Copy to a named file in cache so the share dialog shows a friendly name
+  const dest = new File(Paths.cache, fileName);
   try {
-    file.rename(fileName);
+    const src = new File(tempUri);
+    src.move(dest);
   } catch {
-    // rename failed — share with original temp name
+    // fallback: share with temp name
   }
 
+  const shareUri = dest.uri ?? tempUri;
   try {
-    await Sharing.shareAsync(file.uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    await Sharing.shareAsync(shareUri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch {
     // User cancelled share — not an error
   }

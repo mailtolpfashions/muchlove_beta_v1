@@ -254,15 +254,19 @@ export default function AttendanceManagementScreen() {
         empPermHours += Math.max(0, (toMin - fromMin) / 60);
       });
       const permLeaveDays = salonConfig.workingHoursPerDay > 0
-        ? empPermHours / salonConfig.workingHoursPerDay
+        ? Math.round((empPermHours / salonConfig.workingHoursPerDay) * 10) / 10
         : 0;
 
       for (let day = firstDay; day <= lastDay; day++) {
         const d = new Date(year, month, day);
         const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
         const isOff = d.getDay() === salonConfig.weeklyOffDay;
         const rec = recordMap.get(ds);
         const hasLeave = leaveDates.has(ds);
+
+        // Skip today if no record yet (shift may still be ongoing)
+        if (isToday && !rec && !hasLeave) continue;
 
         if (isOff) {
           const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
@@ -354,7 +358,8 @@ export default function AttendanceManagementScreen() {
       for (let day = 1; day <= totalDays; day++) {
         const d = new Date(year, month, day);
         const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const isFuture = d > today;
+        const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+        const isFuture = d > today || isToday;
         // Days before employee's joining date are shown as future (greyed out)
         const isBeforeJoining = empJoinDate && d < new Date(empJoinDate.getFullYear(), empJoinDate.getMonth(), empJoinDate.getDate());
         const isOff = d.getDay() === salonConfig.weeklyOffDay;
@@ -902,7 +907,7 @@ export default function AttendanceManagementScreen() {
             const isOff = pill.key === 'off';
             const isLeaveKey = pill.key === 'leave';
             const count = isLeaveKey
-              ? parseFloat(empStats.leaveBalance.toFixed(1))
+              ? parseFloat(empStats.leave.toFixed(1))
               : empStats[pill.key];
             return (
               <TouchableOpacity
@@ -922,7 +927,7 @@ export default function AttendanceManagementScreen() {
                 }}
               >
                 <Text style={[styles.quickPillCount, { color: pill.color }]}>
-                  {count}
+                  {typeof count === 'number' ? parseFloat(count.toFixed(1)) : count}
                 </Text>
                 <Text style={[styles.quickPillText, { color: pill.color, fontWeight: isActive ? '800' : '600' }]}>
                   {pill.label}
@@ -1134,22 +1139,22 @@ export default function AttendanceManagementScreen() {
   // Summary counts — monthly totals across all employees (consistent with per-employee pills)
   const weeklyOffDate = isWeeklyOff(dateStr, salonConfig);
   const summaryTotals = useMemo(() => {
-    let present = 0, absent = 0, off = 0, leaveBalance = 0;
+    let present = 0, absent = 0, off = 0, leave = 0;
     for (const emp of employeeList) {
       const s = monthlyStats.get(emp.id);
       if (s) {
         present += s.present;
         absent += s.absent;
         off += s.off;
-        leaveBalance += s.leaveBalance;
+        leave += s.leave;
       }
     }
-    return { present, absent, off, leaveBalance };
+    return { present, absent, off, leave };
   }, [employeeList, monthlyStats]);
   const presentCount = summaryTotals.present;
   const absentCount = summaryTotals.absent;
   const offCount = summaryTotals.off;
-  const leaveCount = parseFloat(summaryTotals.leaveBalance.toFixed(1));
+  const leaveCount = parseFloat(summaryTotals.leave.toFixed(1));
 
   return (
     <View style={styles.container}>
@@ -1205,11 +1210,11 @@ export default function AttendanceManagementScreen() {
           {/* Summary */}
           <View style={styles.summaryRow}>
             <View style={[styles.summaryPill, { backgroundColor: '#A7F3D0' }]}>
-              <Text style={[styles.summaryNum, { color: '#047857' }]}>{presentCount}</Text>
+              <Text style={[styles.summaryNum, { color: '#047857' }]}>{parseFloat(presentCount.toFixed(1))}</Text>
               <Text style={[styles.summaryLabel, { color: '#047857' }]}>Present</Text>
             </View>
             <View style={[styles.summaryPill, { backgroundColor: '#FECACA' }]}>
-              <Text style={[styles.summaryNum, { color: '#B91C1C' }]}>{absentCount}</Text>
+              <Text style={[styles.summaryNum, { color: '#B91C1C' }]}>{parseFloat(absentCount.toFixed(1))}</Text>
               <Text style={[styles.summaryLabel, { color: '#B91C1C' }]}>Absent</Text>
             </View>
             <View style={[styles.summaryPill, { backgroundColor: '#C7D2FE' }]}>
