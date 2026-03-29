@@ -282,36 +282,21 @@ export default function SalaryManagementScreen() {
             </View>
 
             <View style={salaryStyles.breakdownSection}>
-              <SalaryRow label="Base Salary" value={formatCurrency(b.baseSalary)} />
               <SalaryRow label="Working Days" value={`${b.workingDays} days`} />
               <SalaryRow label="Per Day Rate" value={formatCurrency(b.perDayRate)} />
               <SalaryDivider />
               <SalaryRow label="Present" value={`${parseFloat(b.presentDays.toFixed(1))} days`} color="#059669" />
-              {b.halfDays > 0 && <SalaryRow label="Half Days" value={`${b.halfDays} (×0.5)`} color="#D97706" />}
-              <SalaryRow label="Off" value={`${parseFloat(b.offDays.toFixed(1))} days`} color="#3730A3" />
-              <SalaryRow label="Leave" value={`${parseFloat(b.leaveDays.toFixed(1))} days`} color="#EA580C" />
-              <SalaryRow label="Earned Days" value={`${b.earnedDays} days`} color="#059669" />
-              <SalaryRow label="Earned Salary" value={formatCurrency(b.earnedSalary)} color="#059669" />
+              <SalaryRow label="Absent" value={`${parseFloat((b.absentDays + b.halfDays * 0.5).toFixed(1))} days`} color="#DC2626" />
+              <SalaryRow label="Comp Off" value={`${parseFloat(b.offDays.toFixed(1))} days`} color="#3730A3" />
+              <SalaryRow label="Leave" value={`${parseFloat(b.approvedLeaveDays.toFixed(1))} days`} color="#EA580C" />
+              <SalaryRow label="Leave Balance" value={`${parseFloat(b.leaveBalance.toFixed(1))} days`} color="#059669" />
               <SalaryDivider />
-              <SalaryRow label="Absent" value={`${b.absentDays} days`} color="#DC2626" />
-              <SalaryRow label="Leave Balance" value={`${parseFloat(b.leaveBalance.toFixed(1))} (EL:${parseFloat(b.earnedLeaveBalance.toFixed(1))} C:${parseFloat(b.compBalance.toFixed(1))} P:${parseFloat(b.freePermDays.toFixed(1))})`} color="#059669" />
-              <SalaryRow label="Leave Used" value={`${parseFloat(b.leaveConsumed.toFixed(1))} days`} color="#EA580C" />
-              {b.leaveConsumed > 0 && (
-                <View style={salaryStyles.leaveBreakdown}>
-                  {b.approvedLeaveDays > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Leave Req: {b.approvedLeaveDays}d</Text>}
-                  {b.halfDayLeave > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Half Day: {parseFloat(b.halfDayLeave.toFixed(1))}d</Text>}
-                  {b.permissionLeaveDays > 0 && <Text style={salaryStyles.leaveBreakdownText}>• Permission: {parseFloat(b.permissionLeaveDays.toFixed(1))}d</Text>}
-                </View>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>Deductions</Text>
+              {b.latePenaltyDays > 0 && (
+                <SalaryRow label="Total Lates" value={`${parseFloat(b.latePenaltyDays.toFixed(1))} days  -${formatCurrency(b.lateDeduction)}`} color="#DC2626" />
               )}
-              {b.excessLeaves > 0 && <SalaryRow label="Excess Leaves" value={`${parseFloat(b.excessLeaves.toFixed(1))} days`} color="#DC2626" />}
-              <SalaryRow label="Comp Earned" value={`${b.compLeavesEarned} days`} color="#7C3AED" />
-              {b.lateCount > 0 && b.latePenaltyDays > 0 && (
-                <SalaryRow
-                  label={`Late Penalty (${b.lateCount} lates → ${b.latePenaltyDays}d)`}
-                  value={`-${formatCurrency(b.lateDeduction)}`}
-                  color="#DC2626"
-                  isDeduction
-                />
+              {b.permissionLeaveDays > 0 && (
+                <SalaryRow label="Total Permissions" value={`${parseFloat(b.permissionLeaveDays.toFixed(1))} days  -${formatCurrency(Math.round(b.permissionLeaveDays * b.perDayRate))}`} color="#6366F1" />
               )}
               {b.totalDeduction > 0 && (
                 <>
@@ -321,16 +306,6 @@ export default function SalaryManagementScreen() {
                     <Text style={salaryStyles.totalDeductionLabel}>Total Deduction</Text>
                     <Text style={salaryStyles.totalDeductionValue}>-{formatCurrency(b.totalDeduction)}</Text>
                   </View>
-                </>
-              )}
-              {b.incentiveAmount > 0 && (
-                <>
-                  <SalaryDivider />
-                  <SalaryRow
-                    label={`Sales Incentive (${b.incentivePercent}% of ${formatCurrency(b.employeeSalesTotal)})`}
-                    value={`+${formatCurrency(b.incentiveAmount)}`}
-                    color="#059669"
-                  />
                 </>
               )}
             </View>

@@ -79,53 +79,41 @@ export interface SalaryBreakdown {
   workingDays: number;
   perDayRate: number;
 
-  /* Attendance */
+  /* Attendance - core metrics */
   presentDays: number;
   halfDays: number;
-  absentDays: number;          // true absents (no record & no leave) + excess leave overflow
+  absentDays: number;
   offDays: number;
-  leaveDays: number;
+  approvedLeaveDays: number;   // full-day leave days in this month
 
   /* Comp leave */
   compLeavesEarned: number;    // from working on weekly offs this month
 
-  /* Leave balance */
+  /* Leave balance - cumulative */
   earnedLeaveBalance: number;  // cumulative EL accrued − all EL ever used
   compBalance: number;         // cumulative comp earned − all comp ever used
   freePermDays: number;        // freePermissionHours / workingHoursPerDay (per month)
   leaveBalance: number;        // earnedLeaveBalance + compBalance + freePermDays
 
-  /* Leave consumed this month */
-  halfDayLeave: number;        // halfDays × 0.5
+  /* Deductibles this month */
   permissionLeaveDays: number; // total approved permission hours ÷ workingHoursPerDay
-  approvedLeaveDays: number;   // approved leave request days this month (all types)
-  leaveConsumed: number;       // halfDayLeave + permissionLeaveDays + approvedLeaveDays
-
-  /* Paid vs excess */
-  paidLeaves: number;          // min(leaveConsumed, leaveBalance)
-  excessLeaves: number;        // max(0, leaveConsumed − leaveBalance)
-
-  /* Late penalty */
   lateCount: number;
   latesPerHalfDay: number;
   latePenaltyDays: number;
-  earlyOutHours: number;
   earlyOutDays: number;
-  penaltyDays: number;
-  balanceDays: number;
-  deductibleDays: number;
+  penaltyDays: number;         // permissionLeaveDays + earlyOutDays + latePenaltyDays
+  balanceDays: number;         // earnedLeaveBalance + compBalance
+  deductibleDays: number;      // max(0, penaltyDays - balanceDays)
 
   /* Incentive */
   incentivePercent: number;    // admin-configured % of employee's monthly sales
   employeeSalesTotal: number;  // total sales amount by this employee in the month
   incentiveAmount: number;     // employeeSalesTotal × incentivePercent / 100
 
-  /* Salary */
-  earnedDays: number;          // presentDays + halfDays×0.5 + paidLeaves
-  earnedSalary: number;
-  lateDeduction: number;
-  totalDeduction: number;      // lateDeduction only (excess leaves already reduce earnedDays)
-  netSalary: number;           // earnedSalary - totalDeduction + incentiveAmount
+  /* Final salary */
+  lateDeduction: number;       // latePenaltyDays × perDayRate
+  totalDeduction: number;      // deductibleDays × perDayRate
+  netSalary: number;           // (presentDays × perDayRate) - totalDeduction + incentiveAmount
 }
 
 interface MonthAttendanceSummary {
@@ -139,6 +127,30 @@ interface MonthAttendanceSummary {
   earlyOutHours: number;
   permissionLeaveDays: number;
   approvedLeaveDays: number;
+}
+
+function getMonthlyPaidLeaveDaysFromBalance(
+  leaveRequests: LeaveRequest[],
+  year: number,
+  month: number,
+  cfg: SalaryConfig,
+): number {
+  let paidLeaveDays = 0;
+
+  for (const lr of leaveRequests) {
+    if (lr.status === 'rejected') continue;
+    if (lr.type !== 'earned' && lr.type !== 'compensation') continue;
+
+    const start = new Date(lr.startDate);
+    const end = new Date(lr.endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+      if (d.getDay() === cfg.weeklyOffDay) continue;
+      paidLeaveDays += 1;
+    }
+  }
+
+  return paidLeaveDays;
 }
 
 function getMonthAttendanceSummary(
@@ -177,7 +189,7 @@ function getMonthAttendanceSummary(
 
   const leaveDates = new Set<string>();
   for (const lr of leaveRequests) {
-    if (lr.status === 'rejected') continue;
+    if (lr.status !== 'approved') continue;
     const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(year, month, firstDay).getTime()));
     const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(year, month, lastCountableDay).getTime()));
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -192,6 +204,7 @@ function getMonthAttendanceSummary(
   let absentDays = 0;
   let offDays = 0;
   let leaveDays = 0;
+  let approvedLeaveDays = 0;
   let compLeavesEarned = 0;
   let lateCount = 0;
   let earlyOutHours = 0;
@@ -225,7 +238,8 @@ function getMonthAttendanceSummary(
     }
 
     if (hasLeave && !rec) {
-      leaveDays += 1;  // approved leave (counts toward leave balance offset)
+      leaveDays += 1;
+      approvedLeaveDays += 1;
       continue;
     }
 
@@ -238,6 +252,7 @@ function getMonthAttendanceSummary(
         leaveDays += 0.5;
       } else if (rec.status === 'leave') {
         leaveDays += 1;
+        approvedLeaveDays += 1;
       } else {
         absentDays += 1;
       }
@@ -257,17 +272,6 @@ function getMonthAttendanceSummary(
     }
 
     absentDays += 1;
-  }
-
-  let approvedLeaveDays = 0;
-  for (const lr of leaveRequests) {
-    if (lr.status === 'rejected') continue;
-    const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(year, month, firstDay).getTime()));
-    const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(year, month, lastCountableDay).getTime()));
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === cfg.weeklyOffDay) continue;
-      approvedLeaveDays++;
-    }
   }
 
   let permissionHours = 0;
@@ -469,13 +473,13 @@ export function calculateMonthlySalary(
   const penaltyDays = permissionLeaveDays + earlyOutDays + latePenaltyDays;
   const deductibleDays = Math.max(0, penaltyDays - balanceDays);
 
-  // Keep legacy informational fields for UI compatibility
-  const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
+  // UI display metric: only approved leave actually deducted from EL/Comp balances
+  const paidLeaves = getMonthlyPaidLeaveDaysFromBalance(leaveRequests, year, month, c);
   const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
 
   // Salary is based on calendar present days only (half-day already contributes 0.5)
-  // Deduct both penalties (offset by balance) and excess leaves (no balance to cover)
-  const earnedDays = Math.max(0, summary.presentDays - deductibleDays - excessLeaves);
+  // Penalties are applied as separate deductions (not baked into earned days)
+  const earnedDays = Math.max(0, summary.presentDays);
   const earnedSalary = Math.round(earnedDays * perDayRate);
 
   // ── Deductions ──
@@ -501,33 +505,25 @@ export function calculateMonthlySalary(
     halfDays: summary.halfDays,
     absentDays: summary.absentDays,
     offDays: summary.offDays,
-    leaveDays: summary.leaveDays,
+    approvedLeaveDays,
     compLeavesEarned: summary.compLeavesEarned,
     earnedLeaveBalance,
     compBalance,
     freePermDays,
     leaveBalance,
-    halfDayLeave,
     permissionLeaveDays,
-    approvedLeaveDays,
-    leaveConsumed,
-    paidLeaves,
-    excessLeaves,
-    lateCount: summary.lateCount,
-    latesPerHalfDay,
     latePenaltyDays,
-    earlyOutHours: Math.round(summary.earlyOutHours * 10) / 10,
     earlyOutDays,
     penaltyDays,
     balanceDays,
     deductibleDays,
+    lateCount: summary.lateCount,
+    latesPerHalfDay,
+    lateDeduction,
+    totalDeduction,
     incentivePercent,
     employeeSalesTotal,
     incentiveAmount,
-    earnedDays,
-    earnedSalary,
-    lateDeduction,
-    totalDeduction,
     netSalary,
   };
 }

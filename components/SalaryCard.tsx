@@ -170,48 +170,23 @@ export default function SalaryCard({
         <Text style={styles.netValue}>{formatCurrency(breakdown.netSalary)}</Text>
       </View>
 
-      {/* Breakdown */}
+      {/* Breakdown - Simplified */}
       <View style={styles.breakdownSection}>
-        <Row label="Base Salary" value={formatCurrency(breakdown.baseSalary)} />
         <Row label="Working Days" value={`${breakdown.workingDays} days`} />
         <Row label="Per Day Rate" value={formatCurrency(breakdown.perDayRate)} />
         <Divider />
         <Row label="Present" value={`${parseFloat(breakdown.presentDays.toFixed(1))} days`} color="#059669" />
-        {breakdown.halfDays > 0 && <Row label="Half Days" value={`${breakdown.halfDays} (×0.5)`} color="#D97706" />}
-        <Row label="Off" value={`${parseFloat(breakdown.offDays.toFixed(1))} days`} color="#3730A3" />
-        <Row label="Leave" value={`${parseFloat(breakdown.leaveDays.toFixed(1))} days`} color="#EA580C" />
-        <Row label="Earned Days" value={`${parseFloat(breakdown.earnedDays.toFixed(1))} days`} color="#059669" />
-        <Row label="Earned Salary" value={formatCurrency(breakdown.earnedSalary)} color="#059669" />
+        <Row label="Absent" value={`${parseFloat((breakdown.absentDays + breakdown.halfDays * 0.5).toFixed(1))} days`} color="#DC2626" />
+        <Row label="Comp Off" value={`${parseFloat(breakdown.offDays.toFixed(1))} days`} color="#3730A3" />
+        <Row label="Leave" value={`${parseFloat(breakdown.approvedLeaveDays.toFixed(1))} days`} color="#EA580C" />
+        <Row label="Leave Balance" value={`${parseFloat(breakdown.leaveBalance.toFixed(1))} days`} color="#059669" />
         <Divider />
-        <Row label="Absent" value={`${parseFloat(breakdown.absentDays.toFixed(1))} days`} color="#DC2626" />
-        <Row label="Leave Balance" value={`${parseFloat(breakdown.leaveBalance.toFixed(1))} (EL:${parseFloat(breakdown.earnedLeaveBalance.toFixed(1))} C:${parseFloat(breakdown.compBalance.toFixed(1))} P:${parseFloat(breakdown.freePermDays.toFixed(1))})`} color="#059669" />
-        <Row
-          label="Leave Used"
-          value={`${parseFloat(breakdown.leaveConsumed.toFixed(1))} days`}
-          color="#EA580C"
-        />
-        {breakdown.leaveConsumed > 0 && (
-          <View style={styles.leaveBreakdown}>
-            {breakdown.approvedLeaveDays > 0 && (
-              <Text style={styles.leaveBreakdownText}>• Leave Req: {breakdown.approvedLeaveDays}d</Text>
-            )}
-            {breakdown.halfDayLeave > 0 && (
-              <Text style={styles.leaveBreakdownText}>• Half Day: {parseFloat(breakdown.halfDayLeave.toFixed(1))}d</Text>
-            )}
-            {breakdown.permissionLeaveDays > 0 && (
-              <Text style={styles.leaveBreakdownText}>• Permission: {parseFloat(breakdown.permissionLeaveDays.toFixed(1))}d</Text>
-            )}
-          </View>
+        <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>Deductions</Text>
+        {breakdown.latePenaltyDays > 0 && (
+          <Row label="Total Lates" value={`${parseFloat(breakdown.latePenaltyDays.toFixed(1))} days  -${formatCurrency(breakdown.lateDeduction)}`} color="#DC2626" />
         )}
-        {breakdown.excessLeaves > 0 && <Row label="Excess Leaves" value={`${parseFloat(breakdown.excessLeaves.toFixed(1))} days`} color="#DC2626" />}
-        <Row label="Comp Earned" value={`${breakdown.compLeavesEarned} days`} color="#7C3AED" />
-        {breakdown.lateCount > 0 && breakdown.latePenaltyDays > 0 && (
-          <Row
-            label={`Late Penalty (${breakdown.lateCount} lates → ${breakdown.latePenaltyDays}d)`}
-            value={`-${formatCurrency(breakdown.lateDeduction)}`}
-            color="#DC2626"
-            isDeduction
-          />
+        {breakdown.permissionLeaveDays > 0 && (
+          <Row label="Total Permissions" value={`${parseFloat(breakdown.permissionLeaveDays.toFixed(1))} days  -${formatCurrency(Math.round(breakdown.permissionLeaveDays * breakdown.perDayRate))}`} color="#6366F1" />
         )}
         {breakdown.totalDeduction > 0 && (
           <>
@@ -221,16 +196,6 @@ export default function SalaryCard({
               <Text style={styles.totalDeductionLabel}>Total Deduction</Text>
               <Text style={styles.totalDeductionValue}>-{formatCurrency(breakdown.totalDeduction)}</Text>
             </View>
-          </>
-        )}
-        {breakdown.incentiveAmount > 0 && (
-          <>
-            <Divider />
-            <Row
-              label={`Sales Incentive (${breakdown.incentivePercent}% of ${formatCurrency(breakdown.employeeSalesTotal)})`}
-              value={`+${formatCurrency(breakdown.incentiveAmount)}`}
-              color="#059669"
-            />
           </>
         )}
       </View>

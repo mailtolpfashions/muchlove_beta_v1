@@ -165,6 +165,22 @@ export default function AttendanceManagementScreen() {
 
   const presentHalfHasBalance = presentHalfSelected && empLeaveBreakdown.totalBalance >= 0.5;
 
+  const getPreferredDeductFrom = useCallback((required: number): DeductFrom => {
+    // Priority requested by user: Comp Off first, then EL, then Free Permission.
+    if (empLeaveBreakdown.compBalance >= required) return 'comp';
+    if (empLeaveBreakdown.earnedLeaveBalance >= required) return 'el';
+    if (empLeaveBreakdown.freePermDays >= required) return 'free_perm';
+
+    // Fallback: choose source with highest available balance.
+    const ranked: Array<{ source: DeductFrom; bal: number }> = [
+      { source: 'comp', bal: empLeaveBreakdown.compBalance },
+      { source: 'el', bal: empLeaveBreakdown.earnedLeaveBalance },
+      { source: 'free_perm', bal: empLeaveBreakdown.freePermDays },
+    ];
+    ranked.sort((a, b) => b.bal - a.bal);
+    return ranked[0]?.source ?? 'comp';
+  }, [empLeaveBreakdown]);
+
   const profileMap = useMemo(() => {
     const map = new Map<string, string>();
     users.forEach((p: any) => map.set(p.id, p.name));
@@ -221,9 +237,9 @@ export default function AttendanceManagementScreen() {
 
       map.set(emp.id, {
         present: breakdown.presentDays,
-        absent: breakdown.absentDays,
+        absent: breakdown.absentDays + (breakdown.halfDays * 0.5),
         off: breakdown.offDays,
-        paidLeaves: breakdown.paidLeaves,
+        paidLeaves: breakdown.approvedLeaveDays,
         leaveBalance: breakdown.leaveBalance,
         compOff: breakdown.compLeavesEarned,
       });
@@ -255,7 +271,7 @@ export default function AttendanceManagementScreen() {
       empRecords.forEach(r => recordMap.set(r.date, r));
 
       const empLeaves = leaveRequests.filter(lr =>
-        lr.employeeId === emp.id && lr.status !== 'rejected'
+        lr.employeeId === emp.id && lr.status === 'approved'
       );
       const leaveDates = new Set<string>();
       for (const lr of empLeaves) {
@@ -271,16 +287,17 @@ export default function AttendanceManagementScreen() {
         const d = new Date(year, month, day);
         const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-        const isFuture = d > today || isToday;
+        const isFutureDate = d > today;
         // Days before employee's joining date are shown as future (greyed out)
         const isBeforeJoining = empJoinDate && d < new Date(empJoinDate.getFullYear(), empJoinDate.getMonth(), empJoinDate.getDate());
         const isOff = d.getDay() === salonConfig.weeklyOffDay;
         const rec = recordMap.get(ds);
         const hasLeave = leaveDates.has(ds);
 
-        if (isFuture || isBeforeJoining) {
-          // Future days with an approved/pending leave should show as 'leave'
-          dayMap.set(day, hasLeave ? 'leave' : 'future');
+        if (isFutureDate || isBeforeJoining) {
+          dayMap.set(day, 'future');
+        } else if (isToday && !rec) {
+          dayMap.set(day, 'future');
         } else if (isOff) {
           const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
           if (cv > 0 && rec?.status === 'half_day') {
@@ -309,7 +326,7 @@ export default function AttendanceManagementScreen() {
       map.set(emp.id, dayMap);
     }
     return map;
-  }, [employees, attendance, leaveRequests, selectedDate]);
+  }, [employees, attendance, leaveRequests, selectedDate, salonConfig]);
 
   // ── Requests tab data ──
   const allRequests: CombinedRequest[] = useMemo(() => {
@@ -378,7 +395,7 @@ export default function AttendanceManagementScreen() {
         setPresentType('full_day');
         setLeaveType('leave');
       }
-      setDeductFrom(empLeaveBreakdown.earnedLeaveBalance > 0 ? 'el' : empLeaveBreakdown.compBalance > 0 ? 'comp' : 'el');
+      setDeductFrom(getPreferredDeductFrom(1));
       setNotes(existing.notes ?? '');
       // Parse permission hours from existing permission request for this date
       const existingPerm = permissionRequests.find(pr =>
@@ -428,7 +445,7 @@ export default function AttendanceManagementScreen() {
         setPresentType('full_day');
         setLeaveType('leave');
       }
-      setDeductFrom(empLeaveBreakdown.earnedLeaveBalance > 0 ? 'el' : empLeaveBreakdown.compBalance > 0 ? 'comp' : 'el');
+      setDeductFrom(getPreferredDeductFrom(1));
       setNotes('');
       setPermHours('');
       setPermFromTime('');
@@ -544,7 +561,8 @@ export default function AttendanceManagementScreen() {
         const leaveTypeLabel = deductFrom === 'comp' ? 'Comp off' : 'EL';
         const requestType = deductFrom === 'comp' ? 'compensation' : 'earned';
         await addLeaveRequest({ employeeId: selectedEmployee, employeeName: empName, type: requestType, startDate: leaveDateStr, endDate: leaveDateStr, reason: `${leaveTypeLabel} (${leaveType === 'half_day' ? 'half day' : leaveType === 'permission' ? 'permission' : 'full leave'}) by admin` });
-        // Also mark attendance status if half_day or permission
+        // Attendance table does not support full-day 'leave' status; keep it in leave_requests only.
+        // For half_day/permission we still keep attendance aligned.
         if (leaveType !== 'leave') {
           const existing = dateAttendance.get(selectedEmployee);
           let finalNotes = notes.trim();
@@ -716,7 +734,6 @@ export default function AttendanceManagementScreen() {
     let detailTextColor: string | null = null;
 
     if (onLeave && !item.status) {
-      // Approved leave, no attendance marked
       badgeLabel = 'LEAVE';
       badgeBg = '#DBEAFE';
       badgeTextColor = '#2563EB';
@@ -757,15 +774,9 @@ export default function AttendanceManagementScreen() {
       badgeTextColor = '#DC2626';
     } else {
       // No status marked
-      if (onLeave) {
-        badgeLabel = 'LEAVE';
-        badgeBg = '#DBEAFE';
-        badgeTextColor = '#2563EB';
-      } else {
-        badgeLabel = 'ABSENT';
-        badgeBg = '#FEE2E2';
-        badgeTextColor = '#DC2626';
-      }
+      badgeLabel = 'ABSENT';
+      badgeBg = '#FEE2E2';
+      badgeTextColor = '#DC2626';
     }
 
     // Determine which of the 4 options is active
@@ -781,7 +792,7 @@ export default function AttendanceManagementScreen() {
     } else if (weeklyOff && compValue > 0) {
       activeStatus = 'present';
     } else {
-      activeStatus = onLeave ? 'leave' : 'absent';
+      activeStatus = onLeave || item.status === 'leave' ? 'leave' : 'absent';
     }
 
     const STATUS_PILLS: { key: 'present' | 'absent' | 'off' | 'leave'; label: string; bg: string; color: string; activeBg: string }[] = [
@@ -818,9 +829,13 @@ export default function AttendanceManagementScreen() {
             const isActive = activeStatus === pill.key;
             const isOff = pill.key === 'off';
             const isLeaveKey = pill.key === 'leave';
-            const count = isLeaveKey
+            const count = pill.key === 'leave'
               ? parseFloat(empStats.paidLeaves.toFixed(1))
-              : empStats[pill.key];
+              : pill.key === 'present'
+                ? empStats.present
+                : pill.key === 'absent'
+                  ? empStats.absent
+                  : empStats.off;
             return (
               <TouchableOpacity
                 key={pill.key}
@@ -849,12 +864,11 @@ export default function AttendanceManagementScreen() {
           })}
           </View>
 
-          {/* Leave Balance Display */}
-          <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F3F4F6', borderRadius: 8, marginTop: 8 }}>
-            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>
-              Remaining Balance: <Text style={{ color: '#166534', fontWeight: '700' }}>
-                {empStats.leaveBalance ? parseFloat(empStats.leaveBalance.toFixed(1)) : '0'} days
-              </Text>
+          {/* Leave balance display */}
+          <View style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#F3F4F6', borderRadius: 8, marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600' }}>Leave Balance</Text>
+            <Text style={{ color: '#166534', fontWeight: '800', fontSize: 14 }}>
+              {empStats.leaveBalance ? parseFloat(empStats.leaveBalance.toFixed(1)) : '0'}
             </Text>
           </View>
 
@@ -1042,11 +1056,11 @@ export default function AttendanceManagementScreen() {
     );
   };
 
-  // Employees on leave (pending or approved) for selected date
+  // Employees on approved leave for selected date
   const employeesOnLeave = useMemo(() => {
     const set = new Set<string>();
     for (const lr of leaveRequests) {
-      if (lr.status === 'rejected') continue;
+      if (lr.status !== 'approved') continue;
       const start = new Date(lr.startDate);
       const end = new Date(lr.endDate);
       const sel = new Date(dateStr);
@@ -1252,7 +1266,14 @@ export default function AttendanceManagementScreen() {
               <TouchableOpacity
                 key={opt.value}
                 style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isLeaveDisabled && { opacity: 0.35 }]}
-                onPress={() => !isLeaveDisabled && setFormCategory(opt.value)}
+                onPress={() => {
+                  if (isLeaveDisabled) return;
+                  setFormCategory(opt.value);
+                  if (opt.value === 'leave') {
+                    const required = leaveType === 'half_day' ? 0.5 : leaveType === 'permission' ? 0 : 1;
+                    setDeductFrom(getPreferredDeductFrom(required));
+                  }
+                }}
                 disabled={isLeaveDisabled}
               >
                 <Icon size={16} color={isSelected ? opt.color : Colors.textTertiary} />
@@ -1334,7 +1355,12 @@ export default function AttendanceManagementScreen() {
                   <TouchableOpacity
                     key={opt.value}
                     style={[styles.statusOption, isSelected && { backgroundColor: opt.color + '18', borderColor: opt.color }, isDisabled && { opacity: 0.35 }]}
-                    onPress={() => !isDisabled && setLeaveType(opt.value)}
+                    onPress={() => {
+                      if (isDisabled) return;
+                      setLeaveType(opt.value);
+                      const required = opt.value === 'half_day' ? 0.5 : opt.value === 'permission' ? 0 : 1;
+                      setDeductFrom(getPreferredDeductFrom(required));
+                    }}
                     disabled={isDisabled}
                   >
                     <Icon size={16} color={isSelected ? opt.color : Colors.textTertiary} />
