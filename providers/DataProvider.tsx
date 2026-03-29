@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { useOfflineQuery } from '@/hooks/useOfflineQuery';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -79,12 +79,23 @@ function createOfflineMutation<TInput, TResult>(opts: {
   operation: MutationOperation;
   /** The online mutation function */
   mutationFn: (input: TInput) => Promise<TResult>;
-  /** Extract the entity ID from the input */
+  /**
+   * Extract (or generate) the entity ID from the input.
+   * Called ONCE — the returned value is the single source of truth for the
+   * entity ID used in the queue, the payload, and the optimistic cache update.
+   */
   getEntityId: (input: TInput) => string;
-  /** Build the DB-format payload for the queue (snake_case) */
-  buildPayload?: (input: TInput) => Record<string, any>;
-  /** Apply optimistic update to the local cache */
-  applyOptimistic?: (input: TInput) => void;
+  /**
+   * Build the DB-format payload for the offline queue (snake_case).
+   * Receives the already-resolved `entityId` as the second argument so
+   * implementations never need to call `generateId()` again.
+   */
+  buildPayload?: (input: TInput, entityId: string) => Record<string, any>;
+  /**
+   * Apply an optimistic cache update. Receives the same `entityId` so the
+   * optimistic record and the queued mutation always share the same ID.
+   */
+  applyOptimistic?: (input: TInput, entityId: string) => void;
   /** Refetch from server after successful online mutation */
   refetch?: () => Promise<any>;
 }) {
@@ -95,8 +106,10 @@ function createOfflineMutation<TInput, TResult>(opts: {
       return result;
     } catch (error: any) {
       if (isNetworkError(error)) {
+        // Generate the entity ID exactly once, then thread it through every
+        // downstream call so queue entry, payload, and cache are all in sync.
         const entityId = opts.getEntityId(input);
-        const payload = opts.buildPayload?.(input);
+        const payload = opts.buildPayload?.(input, entityId);
         await enqueueMutation(
           generateId('MUT'),
           opts.entity,
@@ -104,8 +117,7 @@ function createOfflineMutation<TInput, TResult>(opts: {
           entityId,
           payload,
         );
-        // Apply optimistic update to local cache
-        opts.applyOptimistic?.(input);
+        opts.applyOptimistic?.(input, entityId);
         return { _offline: true, id: entityId } as any;
       }
       throw error;
@@ -213,7 +225,30 @@ export const [DataProvider, useData] = createContextHook(() => {
   const { data: customers = [], isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useOfflineQuery(['customers'], supabaseDb.customers.getAll, qEnabled);
   const { data: services = [], isLoading: servicesLoading, error: servicesError, refetch: refetchServices } = useOfflineQuery(['services'], supabaseDb.services.getAll, qEnabled);
   const { data: subscriptions = [], isLoading: subscriptionsLoading, error: subscriptionsError, refetch: refetchSubscriptions } = useOfflineQuery(['subscriptions'], supabaseDb.subscriptions.getAll, qEnabled);
-  const { data: sales = [], isLoading: salesLoading, error: salesError, refetch: refetchSales } = useOfflineQuery(['sales'], supabaseDb.sales.getAll, qEnabled);
+  // ── Sales — useInfiniteQuery for cursor-based pagination ─────────────────
+  // `sales` stays as a flat array so all existing consumers are unchanged.
+  // Use `fetchMoreSales` / `hasMoreSales` in the sales-list screen for
+  // load-more behaviour. Realtime invalidation on ['sales'] still works.
+  const {
+    data: salesPages,
+    isLoading: salesLoading,
+    error: salesError,
+    fetchNextPage: fetchMoreSales,
+    hasNextPage: hasMoreSales,
+    isFetchingNextPage: isFetchingMoreSales,
+    refetch: refetchSales,
+  } = useInfiniteQuery({
+    queryKey: ['sales'],
+    queryFn: ({ pageParam }) =>
+      supabaseDb.sales.getPage(pageParam as string | undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: !!user,
+  });
+  const sales: import('@/types').Sale[] = useMemo(
+    () => salesPages?.pages.flatMap((p) => p.data) ?? [],
+    [salesPages],
+  );
   const { data: users = [], isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useOfflineQuery(['users'], supabaseDb.users.getAll, qEnabled);
   const { data: customerSubscriptions = [], isLoading: csLoading, error: csError, refetch: refetchCS } = useOfflineQuery(['customerSubscriptions'], supabaseDb.customerSubscriptions.getAll, qEnabled);
   const { data: offers = [], isLoading: offersLoading, error: offersError, refetch: refetchOffers } = useOfflineQuery(['offers'], supabaseDb.offers.getAll, qEnabled);
@@ -290,9 +325,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'customers',
       operation: 'add',
       mutationFn: _addCustomer,
-      getEntityId: (c: any) => c.id || generateId(),
-      buildPayload: (c: any) => ({
-        id: c.id || generateId(),
+      getEntityId: (c: any) => c.id || generateId('CUST'),
+      buildPayload: (c: any, entityId: string) => ({
+        id: entityId,
         name: c.name,
         age: c.age,
         mobile: c.mobile,
@@ -302,10 +337,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         visit_count: 0,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (c: any) => {
-        const id = c.id || generateId('CUST');
+      applyOptimistic: (c: any, entityId: string) => {
         optimisticAdd(queryClient, ['customers'], {
-          id,
+          id: entityId,
           name: c.name,
           age: c.age,
           mobile: c.mobile,
@@ -409,8 +443,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       operation: 'add',
       mutationFn: _addService,
       getEntityId: (s: any) => s.id || generateId('SVC'),
-      buildPayload: (s: any) => ({
-        id: s.id || generateId('SVC'),
+      buildPayload: (s: any, entityId: string) => ({
+        id: entityId,
         name: s.name,
         code: s.code,
         price: s.price,
@@ -420,10 +454,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         payment_method: s.paymentMethod,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (s: any) => {
-        const id = s.id || generateId('SVC');
+      applyOptimistic: (s: any, entityId: string) => {
         optimisticAdd(queryClient, ['services'], {
-          id,
+          id: entityId,
           name: s.name,
           code: s.code,
           price: s.price,
@@ -492,17 +525,16 @@ export const [DataProvider, useData] = createContextHook(() => {
       operation: 'add',
       mutationFn: _addSubscription,
       getEntityId: (p: any) => p.id || generateId('PLAN'),
-      buildPayload: (p: any) => ({
-        id: p.id || generateId('PLAN'),
+      buildPayload: (p: any, entityId: string) => ({
+        id: entityId,
         name: p.name,
         duration_months: p.durationMonths,
         price: p.price,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (p: any) => {
-        const id = p.id || generateId('PLAN');
+      applyOptimistic: (p: any, entityId: string) => {
         optimisticAdd(queryClient, ['subscriptions'], {
-          id,
+          id: entityId,
           name: p.name,
           durationMonths: p.durationMonths,
           price: p.price,
@@ -563,8 +595,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       operation: 'add',
       mutationFn: _addOffer,
       getEntityId: (o: any) => o.id || generateId('OFR'),
-      buildPayload: (o: any) => ({
-        id: o.id || generateId('OFR'),
+      buildPayload: (o: any, entityId: string) => ({
+        id: entityId,
         name: o.name,
         percent: o.percent,
         visit_count: o.visitCount,
@@ -574,10 +606,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         student_only: o.studentOnly,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (o: any) => {
-        const id = o.id || generateId('OFR');
+      applyOptimistic: (o: any, entityId: string) => {
         optimisticAdd(queryClient, ['offers'], {
-          id,
+          id: entityId,
           name: o.name,
           percent: o.percent,
           visitCount: o.visitCount,
@@ -645,18 +676,17 @@ export const [DataProvider, useData] = createContextHook(() => {
       entity: 'combos',
       operation: 'add',
       mutationFn: _addCombo,
-      getEntityId: (c: any) => c.id || generateId(),
-      buildPayload: (c: any) => ({
-        id: c.id || generateId(),
+      getEntityId: (c: any) => c.id || generateId('CMB'),
+      buildPayload: (c: any, entityId: string) => ({
+        id: entityId,
         name: c.name,
         combo_price: c.comboPrice,
         items: c.items,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (c: any) => {
-        const id = c.id || generateId('CMB');
+      applyOptimistic: (c: any, entityId: string) => {
         optimisticAdd(queryClient, ['combos'], {
-          id,
+          id: entityId,
           name: c.name,
           comboPrice: c.comboPrice,
           items: c.items ?? [],
@@ -717,8 +747,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       operation: 'add',
       mutationFn: _addCustomerSubscription,
       getEntityId: (cs: any) => cs.id || generateId('CSUB'),
-      buildPayload: (cs: any) => ({
-        id: cs.id || generateId('CSUB'),
+      buildPayload: (cs: any, entityId: string) => ({
+        id: entityId,
         customer_id: cs.customerId,
         customer_name: cs.customerName,
         plan_id: cs.planId,
@@ -731,10 +761,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         assigned_by_name: cs.assignedByName,
         created_at: new Date().toISOString(),
       }),
-      applyOptimistic: (cs: any) => {
-        const id = cs.id || generateId('CSUB');
+      applyOptimistic: (cs: any, entityId: string) => {
         optimisticAdd(queryClient, ['customerSubscriptions'], {
-          id,
+          id: entityId,
           ...cs,
           createdAt: new Date().toISOString(),
           _offline: true,
@@ -836,6 +865,9 @@ export const [DataProvider, useData] = createContextHook(() => {
     salesLoading,
     salesError,
     addSale,
+    fetchMoreSales,
+    hasMoreSales,
+    isFetchingMoreSales,
     users,
     usersLoading,
     usersError,

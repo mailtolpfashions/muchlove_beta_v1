@@ -134,20 +134,15 @@ export const [OfflineSyncProvider, useOfflineSync] = createContextHook(() => {
       await supabase.from('sale_shadows').update({ full_sale_synced: true }).eq('sale_id', saleId);
     } catch { /* best effort */ }
 
-    // Increment customer visit count
+    // Atomically increment customer visit count via DB function.
+    // The previous SELECT → UPDATE pattern had a TOCTOU race when multiple
+    // offline sessions synced sales for the same customer concurrently.
     if (saleToInsert.customer_id) {
-      const { data: customerData, error: customerFetchError } = await supabase
-        .from('customers')
-        .select('visit_count')
-        .eq('id', saleToInsert.customer_id)
-        .single();
-
-      if (!customerFetchError && customerData) {
-        await supabase
-          .from('customers')
-          .update({ visit_count: (customerData.visit_count || 0) + 1 })
-          .eq('id', saleToInsert.customer_id);
-      }
+      const { error: visitError } = await supabase.rpc(
+        'increment_customer_visit_count',
+        { p_customer_id: saleToInsert.customer_id },
+      );
+      if (visitError) throw new Error(`visit_count increment: ${visitError.message}`);
     }
 
     // Insert sale line items

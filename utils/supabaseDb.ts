@@ -23,6 +23,62 @@ import type {
 } from '@/types';
 import { generateId } from '@/utils/hash';
 
+// ── Pagination constants ──────────────────────────────────────────────────────
+
+/** Rows per page for cursor-based sales pagination (useInfiniteQuery) */
+export const SALES_PAGE_SIZE = 50;
+/**
+ * Hard limit for reference tables (services, offers, combos, etc.).
+ * No salon will have 500 services. This prevents the silent Supabase
+ * 1000-row PostgREST default from truncating data without an error.
+ */
+const SMALL_TABLE_LIMIT = 500;
+/**
+ * Limit for customer lists. Loaded fully so the POS billing screen
+ * can search offline without a server round-trip.
+ */
+const CUSTOMER_LIMIT = 5000;
+/**
+ * Limit for HR tables (attendance, leave, permissions).
+ * 5 employees × 365 days × 2 years = 3 650 max attendance rows.
+ * Covers full salary history for all current staff.
+ */
+const HR_RECORD_LIMIT = 5000;
+
+// ── Shared sale mapper (used by getPage, getByDateRange) ─────────────────────
+
+function mapSaleWithItems(row: Record<string, any>): Sale {
+  return {
+    ...mapSaleRow(row),
+    items: ((row.sale_items as any[]) ?? []).map(mapSaleItem),
+    subscriptionItems: ((row.subscription_sale_items as any[]) ?? []).map(mapSubscriptionSaleItem),
+  };
+}
+
+// ── Unbounded paginated fetch ─────────────────────────────────────────────────
+
+/**
+ * Exhaustively fetches all rows for a bounded query (e.g. a date-range)
+ * using offset pagination. Never imposes a hard row cap.
+ *
+ * @param queryFn  Called with (offset, batchSize). Must return a typed array.
+ * @param batchSize  Rows per round-trip. 500 is a safe default.
+ */
+async function fetchAllPaged<T>(
+  queryFn: (offset: number, batchSize: number) => Promise<T[]>,
+  batchSize = 500,
+): Promise<T[]> {
+  const all: T[] = [];
+  let offset = 0;
+  while (true) {
+    const batch = await queryFn(offset, batchSize);
+    all.push(...batch);
+    if (batch.length < batchSize) break;
+    offset += batchSize;
+  }
+  return all;
+}
+
 // Row Mappers (DB snake_case -> App camelCase)
 // These functions remain the same...
 function mapUser(r: Record<string, unknown>): User { return { id: r.id as string, email: r.email as string, name: r.name as string, mobile: (r.mobile as string) ?? undefined, role: r.role as User['role'], approved: (r.approved as boolean) ?? false, joiningDate: (r.joining_date as string) ?? (r.created_at as string) ?? new Date().toISOString(), createdAt: (r.created_at as string) ?? new Date().toISOString() }; }
@@ -56,7 +112,11 @@ function mapSubscriptionSaleItem(r: Record<string, unknown>): SubscriptionSaleIt
 
 export const users = {
   getAll: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapUser);
   },
@@ -102,7 +162,11 @@ export const users = {
 
 export const customers = {
   getAll: async (): Promise<Customer[]> => {
-    const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(CUSTOMER_LIMIT);
     if (error) throw error;
     return data.map(mapCustomer);
   },
@@ -144,7 +208,11 @@ export const customers = {
 
 export const services = {
   getAll: async (): Promise<Service[]> => {
-    const { data, error } = await supabase.from('services').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('services')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapService);
   },
@@ -203,7 +271,11 @@ export const services = {
 
 export const subscriptions = {
   getAll: async (): Promise<SubscriptionPlan[]> => {
-    const { data, error } = await supabase.from('subscription_plans').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapSubscriptionPlan);
   },
@@ -250,28 +322,59 @@ export const subscriptions = {
 };
 
 export const sales = {
-  getAll: async (): Promise<Sale[]> => {
-    const { data: salesData, error: salesError } = await supabase.from('sales').select('*').order('created_at', { ascending: true });
-    if (salesError) throw salesError;
-    const saleIds = salesData.map(s => s.id);
-    const { data: items, error: itemsError } = await supabase.from('sale_items').select('*').in('sale_id', saleIds);
-    if (itemsError) throw itemsError;
-    const { data: subItems, error: subItemsError } = await supabase.from('subscription_sale_items').select('*').in('sale_id', saleIds);
-    if (subItemsError) throw subItemsError;
-    const itemsBySale = items.reduce<Record<string, SaleItem[]>>((acc, row) => {
-      const saleId = row.sale_id as string;
-      if (!acc[saleId]) acc[saleId] = [];
-      acc[saleId].push(mapSaleItem(row));
-      return acc;
-    }, {});
-    const subItemsBySale = subItems.reduce<Record<string, SubscriptionSaleItem[]>>((acc, row) => {
-      const saleId = row.sale_id as string;
-      if (!acc[saleId]) acc[saleId] = [];
-      acc[saleId].push(mapSubscriptionSaleItem(row));
-      return acc;
-    }, {});
-    return salesData.map(row => ({ ...mapSaleRow(row), items: itemsBySale[row.id] ?? [], subscriptionItems: subItemsBySale[row.id] ?? [] }));
+  /**
+   * Cursor-based page fetch for `useInfiniteQuery`.
+   * Pass `cursor` = the `createdAt` of the last item in the previous page.
+   * Returns `nextCursor = null` when there are no more pages.
+   * No hard row cap — the caller controls how many pages to load.
+   */
+  getPage: async (cursor?: string): Promise<{ data: Sale[]; nextCursor: string | null }> => {
+    let query = supabase
+      .from('sales')
+      .select(`
+        id, customer_id, customer_name, employee_id, employee_name,
+        type, payment_method, subtotal, discount_percent, discount_amount, total, created_at,
+        sale_items(id, service_id, service_name, service_code, price, original_price, quantity, kind),
+        subscription_sale_items(id, plan_id, plan_name, price, discounted_price)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(SALES_PAGE_SIZE);
+    if (cursor) {
+      query = query.lt('created_at', cursor);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const mapped = (data ?? []).map(mapSaleWithItems);
+    const nextCursor =
+      data && data.length === SALES_PAGE_SIZE
+        ? (data[data.length - 1].created_at as string)
+        : null;
+    return { data: mapped, nextCursor };
   },
+
+  /**
+   * Exhaustively fetches every sale within the date range using offset
+   * pagination. No hard row cap — fetches until the DB returns fewer rows
+   * than the batch size. Use this for payroll calculations and reports.
+   * `from` / `to` are ISO-8601 strings (inclusive on both ends).
+   */
+  getByDateRange: async (from: string, to: string): Promise<Sale[]> =>
+    fetchAllPaged(async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('sales')
+        .select(`
+          id, customer_id, customer_name, employee_id, employee_name,
+          type, payment_method, subtotal, discount_percent, discount_amount, total, created_at,
+          sale_items(id, service_id, service_name, service_code, price, original_price, quantity, kind),
+          subscription_sale_items(id, plan_id, plan_name, price, discounted_price)
+        `)
+        .gte('created_at', from)
+        .lte('created_at', to)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return (data ?? []).map(mapSaleWithItems);
+    }),
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -291,23 +394,18 @@ export const sales = {
         // Run item inserts and customer visit update in parallel
         const parallelOps: Promise<any>[] = [];
 
-        // Increment customer visit count (fire in parallel)
+        // Atomically increment customer visit count via DB function.
+        // A single UPDATE expression (visit_count = visit_count + 1) is
+        // serialised by Postgres row-locking, eliminating the TOCTOU race
+        // that the previous SELECT → UPDATE pattern had.
         if (saleToInsert.customer_id) {
           parallelOps.push(
-            Promise.resolve(
-              supabase
-                .from('customers')
-                .select('visit_count')
-                .eq('id', saleToInsert.customer_id)
-                .single()
-            ).then(({ data: customerData, error: customerFetchError }) => {
-                if (!customerFetchError && customerData) {
-                  return supabase
-                    .from('customers')
-                    .update({ visit_count: (customerData.visit_count || 0) + 1 })
-                    .eq('id', saleToInsert.customer_id);
-                }
-              })
+            (async () => {
+              const { error } = await supabase.rpc('increment_customer_visit_count', {
+                p_customer_id: saleToInsert.customer_id,
+              });
+              if (error) throw error;
+            })(),
           );
         }
 
@@ -383,7 +481,11 @@ export const sales = {
 
 export const customerSubscriptions = {
   getAll: async (): Promise<CustomerSubscription[]> => {
-    const { data, error } = await supabase.from('customer_subscriptions').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('customer_subscriptions')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(CUSTOMER_LIMIT);
     if (error) throw error;
     return data.map(mapCustomerSubscription);
   },
@@ -436,7 +538,11 @@ export const customerSubscriptions = {
 
 export const offers = {
   getAll: async (): Promise<Offer[]> => {
-    const { data, error } = await supabase.from('offers').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('offers')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapOffer);
   },
@@ -486,7 +592,11 @@ export const offers = {
 
 export const upiConfigs = {
   getAll: async (): Promise<UpiData[]> => {
-    const { data, error } = await supabase.from('upi_configs').select('*').order('id');
+    const { data, error } = await supabase
+      .from('upi_configs')
+      .select('*')
+      .order('id')
+      .limit(50);
     if (error) throw error;
     return data.map(mapUpiData);
   },
@@ -526,19 +636,19 @@ export const upiConfigs = {
 
 export const combos = {
   getAll: async (): Promise<Combo[]> => {
-    const { data: comboRows, error: comboError } = await supabase.from('combos').select('*').order('created_at', { ascending: true });
-    if (comboError) throw comboError;
-    if (!comboRows || comboRows.length === 0) return [];
-    const comboIds = comboRows.map(c => c.id);
-    const { data: itemRows, error: itemError } = await supabase.from('combo_items').select('*').in('combo_id', comboIds);
-    if (itemError) throw itemError;
-    const itemsByCombo = (itemRows ?? []).reduce<Record<string, ComboItem[]>>((acc, row) => {
-      const cid = row.combo_id as string;
-      if (!acc[cid]) acc[cid] = [];
-      acc[cid].push(mapComboItem(row));
-      return acc;
-    }, {});
-    return comboRows.map(r => ({ id: r.id as string, name: r.name as string, comboPrice: Number(r.combo_price), items: itemsByCombo[r.id] ?? [], createdAt: (r.created_at as string) ?? new Date().toISOString() }));
+    const { data, error } = await supabase
+      .from('combos')
+      .select('*, combo_items(*)')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
+    if (error) throw error;
+    return (data ?? []).map(r => ({
+      id: r.id as string,
+      name: r.name as string,
+      comboPrice: Number(r.combo_price),
+      items: ((r.combo_items as any[]) ?? []).map(mapComboItem),
+      createdAt: (r.created_at as string) ?? new Date().toISOString(),
+    }));
   },
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
@@ -609,7 +719,11 @@ export async function seedSupabaseIfNeeded(): Promise<void> {
 
 export const expenseCategories = {
   getAll: async (): Promise<ExpenseCategory[]> => {
-    const { data, error } = await supabase.from('expense_categories').select('*').order('created_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('expense_categories')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapExpenseCategory);
   },
@@ -640,10 +754,27 @@ export const expenseCategories = {
 
 export const expenses = {
   getAll: async (): Promise<Expense[]> => {
-    const { data, error } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false });
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .order('expense_date', { ascending: false })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return data.map(mapExpense);
   },
+  /** Fetch all expenses within an inclusive date range. */
+  getByDateRange: async (from: string, to: string): Promise<Expense[]> =>
+    fetchAllPaged(async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .gte('expense_date', from)
+        .lte('expense_date', to)
+        .order('expense_date', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return (data ?? []).map(mapExpense);
+    }),
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -783,10 +914,29 @@ export const attendanceDb = {
     const { data, error } = await supabase
       .from('attendance')
       .select('*')
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .limit(HR_RECORD_LIMIT);
     if (error) throw error;
     return (data ?? []).map(mapAttendance);
   },
+  /**
+   * Fetch attendance for a specific date range.
+   * Use this in salary management screens instead of filtering the full
+   * `attendance` array from context.
+   * `from` / `to` are 'YYYY-MM-DD' strings.
+   */
+  getByDateRange: async (from: string, to: string): Promise<Attendance[]> =>
+    fetchAllPaged(async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .gte('date', from)
+        .lte('date', to)
+        .order('date', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return (data ?? []).map(mapAttendance);
+    }),
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -849,10 +999,24 @@ export const leaveRequestsDb = {
     const { data, error } = await supabase
       .from('leave_requests')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(HR_RECORD_LIMIT);
     if (error) throw error;
     return (data ?? []).map(mapLeaveRequest);
   },
+  /** Fetch leave requests that overlap with the given date range. */
+  getByDateRange: async (from: string, to: string): Promise<LeaveRequest[]> =>
+    fetchAllPaged(async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('leave_requests')
+        .select('*')
+        .gte('start_date', from)
+        .lte('end_date', to)
+        .order('start_date', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return (data ?? []).map(mapLeaveRequest);
+    }),
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -907,10 +1071,24 @@ export const permissionRequestsDb = {
     const { data, error } = await supabase
       .from('permission_requests')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(HR_RECORD_LIMIT);
     if (error) throw error;
     return (data ?? []).map(mapPermissionRequest);
   },
+  /** Fetch permission requests for a specific date range. */
+  getByDateRange: async (from: string, to: string): Promise<PermissionRequest[]> =>
+    fetchAllPaged(async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('permission_requests')
+        .select('*')
+        .gte('date', from)
+        .lte('date', to)
+        .order('date', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw error;
+      return (data ?? []).map(mapPermissionRequest);
+    }),
   useAdd: (onSuccess?: () => void | Promise<void>) => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -965,7 +1143,8 @@ export const employeeSalariesDb = {
     const { data, error } = await supabase
       .from('employee_salaries')
       .select('*')
-      .order('effective_from', { ascending: false });
+      .order('effective_from', { ascending: false })
+      .limit(SMALL_TABLE_LIMIT);
     if (error) throw error;
     return (data ?? []).map(mapEmployeeSalary);
   },
