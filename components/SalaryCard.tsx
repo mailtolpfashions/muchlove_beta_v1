@@ -176,9 +176,10 @@ export default function SalaryCard({
         <Row label="Working Days" value={`${breakdown.workingDays} days`} />
         <Row label="Per Day Rate" value={formatCurrency(breakdown.perDayRate)} />
         <Divider />
-        <Row label="Present" value={`${breakdown.presentDays} days`} color="#059669" />
+        <Row label="Present" value={`${parseFloat(breakdown.presentDays.toFixed(1))} days`} color="#059669" />
         {breakdown.halfDays > 0 && <Row label="Half Days" value={`${breakdown.halfDays} (×0.5)`} color="#D97706" />}
-        {breakdown.paidLeaves > 0 && <Row label="Paid Leaves" value={`${parseFloat(breakdown.paidLeaves.toFixed(1))} days`} color="#7C3AED" />}
+        <Row label="Off" value={`${parseFloat(breakdown.offDays.toFixed(1))} days`} color="#3730A3" />
+        <Row label="Leave" value={`${parseFloat(breakdown.leaveDays.toFixed(1))} days`} color="#EA580C" />
         <Row label="Earned Days" value={`${parseFloat(breakdown.earnedDays.toFixed(1))} days`} color="#059669" />
         <Row label="Earned Salary" value={formatCurrency(breakdown.earnedSalary)} color="#059669" />
         <Divider />

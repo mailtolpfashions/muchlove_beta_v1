@@ -273,9 +273,10 @@ export default function AdminSalaryManagement() {
                     <SalaryRow label="Working Days" value={`${b.workingDays} days`} />
                     <SalaryRow label="Per Day Rate" value={`₹${formatCurrency(b.perDayRate)}`} />
                     <View style={s.divider} />
-                    <SalaryRow label="Present" value={`${b.presentDays} days`} color="#059669" />
+                    <SalaryRow label="Present" value={`${parseFloat(b.presentDays.toFixed(1))} days`} color="#059669" />
                     {b.halfDays > 0 && <SalaryRow label="Half Days" value={`${b.halfDays} (×0.5)`} color="#D97706" />}
-                    {b.paidLeaves > 0 && <SalaryRow label="Paid Leaves" value={`${parseFloat(b.paidLeaves.toFixed(1))} days`} color="#7C3AED" />}
+                    <SalaryRow label="Off" value={`${parseFloat(b.offDays.toFixed(1))} days`} color="#3730A3" />
+                    <SalaryRow label="Leave" value={`${parseFloat(b.leaveDays.toFixed(1))} days`} color="#EA580C" />
                     <SalaryRow label="Earned Days" value={`${b.earnedDays} days`} color="#059669" />
                     <SalaryRow label="Earned Salary" value={`₹${formatCurrency(b.earnedSalary)}`} color="#059669" />
                     <View style={s.divider} />

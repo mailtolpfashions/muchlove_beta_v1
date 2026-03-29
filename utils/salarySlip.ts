@@ -231,9 +231,10 @@ function buildSalarySlipHtml(params: SlipParams): string {
         </thead>
         <tbody>
           <tr><td>Per Day Rate</td><td class="right">${formatCurrency(b.perDayRate)}</td></tr>
-          <tr><td>Present Days</td><td class="right" style="color:#059669;">${b.presentDays} days</td></tr>
+          <tr><td>Present Days</td><td class="right" style="color:#059669;">${parseFloat(b.presentDays.toFixed(1))} days</td></tr>
           ${b.halfDays > 0 ? `<tr><td>Half Days (×0.5)</td><td class="right" style="color:#D97706;">${b.halfDays}</td></tr>` : ''}
-          ${b.paidLeaves > 0 ? `<tr><td>Paid Leaves (within balance)</td><td class="right" style="color:#7C3AED;">${parseFloat(b.paidLeaves.toFixed(1))} days</td></tr>` : ''}
+          <tr><td>Off Days</td><td class="right" style="color:#3730A3;">${parseFloat(b.offDays.toFixed(1))} days</td></tr>
+          <tr><td>Leave Days</td><td class="right" style="color:#EA580C;">${parseFloat(b.leaveDays.toFixed(1))} days</td></tr>
           <tr><td class="bold">Earned Days</td><td class="right bold" style="color:#059669;">${parseFloat(b.earnedDays.toFixed(1))} days</td></tr>
           <tr><td class="bold">Earned Salary</td><td class="right bold" style="color:#059669;">${formatCurrency(b.earnedSalary)}</td></tr>
           ${b.incentiveAmount > 0 ? `<tr><td class="bold">Sales Incentive (${b.incentivePercent}% of ${formatCurrency(b.employeeSalesTotal)})</td><td class="right bold" style="color:#059669;">+${formatCurrency(b.incentiveAmount)}</td></tr>` : ''}

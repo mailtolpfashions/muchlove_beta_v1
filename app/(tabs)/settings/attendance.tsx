@@ -21,7 +21,7 @@ import BottomSheetModal from '@/components/BottomSheetModal';
 import { useFocusEffect } from 'expo-router';
 import DatePickerModal from '@/components/DatePickerModal';
 import type { LeaveRequest, PermissionRequest, Attendance } from '@/types';
-import { isWeeklyOff, compLeaveValue, computeCompBalance, computeEarnedLeaveBalance, computeLeaveBalance } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, computeCompBalance, computeEarnedLeaveBalance, calculateMonthlySalary } from '@/utils/salary';
 import { toLocalDateString } from '@/utils/format';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -159,93 +159,25 @@ export default function AttendanceScreen() {
 
   /* ── Monthly stats ── */
   const monthlyStats = useMemo(() => {
-    if (!user) return { present: 0, absent: 0, off: 0, leaveConsumed: 0, leaveBalance: 0, paidLeaves: 0, compOff: 0 };
-    const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
-    const today = new Date();
-    const lastDay = (today.getFullYear() === viewYear && today.getMonth() === viewMonth) ? today.getDate() : totalDays;
+    if (!user) return { present: 0, absent: 0, off: 0, paidLeaves: 0, leaveBalance: 0 };
+    const b = calculateMonthlySalary(
+      0,
+      myAttendance,
+      myLeaveRequests,
+      myPermissionRequests,
+      viewYear,
+      viewMonth,
+      user.joiningDate,
+      salonConfig,
+    );
 
-    const jd = user.joiningDate ? new Date(user.joiningDate) : null;
-    const monthStart = new Date(viewYear, viewMonth, 1);
-    const firstDay = jd && jd > monthStart ? jd.getDate() : 1;
-    if (jd && (jd.getFullYear() > viewYear || (jd.getFullYear() === viewYear && jd.getMonth() > viewMonth))) {
-      return { present: 0, absent: 0, off: 0, leaveConsumed: 0, leaveBalance: 0, paidLeaves: 0, compOff: 0 };
-    }
-
-    const recordMap = new Map<string, Attendance>();
-    myAttendance.forEach(a => {
-      const d = new Date(a.date);
-      if (d.getFullYear() === viewYear && d.getMonth() === viewMonth) recordMap.set(a.date, a);
-    });
-
-    const leaveDates = new Set<string>();
-    for (const lr of myLeaveRequests) {
-      if (lr.status === 'rejected') continue;
-      const start = new Date(Math.max(new Date(lr.startDate).getTime(), monthStart.getTime()));
-      const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(viewYear, viewMonth + 1, 0).getTime()));
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const yy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        leaveDates.add(yy + '-' + mm + '-' + dd);
-      }
-    }
-
-    let present = 0, absent = 0, off = 0, leaveConsumed = 0, compOff = 0;
-    for (let day = firstDay; day <= lastDay; day++) {
-      const d = new Date(viewYear, viewMonth, day);
-      const ds = viewYear + '-' + String(viewMonth + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-      const isOff = d.getDay() === salonConfig.weeklyOffDay;
-      const rec = recordMap.get(ds);
-      const hasLeave = leaveDates.has(ds);
-
-      if (isOff) {
-        const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
-        if (cv > 0 && rec?.status === 'half_day') { present += 0.5; off += 0.5; compOff += cv; }
-        else if (cv > 0) { present++; compOff += cv; }
-        else off++;
-      } else if (hasLeave && !rec) {
-        leaveConsumed++;
-      } else if (rec) {
-        if (rec.status === 'present') present++;
-        else if (rec.status === 'permission') { present++; } // permission hours tracked separately
-        else if (rec.status === 'half_day') { present += 0.5; leaveConsumed += 0.5; }
-        else if (rec.status === 'absent') absent++;
-        else if (rec.status === 'leave') leaveConsumed++;
-      } else {
-        absent++;
-      }
-    }
-
-    // Add permission hours as leave days consumed
-    let permHours = 0;
-    myPermissionRequests.filter(pr => {
-      if (pr.status === 'rejected') return false;
-      const d = new Date(pr.date);
-      return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
-    }).forEach(pr => {
-      const from = pr.fromTime.split(':');
-      const to = pr.toTime.split(':');
-      const fromMin = parseInt(from[0]) * 60 + parseInt(from[1]);
-      const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
-      permHours += Math.max(0, (toMin - fromMin) / 60);
-    });
-    if (salonConfig.workingHoursPerDay > 0) {
-      leaveConsumed += permHours / salonConfig.workingHoursPerDay;
-    }
-
-    // Compute leave balance (actual — for display)
-    const balResult = computeLeaveBalance(myAttendance, myLeaveRequests, user.joiningDate, salonConfig);
-    const leaveBalance = balResult.totalBalance;
-
-    // Effective balance for paid/excess (exclude current month to avoid double-counting typed leaves)
-    const effectiveBalResult = computeLeaveBalance(myAttendance, myLeaveRequests, user.joiningDate, salonConfig, { year: viewYear, month: viewMonth });
-    const effectiveBalance = effectiveBalResult.totalBalance;
-
-    const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
-    const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
-    absent += excessLeaves;
-
-    return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compOff };
+    return {
+      present: b.presentDays,
+      absent: b.absentDays,
+      off: b.offDays,
+      paidLeaves: b.paidLeaves,
+      leaveBalance: b.leaveBalance,
+    };
   }, [myAttendance, myLeaveRequests, myPermissionRequests, viewMonth, viewYear, user, salonConfig]);
 
   /* ── Calendar day data ── */
@@ -283,6 +215,8 @@ export default function AttendanceScreen() {
       const rec = recordMap.get(ds) || null;
       const hasLeave = leaveDates.has(ds);
 
+      const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+
       let status: DayStatus;
       if (isFuture || isBeforeJoining) {
         // Future days with an approved/pending leave should show as 'leave'
@@ -297,6 +231,11 @@ export default function AttendanceScreen() {
         else if (rec.status === 'present' || rec.status === 'permission') status = 'present';
         else if (rec.status === 'leave') status = 'leave';
         else status = 'absent';
+      } else if (isToday) {
+        // Today with no record: don't mark absent before shift starts
+        const nowMin = today.getHours() * 60 + today.getMinutes();
+        const shiftStart = salonConfig.shiftStartHour * 60 + salonConfig.shiftStartMin;
+        status = nowMin >= shiftStart ? 'absent' : 'future';
       } else {
         status = 'absent';
       }
@@ -575,8 +514,12 @@ export default function AttendanceScreen() {
               <Text style={[styles.summaryLabel, { color: '#3730A3' }]}>Off</Text>
             </View>
             <View style={[styles.summaryPill, { backgroundColor: '#FED7AA' }]}>
-              <Text style={[styles.summaryNum, { color: '#C2410C' }]}>{parseFloat(monthlyStats.leaveBalance.toFixed(1))}</Text>
+              <Text style={[styles.summaryNum, { color: '#C2410C' }]}>{parseFloat(monthlyStats.paidLeaves.toFixed(1))}</Text>
               <Text style={[styles.summaryLabel, { color: '#C2410C' }]}>Leave</Text>
+            </View>
+            <View style={[styles.summaryPill, { backgroundColor: '#DCFCE7' }]}>
+              <Text style={[styles.summaryNum, { color: '#166534' }]}>{monthlyStats.leaveBalance ? parseFloat(monthlyStats.leaveBalance.toFixed(1)) : '0'}</Text>
+              <Text style={[styles.summaryLabel, { color: '#166534' }]}>Balance</Text>
             </View>
           </View>
 
@@ -621,6 +564,8 @@ export default function AttendanceScreen() {
               ))}
             </View>
           </View>
+
+          {/* Leave Balance Info */}
 
           {selectedDay !== null && (
             <Text style={styles.tapHint}>Tap again to apply leave or request correction</Text>
@@ -931,6 +876,9 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   legendDot: { width: 10, height: 10, borderRadius: 3, borderWidth: 1 },
   legendText: { fontSize: 9, color: Colors.textSecondary, fontWeight: '600' },
+  leaveBalanceInfo: { marginTop: 16, marginBottom: 16, paddingHorizontal: Spacing.screen, paddingVertical: 12, backgroundColor: '#DC2626', borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  leaveBalanceLabel: { fontSize: FontSize.body, fontWeight: '600', color: '#FFFFFF' },
+  leaveBalanceValue: { fontSize: FontSize.heading, fontWeight: '700', color: '#FFFFFF' },
   tapHint: { textAlign: 'center', fontSize: 12, color: Colors.primary, fontWeight: '500', marginTop: 6, marginBottom: 2 },
   actionRow: { flexDirection: 'row', paddingHorizontal: Spacing.screen, paddingVertical: Spacing.sm, gap: 8, flexWrap: 'wrap' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 12, borderRadius: BorderRadius.md, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },

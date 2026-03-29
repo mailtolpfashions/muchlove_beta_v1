@@ -4,7 +4,7 @@ import { CalendarCheck, LogIn, LogOut, Clock, CheckCircle } from 'lucide-react-n
 import { Colors } from '@/constants/colors';
 import { FontSize, Spacing, BorderRadius } from '@/constants/typography';
 import type { Attendance, LeaveRequest, PermissionRequest } from '@/types';
-import { isWeeklyOff, compLeaveValue, isLateCheckIn, computeLeaveBalance } from '@/utils/salary';
+import { compLeaveValue, calculateMonthlySalary } from '@/utils/salary';
 import { toLocalDateString } from '@/utils/format';
 import { useData } from '@/providers/DataProvider';
 
@@ -42,103 +42,41 @@ export default function AttendanceCard({
   const monthStats = useMemo(() => {
     const month = today.getMonth();
     const year = today.getFullYear();
-    const myRecords = attendance.filter(a => {
-      if (a.employeeId !== userId) return false;
-      const d = new Date(a.date);
-      return d.getMonth() === month && d.getFullYear() === year;
-    });
+    const myAttendance = attendance.filter(a => a.employeeId === userId);
+    const myLeaveRequests = leaveRequests.filter(lr => lr.employeeId === userId);
+    const myPermissionRequests = permissionRequests.filter(pr => pr.employeeId === userId);
 
-    let present = 0;
-    let absent = 0;
-    let off = 0;
-    let leaveConsumed = 0;
-    let compEarned = 0;
-    let lateCount = 0;
+    const breakdown = calculateMonthlySalary(
+      0,
+      myAttendance,
+      myLeaveRequests,
+      myPermissionRequests,
+      year,
+      month,
+      joiningDate,
+      salonConfig,
+    );
 
-    // Count weekly off days in the month (up to today) that have no attendance record
-    const totalDays = new Date(year, month + 1, 0).getDate();
-    const lastDay = (today.getFullYear() === year && today.getMonth() === month) ? today.getDate() : totalDays;
-    const recordDates = new Set(myRecords.map(r => r.date));
-    for (let day = 1; day <= lastDay; day++) {
-      const d = new Date(year, month, day);
-      const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      if (d.getDay() === salonConfig.weeklyOffDay && !recordDates.has(ds)) {
-        off++;
-      }
-    }
-
-    myRecords.forEach(r => {
-      if (isWeeklyOff(r.date, salonConfig)) {
-        const cv = compLeaveValue(r, salonConfig);
-        if (cv > 0) {
-          if (r.status === 'half_day') { present += 0.5; off += 0.5; }
-          else { present++; }
-          compEarned += cv;
-        } else {
-          off++;
-        }
-        return;
-      }
-      switch (r.status) {
-        case 'present': present++; break;
-        case 'absent': absent++; break;
-        case 'half_day': present += 0.5; leaveConsumed += 0.5; break;
-        case 'permission': present++; break; // permission hours tracked separately
-        case 'leave': leaveConsumed++; break;
-      }
-      if (isLateCheckIn(r, salonConfig)) {
-        lateCount++;
-      }
-    });
-
-    // Non-rejected leave requests this month — count DAYS (not requests)
-    let myLeaveDays = 0;
-    for (const lr of leaveRequests) {
-      if (lr.employeeId !== userId || lr.status === 'rejected') continue;
-      const mStart = new Date(year, month, 1);
-      const mEnd = new Date(year, month + 1, 0);
-      const start = new Date(Math.max(new Date(lr.startDate).getTime(), mStart.getTime()));
-      const end = new Date(Math.min(new Date(lr.endDate).getTime(), mEnd.getTime()));
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        if (d.getDay() !== salonConfig.weeklyOffDay) myLeaveDays++;
-      }
-    }
-    leaveConsumed += myLeaveDays;
-
-    // Permission hours → leave days consumed
     let permHours = 0;
-    permissionRequests.filter(pr => {
-      if (pr.employeeId !== userId || pr.status === 'rejected') return false;
+    for (const pr of myPermissionRequests) {
+      if (pr.status === 'rejected') continue;
       const d = new Date(pr.date);
-      return d.getMonth() === month && d.getFullYear() === year;
-    }).forEach(pr => {
+      if (d.getMonth() !== month || d.getFullYear() !== year) continue;
       const from = pr.fromTime.split(':');
       const to = pr.toTime.split(':');
-      const fromMin = parseInt(from[0]) * 60 + parseInt(from[1]);
-      const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
+      const fromMin = parseInt(from[0], 10) * 60 + parseInt(from[1], 10);
+      const toMin = parseInt(to[0], 10) * 60 + parseInt(to[1], 10);
       permHours += Math.max(0, (toMin - fromMin) / 60);
-    });
-    const permLeaveDays = salonConfig.workingHoursPerDay > 0
-      ? Math.round((permHours / salonConfig.workingHoursPerDay) * 10) / 10
-      : 0;
-    leaveConsumed += permLeaveDays;
+    }
 
-    // Compute leave balance (actual — for display)
-    const myAllAttendance = attendance.filter(a => a.employeeId === userId);
-    const myAllLeaves = leaveRequests.filter(lr => lr.employeeId === userId);
-    const balResult = computeLeaveBalance(myAllAttendance, myAllLeaves, joiningDate, salonConfig);
-    const leaveBalance = balResult.totalBalance;
-
-    // Effective balance for paid/excess (exclude current month's typed usage to avoid double-counting)
-    const effectiveBalResult = computeLeaveBalance(myAllAttendance, myAllLeaves, joiningDate, salonConfig, { year, month });
-    const effectiveBalance = effectiveBalResult.totalBalance;
-
-    // Paid vs excess
-    const paidLeaves = Math.min(leaveConsumed, effectiveBalance);
-    const excessLeaves = Math.max(0, leaveConsumed - effectiveBalance);
-    absent += excessLeaves;
-
-    return { present, absent, off, leaveConsumed, leaveBalance, paidLeaves, compEarned, permHours, lateCount };
+    return {
+      present: breakdown.presentDays,
+      absent: breakdown.absentDays,
+      off: breakdown.offDays,
+      paidLeaves: breakdown.paidLeaves,
+      lateCount: breakdown.lateCount,
+      permHours,
+    };
   }, [attendance, leaveRequests, permissionRequests, userId, joiningDate, today, salonConfig]);
 
   const hasCheckedIn = !!todayRecord?.checkIn;
@@ -277,7 +215,7 @@ export default function AttendanceCard({
           <Text style={[styles.statLabel, { color: '#3730A3' }]}>Off</Text>
         </View>
         <View style={[styles.statPill, { backgroundColor: '#FFEDD5' }]}>
-          <Text style={[styles.statNum, { color: '#EA580C' }]}>{parseFloat(monthStats.leaveBalance.toFixed(1))}</Text>
+          <Text style={[styles.statNum, { color: '#EA580C' }]}>{parseFloat(monthStats.paidLeaves.toFixed(1))}</Text>
           <Text style={[styles.statLabel, { color: '#EA580C' }]}>Leave</Text>
         </View>
       </View>

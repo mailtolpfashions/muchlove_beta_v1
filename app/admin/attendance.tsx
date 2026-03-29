@@ -25,7 +25,7 @@ import { Colors } from '@/constants/colors';
 import { WebTypo, AttendanceCellColors } from '@/constants/web';
 import { AnimatedPage } from '@/components/web/AnimatedPage';
 import { toLocalDateString } from '@/utils/format';
-import { isWeeklyOff, computeLeaveBalance } from '@/utils/salary';
+import { isWeeklyOff, computeLeaveBalance, calculateMonthlySalary } from '@/utils/salary';
 import type { Attendance, AttendanceStatus } from '@/types';
 
 // ── Constants ────────────────────────────────────────────────
@@ -122,30 +122,33 @@ export default function AdminAttendance() {
 
   // Summary stats
   const summary = useMemo(() => {
-    let present = 0, absent = 0, halfDay = 0, leaves = 0, weeklyOff = 0;
-    const totalDays = new Date(year, month + 1, 0).getDate();
-    const today = new Date();
-
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const day = new Date(dateStr);
-      if (day > today) continue;
-
-      if (isWeeklyOff(dateStr, salonConfig)) { weeklyOff++; continue; }
-
-      const record = attendanceMap[dateStr];
-      if (record) {
-        if (record.status === 'present' || record.status === 'permission') present++;
-        else if (record.status === 'half_day') halfDay++;
-        else if (record.status === 'leave') leaves++;
-        else absent++;
-      } else {
-        absent++;
-      }
+    if (!selectedEmpId) {
+      return { present: 0, absent: 0, halfDay: 0, leaves: 0, weeklyOff: 0 };
     }
 
-    return { present, absent, halfDay, leaves, weeklyOff };
-  }, [attendanceMap, year, month, salonConfig]);
+    const empAttAll = attendance.filter(a => a.employeeId === selectedEmpId);
+    const empLeaves = leaveRequests.filter(lr => lr.employeeId === selectedEmpId);
+    const empPerms = permissionRequests.filter(pr => pr.employeeId === selectedEmpId);
+
+    const breakdown = calculateMonthlySalary(
+      0,
+      empAttAll,
+      empLeaves,
+      empPerms,
+      year,
+      month,
+      selectedEmp?.joiningDate,
+      salonConfig,
+    );
+
+    return {
+      present: Math.max(0, breakdown.presentDays - (breakdown.halfDays * 0.5)),
+      absent: breakdown.absentDays,
+      halfDay: breakdown.halfDays,
+      leaves: breakdown.leaveDays,
+      weeklyOff: breakdown.offDays,
+    };
+  }, [selectedEmpId, selectedEmp, attendance, leaveRequests, permissionRequests, year, month, salonConfig]);
 
   // Month navigation
   const prevMonth = () => {
@@ -265,14 +268,15 @@ export default function AdminAttendance() {
 
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const record = attendanceMap[dateStr];
-              const isFuture = new Date(dateStr) > new Date();
+              const todayStr = toLocalDateString(new Date());
+              const isFuture = dateStr > todayStr;
               const isWO = isWeeklyOff(dateStr, salonConfig);
-              const isToday = dateStr === toLocalDateString(new Date());
+              const isToday = dateStr === todayStr;
 
               let cellKey = 'unmarked';
               if (isWO) cellKey = 'weekly_off';
               else if (record) cellKey = record.status;
-              else if (!isFuture) cellKey = 'absent';
+              else if (!isFuture && !isToday) cellKey = 'absent';
 
               const cellColor = AttendanceCellColors[cellKey] || AttendanceCellColors.unmarked;
 
@@ -281,14 +285,14 @@ export default function AdminAttendance() {
                   key={day}
                   style={[
                     styles.dayCell,
-                    { backgroundColor: isFuture ? '#FAFAFA' : cellColor.bg },
+                    { backgroundColor: (isFuture || (isToday && !record)) ? '#FAFAFA' : cellColor.bg },
                     isToday && styles.dayCellToday,
                   ]}
-                  onPress={isFuture ? undefined : () => openEdit(day)}
-                  disabled={isFuture}
+                  onPress={(isFuture && !isToday) ? undefined : () => openEdit(day)}
+                  disabled={isFuture && !isToday}
                 >
-                  <Text style={[styles.dayNum, isFuture && styles.dayNumFuture]}>{day}</Text>
-                  {!isFuture && (
+                  <Text style={[styles.dayNum, (isFuture || (isToday && !record)) && styles.dayNumFuture]}>{day}</Text>
+                  {!isFuture && !(isToday && !record) && (
                     <Text style={[styles.dayStatus, { color: cellColor.text }]}>{cellColor.label}</Text>
                   )}
                 </Pressable>
@@ -305,6 +309,14 @@ export default function AdminAttendance() {
               </View>
             ))}
           </View>
+
+          {/* Leave Balance Info */}
+          {selectedEmpId ? (
+            <View style={styles.leaveBalanceInfo}>
+              <Text style={styles.leaveBalanceLabel}>Leave Balance</Text>
+              <Text style={styles.leaveBalanceValue}>{leaveBalance ? parseFloat((leaveBalance.totalBalance).toFixed(1)) : '0'}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Right panel: Summary + Leave balance */}
@@ -596,6 +608,28 @@ const styles = StyleSheet.create({
     fontSize: WebTypo.tiny,
     color: Colors.textSecondary,
     textTransform: 'capitalize',
+  },
+  leaveBalanceInfo: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 10,
+    borderLeftWidth: 5,
+    borderLeftColor: '#EA580C',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 60,
+  },
+  leaveBalanceLabel: {
+    fontSize: WebTypo.body,
+    fontWeight: '600',
+    color: '#EA580C',
+  },
+  leaveBalanceValue: {
+    fontSize: WebTypo.h3,
+    fontWeight: '700',
+    color: '#EA580C',
   },
   // Side panel
   sidePanel: {

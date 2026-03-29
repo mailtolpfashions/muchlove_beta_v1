@@ -20,7 +20,7 @@ import { useAlert } from '@/providers/AlertProvider';
 import BottomSheetModal from '@/components/BottomSheetModal';
 import type { Attendance, AttendanceStatus, LeaveRequest, PermissionRequest, RequestStatus } from '@/types';
 import { toLocalDateString } from '@/utils/format';
-import { isWeeklyOff, compLeaveValue, computeLeaveBalance, computeCompBalance } from '@/utils/salary';
+import { isWeeklyOff, compLeaveValue, computeLeaveBalance, computeCompBalance, calculateMonthlySalary } from '@/utils/salary';
 
 type FormCategory = 'present' | 'absent' | 'leave';
 type PresentSubType = 'full_day' | 'half_day';
@@ -200,121 +200,33 @@ export default function AttendanceManagementScreen() {
     const now = selectedDate;
     const month = now.getMonth();
     const year = now.getFullYear();
-    const today = new Date();
-    const totalDays = new Date(year, month + 1, 0).getDate();
-    const lastDay = (today.getFullYear() === year && today.getMonth() === month) ? today.getDate() : totalDays;
 
-    const map = new Map<string, { present: number; absent: number; off: number; leave: number; leaveBalance: number; compOff: number }>();
+    const map = new Map<string, { present: number; absent: number; off: number; paidLeaves: number; leaveBalance: number; compOff: number }>();
 
     for (const emp of employees) {
-      let present = 0, absent = 0, off = 0, leave = 0, compOff = 0;
+      const empAttendance = attendance.filter(a => a.employeeId === emp.id);
+      const empLeaveRequests = leaveRequests.filter(lr => lr.employeeId === emp.id);
+      const empPermissionRequests = permissionRequests.filter(pr => pr.employeeId === emp.id);
 
-      // Determine the first day to count for this employee (from joining date)
-      const empJoinDate = (emp as any).joiningDate ? new Date((emp as any).joiningDate) : null;
-      const monthStart = new Date(year, month, 1);
-      const firstDay = empJoinDate && empJoinDate > monthStart ? empJoinDate.getDate() : 1;
-      // If the employee joined after this month, skip entirely
-      if (empJoinDate && (empJoinDate.getFullYear() > year || (empJoinDate.getFullYear() === year && empJoinDate.getMonth() > month))) {
-        map.set(emp.id, { present: 0, absent: 0, off: 0, leave: 0, leaveBalance: 0, compOff: 0 });
-        continue;
-      }
-
-      const empRecords = attendance.filter(a => {
-        if (a.employeeId !== emp.id) return false;
-        const d = new Date(a.date);
-        return d.getFullYear() === year && d.getMonth() === month;
-      });
-      const recordMap = new Map<string, Attendance>();
-      empRecords.forEach(r => recordMap.set(r.date, r));
-
-      // Count non-rejected leave days in this month for this employee
-      const empLeaves = leaveRequests.filter(lr =>
-        lr.employeeId === emp.id && lr.status !== 'rejected'
+      const breakdown = calculateMonthlySalary(
+        0,
+        empAttendance,
+        empLeaveRequests,
+        empPermissionRequests,
+        year,
+        month,
+        (emp as any).joiningDate,
+        salonConfig,
       );
-      const leaveDates = new Set<string>();
-      for (const lr of empLeaves) {
-        const start = new Date(Math.max(new Date(lr.startDate).getTime(), new Date(year, month, 1).getTime()));
-        const end = new Date(Math.min(new Date(lr.endDate).getTime(), new Date(year, month + 1, 0).getTime()));
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          leaveDates.add(ds);
-        }
-      }
 
-      // Count permission hours for leave consumption
-      let empPermHours = 0;
-      permissionRequests.filter(pr =>
-        pr.employeeId === emp.id && pr.status !== 'rejected' &&
-        new Date(pr.date).getFullYear() === year && new Date(pr.date).getMonth() === month
-      ).forEach(pr => {
-        const from = pr.fromTime.split(':');
-        const to = pr.toTime.split(':');
-        const fromMin = parseInt(from[0]) * 60 + parseInt(from[1]);
-        const toMin = parseInt(to[0]) * 60 + parseInt(to[1]);
-        empPermHours += Math.max(0, (toMin - fromMin) / 60);
+      map.set(emp.id, {
+        present: breakdown.presentDays,
+        absent: breakdown.absentDays,
+        off: breakdown.offDays,
+        paidLeaves: breakdown.paidLeaves,
+        leaveBalance: breakdown.leaveBalance,
+        compOff: breakdown.compLeavesEarned,
       });
-      const permLeaveDays = salonConfig.workingHoursPerDay > 0
-        ? Math.round((empPermHours / salonConfig.workingHoursPerDay) * 10) / 10
-        : 0;
-
-      for (let day = firstDay; day <= lastDay; day++) {
-        const d = new Date(year, month, day);
-        const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-        const isOff = d.getDay() === salonConfig.weeklyOffDay;
-        const rec = recordMap.get(ds);
-        const hasLeave = leaveDates.has(ds);
-
-        // Skip today if no record yet (shift may still be ongoing)
-        if (isToday && !rec && !hasLeave) continue;
-
-        if (isOff) {
-          const cv = rec ? compLeaveValue(rec, salonConfig) : 0;
-          if (cv > 0 && rec?.status === 'half_day') {
-            present += 0.5; off += 0.5; compOff += cv;
-          } else if (cv > 0) {
-            present++; compOff += cv;
-          } else {
-            off++;
-          }
-        } else if (hasLeave && !rec) {
-          leave++;
-        } else if (rec) {
-          if (rec.status === 'present') {
-            present++;
-          } else if (rec.status === 'permission') {
-            present++;
-          } else if (rec.status === 'half_day') {
-            present += 0.5; leave += 0.5;
-          } else if (rec.status === 'absent') {
-            absent++;
-          } else if (rec.status === 'leave') {
-            leave++;
-          }
-        } else {
-          absent++;
-        }
-      }
-
-      // Add permission hours as leave consumed
-      leave += permLeaveDays;
-
-      // Compute leave balance for this employee (actual — for display)
-      const empAllAttendance = attendance.filter(a => a.employeeId === emp.id);
-      const empAllLeaves = leaveRequests.filter(lr => lr.employeeId === emp.id);
-      const balResult = computeLeaveBalance(empAllAttendance, empAllLeaves, (emp as any).joiningDate, salonConfig);
-      const leaveBalance = balResult.totalBalance;
-
-      // Effective balance for paid/excess (exclude current month to avoid double-counting typed leaves)
-      const effectiveBalResult = computeLeaveBalance(empAllAttendance, empAllLeaves, (emp as any).joiningDate, salonConfig, { year, month });
-      const effectiveBalance = effectiveBalResult.totalBalance;
-
-      // Excess leaves become absent
-      const excessLeaves = Math.max(0, leave - effectiveBalance);
-      absent += excessLeaves;
-      const paidLeave = Math.min(leave, effectiveBalance);
-
-      map.set(emp.id, { present, absent, off, leave: paidLeave, leaveBalance, compOff });
     }
     return map;
   }, [employees, attendance, leaveRequests, permissionRequests, selectedDate, salonConfig]);
@@ -879,7 +791,7 @@ export default function AttendanceManagementScreen() {
       { key: 'leave', label: 'Leave', bg: '#FFF7ED', color: '#EA580C', activeBg: '#FFEDD5' },
     ];
 
-    const empStats = monthlyStats.get(item.id) ?? { present: 0, absent: 0, off: 0, leave: 0, leaveBalance: 0, compOff: 0 };
+    const empStats = monthlyStats.get(item.id) ?? { present: 0, absent: 0, off: 0, paidLeaves: 0, leaveBalance: 0, compOff: 0 };
 
     const isExpanded = expandedEmpIds.has(item.id);
 
@@ -907,7 +819,7 @@ export default function AttendanceManagementScreen() {
             const isOff = pill.key === 'off';
             const isLeaveKey = pill.key === 'leave';
             const count = isLeaveKey
-              ? parseFloat(empStats.leave.toFixed(1))
+              ? parseFloat(empStats.paidLeaves.toFixed(1))
               : empStats[pill.key];
             return (
               <TouchableOpacity
@@ -935,6 +847,15 @@ export default function AttendanceManagementScreen() {
               </TouchableOpacity>
             );
           })}
+          </View>
+
+          {/* Leave Balance Display */}
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F3F4F6', borderRadius: 8, marginTop: 8 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '500' }}>
+              Remaining Balance: <Text style={{ color: '#166534', fontWeight: '700' }}>
+                {empStats.leaveBalance ? parseFloat(empStats.leaveBalance.toFixed(1)) : '0'} days
+              </Text>
+            </Text>
           </View>
 
           {/* Calendar grid */}
@@ -1139,22 +1060,22 @@ export default function AttendanceManagementScreen() {
   // Summary counts — monthly totals across all employees (consistent with per-employee pills)
   const weeklyOffDate = isWeeklyOff(dateStr, salonConfig);
   const summaryTotals = useMemo(() => {
-    let present = 0, absent = 0, off = 0, leave = 0;
+    let present = 0, absent = 0, off = 0, paidLeaves = 0;
     for (const emp of employeeList) {
       const s = monthlyStats.get(emp.id);
       if (s) {
         present += s.present;
         absent += s.absent;
         off += s.off;
-        leave += s.leave;
+        paidLeaves += s.paidLeaves;
       }
     }
-    return { present, absent, off, leave };
+    return { present, absent, off, paidLeaves };
   }, [employeeList, monthlyStats]);
   const presentCount = summaryTotals.present;
   const absentCount = summaryTotals.absent;
   const offCount = summaryTotals.off;
-  const leaveCount = parseFloat(summaryTotals.leave.toFixed(1));
+  const leaveCount = parseFloat(summaryTotals.paidLeaves.toFixed(1));
 
   return (
     <View style={styles.container}>
