@@ -76,8 +76,8 @@ export function useOfflineQuery<T>(
             queryClient.setQueryData(key, cached);
           }
         }
-      } catch {
-        // ignore parse/read errors
+      } catch (e: unknown) {
+        console.warn('[useOfflineQuery] Cache hydration error:', e);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,7 +105,9 @@ export function useOfflineQuery<T>(
       Promise.all([
         AsyncStorage.setItem(cacheKey(key), JSON.stringify(queryResult.data)),
         AsyncStorage.setItem(metaKey(key), JSON.stringify({ cachedAt: now })),
-      ]).catch(() => {});
+      ]).catch((e: unknown) => {
+        console.warn('[useOfflineQuery] Cache persist error:', e);
+      });
       setCacheAge(null); // fresh data, no age to show
     }
   }, [queryResult.data, isOnline, keyStr]);
@@ -129,8 +131,8 @@ export function useOfflineQuery<T>(
             }
             queryClient.setQueryData(key, JSON.parse(json));
           }
-        } catch {
-          // ignore
+        } catch (e: unknown) {
+          console.warn('[useOfflineQuery] Offline cache read error:', e);
         }
       })();
     }

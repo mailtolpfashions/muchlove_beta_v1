@@ -68,7 +68,7 @@ export default function SalaryCard({
       .reduce((sum, s) => sum + s.total, 0);
     return calculateMonthlySalary(
       currentSalary.baseSalary, myAttendance, myLeaves, myPermissions, year, month, joiningDate,
-      { ...salonConfig, incentivePercent: currentSalary.incentivePercent, employeeSalesTotal: mySalesTotal } as any,
+      { ...salonConfig, incentivePercent: currentSalary.incentivePercent, employeeSalesTotal: mySalesTotal },
     );
   }, [currentSalary, attendance, leaveRequests, permissionRequests, sales, userId, year, month, salonConfig]);
 

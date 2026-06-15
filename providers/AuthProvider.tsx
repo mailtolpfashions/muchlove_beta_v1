@@ -147,7 +147,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       try {
         // Run seeding in background — don't block auth init (skip on web — no cached session yet)
         if (Platform.OS !== 'web') {
-          initializeDatabase().catch(() => {});
+          initializeDatabase().catch((e: unknown) => {
+            console.error('[Auth] SQLite init failed:', e);
+          });
         }
 
         // ── 1. Instant restore: load cached profile for zero-delay launch ──
@@ -208,8 +210,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         }
         // If no session AND no cache → user truly never logged in → login screen.
         // If no session BUT cache exists → keep showing app (token will refresh).
-      } catch (e: any) {
-        // Init error — will show login screen
+      } catch (e: unknown) {
+        console.error('[Auth] Init error:', e);
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -227,7 +229,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   // ── 5-minute profile re-check: detect account lock / role change ──
   useEffect(() => {
-    // Clear previous interval
     if (recheckIntervalRef.current) {
       clearInterval(recheckIntervalRef.current);
       recheckIntervalRef.current = null;
@@ -235,26 +236,29 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     if (!session?.user || !user) return;
 
+    let cancelled = false;
+
     recheckIntervalRef.current = setInterval(async () => {
+      if (cancelled) return;
       try {
         const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+        if (cancelled) return;
         if (!profile || !profile.approved) {
-          // Account has been locked by admin / fraud system
           setUser(null);
           setSession(null);
           await clearCachedProfile();
           try { await supabase.auth.signOut(); } catch (_) {}
         } else {
-          // Update profile with latest data (role changes, etc.)
           setUser(profile);
           await cacheProfile(profile);
         }
       } catch {
-        // Network error during re-check — ignore, keep current session
+        // Network error during re-check — keep current session
       }
     }, PROFILE_RECHECK_INTERVAL);
 
     return () => {
+      cancelled = true;
       if (recheckIntervalRef.current) {
         clearInterval(recheckIntervalRef.current);
         recheckIntervalRef.current = null;

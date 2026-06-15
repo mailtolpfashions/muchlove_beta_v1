@@ -1,9 +1,19 @@
 import React, { useMemo, useCallback, useState, Component } from 'react';
 
-class ChartErrorBoundary extends Component<{ children: React.ReactNode }, { error: boolean }> {
-  state = { error: false };
-  static getDerivedStateFromError() { return { error: true }; }
-  render() { return this.state.error ? null : this.props.children; }
+class ChartErrorBoundary extends Component<{ children: React.ReactNode }, { error: boolean; errorMessage?: string }> {
+  state = { error: false, errorMessage: undefined as string | undefined };
+  static getDerivedStateFromError(e: Error) { return { error: true, errorMessage: e?.message }; }
+  componentDidCatch(e: Error) { console.error('[ChartErrorBoundary]', e); }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{ padding: 16, alignItems: 'center', opacity: 0.5 }}>
+          <Text style={{ fontSize: 12, color: '#6B7280' }}>Chart unavailable</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
 }
 import {
   View,
@@ -127,14 +137,12 @@ export default function DashboardScreen() {
     },
   }), []);
 
-  const dateText = useMemo(() =>
-    new Date().toLocaleDateString('en-IN', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }),
-  [sales]);
+  const dateText = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 
   const last7DaysChart = useMemo(() => {
     if (!isAdmin || !sales.length) return null;

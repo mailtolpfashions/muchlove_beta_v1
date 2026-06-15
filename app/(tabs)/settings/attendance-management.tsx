@@ -160,7 +160,7 @@ export default function AttendanceManagementScreen() {
     const emp = employees.find((e: any) => e.id === selectedEmployee);
     const empAllAtt = attendance.filter(a => a.employeeId === selectedEmployee);
     const empAllLeaves = leaveRequests.filter(lr => lr.employeeId === selectedEmployee);
-    return computeLeaveBalance(empAllAtt, empAllLeaves, (emp as any)?.joiningDate, salonConfig);
+    return computeLeaveBalance(empAllAtt, empAllLeaves, emp?.joiningDate, salonConfig);
   }, [selectedEmployee, attendance, leaveRequests, employees, salonConfig]);
 
   const presentHalfHasBalance = presentHalfSelected && empLeaveBreakdown.totalBalance >= 0.5;
@@ -231,7 +231,7 @@ export default function AttendanceManagementScreen() {
         empPermissionRequests,
         year,
         month,
-        (emp as any).joiningDate,
+        emp.joiningDate,
         salonConfig,
       );
 
@@ -260,7 +260,7 @@ export default function AttendanceManagementScreen() {
       const dayMap = new Map<number, DayStatus>();
 
       // Determine the first day to count for this employee (from joining date)
-      const empJoinDate = (emp as any).joiningDate ? new Date((emp as any).joiningDate) : null;
+      const empJoinDate = emp.joiningDate ? new Date(emp.joiningDate) : null;
 
       const empRecords = attendance.filter(a => {
         if (a.employeeId !== emp.id) return false;

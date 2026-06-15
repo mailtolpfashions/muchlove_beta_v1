@@ -53,8 +53,16 @@ type ListItem = { type: 'service'; data: Service } | { type: 'combo'; data: Comb
 // ── Subscription date helpers ──
 const getSubscriptionEndDate = (sub: CustomerSubscription): Date => {
   const start = new Date(sub.startDate);
+  // Use millisecond arithmetic to avoid setMonth() edge cases (e.g. Jan 31 + 1 month
+  // would land on Feb 28/29 instead of the correct end of the billing period).
+  // We add durationMonths calendar months by stepping to the same day-of-month.
   const end = new Date(start);
-  end.setMonth(end.getMonth() + sub.planDurationMonths);
+  const targetMonth = start.getMonth() + sub.planDurationMonths;
+  end.setFullYear(start.getFullYear(), targetMonth, start.getDate());
+  // If the target month doesn't have that day (e.g. Feb has no 31st), clamp to last day.
+  if (end.getMonth() !== ((targetMonth % 12 + 12) % 12)) {
+    end.setDate(0); // back to last day of the previous month
+  }
   return end;
 };
 

@@ -94,13 +94,10 @@ function BillSummary({
             const appliesToServices = !o.appliesTo || o.appliesTo === 'services' || o.appliesTo === 'both';
             if (!appliesToServices) return false;
             if (o.studentOnly && !customer.isStudent) return false;
-            if (o.visitCount != null && o.visitCount >= 0) {
-              return o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount;
-            }
-            if (o.visitCount === -1) {
-              return customer.isStudent;
-            }
-            return false;
+            if (o.visitCount == null) return true; // no visit restriction — applies to all
+            if (o.visitCount === -1) return customer.isStudent;
+            if (o.visitCount === 0) return customer.visitCount === 0;
+            return customer.visitCount >= o.visitCount;
           });
 
           const bestServiceOffer = serviceOffers.sort((a, b) => b.percent - a.percent)[0];
@@ -118,12 +115,10 @@ function BillSummary({
           const appliesToSubs = o.appliesTo === 'subscriptions' || o.appliesTo === 'both';
           if (!appliesToSubs) return false;
           if (o.studentOnly && !customer.isStudent) return false;
-          // Student offer flag or any offer targeting subs
+          if (o.visitCount == null) return true; // no visit restriction — applies to all
           if (o.visitCount === -1) return customer.isStudent;
-          if (o.visitCount != null && o.visitCount >= 0) {
-            return o.visitCount === 0 ? customer.visitCount === 0 : customer.visitCount >= o.visitCount;
-          }
-          return false;
+          if (o.visitCount === 0) return customer.visitCount === 0;
+          return customer.visitCount >= o.visitCount;
         });
 
         const bestSubsOffer = subsOffers.sort((a, b) => b.percent - a.percent)[0];

@@ -110,6 +110,10 @@ export interface SalaryBreakdown {
   employeeSalesTotal: number;  // total sales amount by this employee in the month
   incentiveAmount: number;     // employeeSalesTotal × incentivePercent / 100
 
+  /* Leave display */
+  paidLeaves: number;          // approved leave days drawn from EL/Comp balance this month
+  excessLeaves: number;        // leaveConsumed beyond effective balance
+
   /* Final salary */
   lateDeduction: number;       // latePenaltyDays × perDayRate
   totalDeduction: number;      // deductibleDays × perDayRate
@@ -389,6 +393,11 @@ export function computeLeaveBalance(
   };
 }
 
+export interface SalaryExtras {
+  incentivePercent?: number;
+  employeeSalesTotal?: number;
+}
+
 export function calculateMonthlySalary(
   baseSalary: number,
   attendanceRecords: Attendance[],
@@ -397,7 +406,7 @@ export function calculateMonthlySalary(
   year: number,
   month: number, // 0-indexed (JS convention)
   joiningDate?: string, // YYYY-MM-DD — only count days from this date onward
-  cfg?: Partial<SalaryConfig>,
+  cfg?: Partial<SalaryConfig> & SalaryExtras,
 ): SalaryBreakdown {
   const c = resolveConfig(cfg);
   const totalDays = daysInMonth(year, month);
@@ -487,8 +496,8 @@ export function calculateMonthlySalary(
   const totalDeduction = Math.round(deductibleDays * perDayRate);
 
   // ── Incentive ──
-  const incentivePercent = (cfg as any)?.incentivePercent ?? 0;
-  const employeeSalesTotal = (cfg as any)?.employeeSalesTotal ?? 0;
+  const incentivePercent = cfg?.incentivePercent ?? 0;
+  const employeeSalesTotal = cfg?.employeeSalesTotal ?? 0;
   const incentiveAmount = incentivePercent > 0 && employeeSalesTotal > 0
     ? Math.round(employeeSalesTotal * incentivePercent / 100)
     : 0;
@@ -519,6 +528,8 @@ export function calculateMonthlySalary(
     deductibleDays,
     lateCount: summary.lateCount,
     latesPerHalfDay,
+    paidLeaves,
+    excessLeaves,
     lateDeduction,
     totalDeduction,
     incentivePercent,

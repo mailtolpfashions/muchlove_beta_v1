@@ -27,6 +27,18 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // ── Webhook secret guard (set WEBHOOK_SECRET via `supabase secrets set`) ──
+  const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
+  if (webhookSecret) {
+    const incoming = req.headers.get('x-webhook-secret')
+    if (incoming !== webhookSecret) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+  }
+
   try {
     const payload: SalePayload = await req.json()
     const { customer_name, employee_id, employee_name, total } = payload

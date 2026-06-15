@@ -74,6 +74,8 @@ function optimisticDelete<T extends { id: string }>(
  * to a network error, the operation is queued for later sync and the local
  * cache is updated optimistically.
  */
+export type OfflineSentinel = { _offline: true; id: string };
+
 function createOfflineMutation<TInput, TResult>(opts: {
   entity: MutationEntity;
   operation: MutationOperation;
@@ -97,9 +99,9 @@ function createOfflineMutation<TInput, TResult>(opts: {
    */
   applyOptimistic?: (input: TInput, entityId: string) => void;
   /** Refetch from server after successful online mutation */
-  refetch?: () => Promise<any>;
+  refetch?: () => Promise<unknown>;
 }) {
-  return async (input: TInput): Promise<TResult | any> => {
+  return async (input: TInput): Promise<TResult | OfflineSentinel> => {
     try {
       const result = await opts.mutationFn(input);
       if (opts.refetch) await opts.refetch();
@@ -118,7 +120,7 @@ function createOfflineMutation<TInput, TResult>(opts: {
           payload,
         );
         opts.applyOptimistic?.(input, entityId);
-        return { _offline: true, id: entityId } as any;
+        return { _offline: true, id: entityId };
       }
       throw error;
     }
@@ -167,9 +169,11 @@ export const [DataProvider, useData] = createContextHook(() => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'app_settings', filter: 'key=eq.offline_sales_enabled' },
           (payload) => {
-            const newValue = (payload.new as any)?.value === true;
+            const newValue = (payload.new as Record<string, unknown>)?.value === true;
             setOfflineSalesEnabled(newValue);
-            AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(newValue)).catch(() => {});
+            AsyncStorage.setItem('@app_setting:offline_sales_enabled', JSON.stringify(newValue)).catch((e: unknown) => {
+              console.error('[DataProvider] Failed to persist offline_sales_enabled:', e);
+            });
           },
         )
         .subscribe();
@@ -843,7 +847,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     ]);
   }, [refetchCustomers, refetchServices, refetchSubscriptions, refetchSales, refetchUsers, refetchCS, refetchOffers, refetchCombos, refetchExpCat, refetchExpenses, refetchAttendance, refetchLeaveRequests, refetchPermissionRequests, refetchSalaries, refetchSalonConfig]);
 
-  return {
+  return useMemo(() => ({
     customers,
     customersLoading,
     customersError,
@@ -895,7 +899,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     dataLoading,
     loadError,
     reload,
-    // Expenses
     expenseCategories,
     allExpenses,
     addExpense,
@@ -903,15 +906,12 @@ export const [DataProvider, useData] = createContextHook(() => {
     deleteExpense,
     addExpenseCategory,
     deleteExpenseCategory,
-    // Offline support
     isOffline,
     isPendingSync,
     pendingOps,
     refreshPendingOps,
-    // Offline sales toggle
     offlineSalesEnabled,
     setOfflineSalesToggle,
-    // Attendance & HR
     attendance,
     leaveRequests,
     permissionRequests,
@@ -928,8 +928,27 @@ export const [DataProvider, useData] = createContextHook(() => {
     addEmployeeSalary,
     updateEmployeeSalary,
     deleteEmployeeSalary,
-    // Salon Config
     salonConfig,
     updateSalonConfig,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [
+    customers, customersLoading, customersError, addCustomer, updateCustomer,
+    services, servicesLoading, servicesError, addService, updateService, deleteService,
+    subscriptions, subscriptionsLoading, subscriptionsError, addSubscription, updateSubscription, deleteSubscription,
+    sales, salesLoading, salesError, addSale, fetchMoreSales, hasMoreSales, isFetchingMoreSales,
+    users, usersLoading, usersError, updateUser, deleteUser,
+    customerSubscriptions, csLoading, csError, addCustomerSubscription, updateCustomerSubscription, removeCustomerSubscription,
+    offers, offersLoading, offersError, addOffer, updateOffer, deleteOffer,
+    combos, combosLoading, combosError, addCombo, updateCombo, deleteCombo,
+    stats, dataLoading, loadError, reload,
+    expenseCategories, allExpenses, addExpense, updateExpense, deleteExpense, addExpenseCategory, deleteExpenseCategory,
+    isOffline, isPendingSync, pendingOps, refreshPendingOps,
+    offlineSalesEnabled, setOfflineSalesToggle,
+    attendance, leaveRequests, permissionRequests, employeeSalaries,
+    addAttendance, updateAttendance, deleteAttendance,
+    addLeaveRequest, updateLeaveRequest, deleteLeaveRequest,
+    addPermissionRequest, updatePermissionRequest, deletePermissionRequest,
+    addEmployeeSalary, updateEmployeeSalary, deleteEmployeeSalary,
+    salonConfig, updateSalonConfig,
+  ]);
 });

@@ -50,8 +50,8 @@ const HR_RECORD_LIMIT = 5000;
 function mapSaleWithItems(row: Record<string, any>): Sale {
   return {
     ...mapSaleRow(row),
-    items: ((row.sale_items as any[]) ?? []).map(mapSaleItem),
-    subscriptionItems: ((row.subscription_sale_items as any[]) ?? []).map(mapSubscriptionSaleItem),
+    items: (Array.isArray(row.sale_items) ? row.sale_items : []).map(mapSaleItem),
+    subscriptionItems: (Array.isArray(row.subscription_sale_items) ? row.subscription_sale_items : []).map(mapSubscriptionSaleItem),
   };
 }
 
@@ -103,7 +103,6 @@ function mapSaleItem(r: Record<string, unknown>): SaleItem {
     kind: ((r.kind as string) ?? 'service') as SaleItem['kind'],
   };
   if (r.original_price != null) item.originalPrice = Number(r.original_price);
-  (item as any).serviceName = item.itemName;
   return item;
 }
 function mapSubscriptionSaleItem(r: Record<string, unknown>): SubscriptionSaleItem { return { id: r.id as string, planId: r.plan_id as string, planName: r.plan_name as string, price: Number(r.price), discountedPrice: Number(r.discounted_price) }; }

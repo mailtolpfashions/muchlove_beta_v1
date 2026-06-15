@@ -139,12 +139,46 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // ── Auth: verify caller is an admin ───────────────────────────────────────
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+  const jwt = authHeader.slice(7)
+  const supabaseUser = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+  )
+  const { data: { user }, error: userError } = await supabaseUser.auth.getUser()
+  if (userError || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+  // Fetch role from profiles table
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  )
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  if (profile?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden: admin only' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
     // 1. Get all unsynced customers from Supabase
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
 
     const { data: customers, error: fetchError } = await supabaseAdmin
       .from('customers')

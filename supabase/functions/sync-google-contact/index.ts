@@ -272,6 +272,18 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // ── Webhook secret guard ───────────────────────────────────────────────────
+  const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
+  if (webhookSecret) {
+    const incoming = req.headers.get('x-webhook-secret')
+    if (incoming !== webhookSecret) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+  }
+
   try {
     const payload: CustomerPayload = await req.json()
     const { operation, customer_id, customer_mobile } = payload
