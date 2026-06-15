@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from '@/lib/supabase';
@@ -13,10 +12,15 @@ const isExpoGo =
 // Notifications are not available on web or in Expo Go
 const isNotNative = isExpoGo || Platform.OS === 'web';
 
+// Lazily require expo-notifications so its module-level side effects
+// (auto push-token registration) never run in Expo Go or web.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const N = () => require('expo-notifications') as typeof import('expo-notifications');
+
 // Configure how notifications appear when app is in foreground
 try {
   if (!isNotNative) {
-    Notifications.setNotificationHandler({
+    N().setNotificationHandler({
       handleNotification: async () => ({
         shouldPlaySound: true,
         shouldSetBadge: false,
@@ -32,26 +36,26 @@ try {
 export async function registerForNotifications(): Promise<boolean> {
   if (isNotNative) return false;
   try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    const { status: existingStatus } = await N().getPermissionsAsync();
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await N().requestPermissionsAsync();
       finalStatus = status;
     }
 
     if (finalStatus !== 'granted') return false;
 
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('sales', {
+      await N().setNotificationChannelAsync('sales', {
         name: 'Sales Notifications',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: N().AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#E91E63',
       });
-      await Notifications.setNotificationChannelAsync('requests', {
+      await N().setNotificationChannelAsync('requests', {
         name: 'Request Notifications',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: N().AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#2196F3',
       });
@@ -74,7 +78,7 @@ export async function registerPushToken(userId: string): Promise<void> {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) return;
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const tokenData = await N().getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
 
     // Upsert: insert or update if this user+token combo already exists
@@ -113,7 +117,7 @@ export async function sendSaleNotification(
 ) {
   if (isNotNative) return;
   try {
-    await Notifications.scheduleNotificationAsync({
+    await N().scheduleNotificationAsync({
       content: {
         title: '💰 New Sale Recorded',
         body: `${employeeName} billed ₹${total.toFixed(2)} to ${customerName}`,
@@ -143,7 +147,7 @@ export async function sendRequestNotification(
       comp_leave: 'Comp Off Request',
       earned_leave: 'Earned Leave Request',
     };
-    await Notifications.scheduleNotificationAsync({
+    await N().scheduleNotificationAsync({
       content: {
         title: '📋 New Request',
         body: `${employeeName} submitted a ${typeLabels[requestType] || 'request'}`,
@@ -170,7 +174,7 @@ export async function sendRequestActionNotification(
     const emoji = action === 'approved' ? '✅' : '❌';
     const typeLabel = requestType === 'leave' ? 'Leave request' : 'Permission request';
     const actionLabel = action === 'revoked' ? 'revoked' : action;
-    await Notifications.scheduleNotificationAsync({
+    await N().scheduleNotificationAsync({
       content: {
         title: `${emoji} Request ${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}`,
         body: `Your ${typeLabel.toLowerCase()} has been ${actionLabel}`,

@@ -14,6 +14,8 @@ import { View, ActivityIndicator, StyleSheet, LogBox, Platform } from 'react-nat
 import { useFonts } from 'expo-font';
 import { HeaderRight } from '@/components/HeaderRight';
 import { registerForNotifications, registerPushToken } from '@/utils/notifications';
+import { supabase } from '@/lib/supabase';
+import * as Linking from 'expo-linking';
 
 // Suppress known Expo Router warning — it internally configures linking
 // and the duplicate-linking guard fires as a false positive in dev mode.
@@ -41,6 +43,42 @@ function RootLayoutNav() {
       });
     }
   }, [isAuthenticated, user?.id]);
+
+  // On mobile, detectSessionInUrl is false so the Supabase SDK never sees the
+  // recovery token that arrives in the deep-link hash fragment. We must parse
+  // it ourselves and call setSession(), which then fires PASSWORD_RECOVERY.
+  useEffect(() => {
+    const processRecoveryUrl = async (url: string | null) => {
+      if (!url) return;
+      const hashIndex = url.indexOf('#');
+      if (hashIndex === -1) return;
+      const params = new URLSearchParams(url.slice(hashIndex + 1));
+      const type = params.get('type');
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (type === 'recovery' && accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      }
+    };
+
+    // Cold start: app was launched by tapping the email link
+    Linking.getInitialURL().then(processRecoveryUrl);
+
+    // Warm start: app was already open when the link was tapped
+    const linkSub = Linking.addEventListener('url', (e) => processRecoveryUrl(e.url));
+
+    // Navigate to reset screen when Supabase fires the PASSWORD_RECOVERY event
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        router.replace('/reset-password');
+      }
+    });
+
+    return () => {
+      linkSub.remove();
+      authSub.unsubscribe();
+    };
+  }, [router]);
 
   // Hide splash when ready, OR after 6s safety timeout so the app never
   // gets stuck on the splash screen even if init hangs.
@@ -137,6 +175,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="login" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="+not-found" />

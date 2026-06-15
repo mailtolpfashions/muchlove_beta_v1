@@ -1,4 +1,10 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, Component } from 'react';
+
+class ChartErrorBoundary extends Component<{ children: React.ReactNode }, { error: boolean }> {
+  state = { error: false };
+  static getDerivedStateFromError() { return { error: true }; }
+  render() { return this.state.error ? null : this.props.children; }
+}
 import {
   View,
   Text,
@@ -354,30 +360,32 @@ export default function DashboardScreen() {
 
       {/* 7-day revenue chart (admin only) */}
       {isAdmin && last7DaysChart && (
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <View style={styles.chartTitleRow}>
-              <BarChart3 size={18} color={Colors.primary} />
-              <Text style={styles.chartTitle}>Last 7 Days</Text>
+        <ChartErrorBoundary>
+          <View style={styles.chartCard}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartTitleRow}>
+                <BarChart3 size={18} color={Colors.primary} />
+                <Text style={styles.chartTitle}>Last 7 Days</Text>
+              </View>
+              <Text style={styles.chartTotal}>{formatCurrency(last7DaysChart.total)}</Text>
             </View>
-            <Text style={styles.chartTotal}>{formatCurrency(last7DaysChart.total)}</Text>
+            <BarChart
+              data={{
+                labels: last7DaysChart.labels,
+                datasets: [{ data: last7DaysChart.data.length ? last7DaysChart.data : [0] }],
+              }}
+              width={SCREEN_WIDTH - Spacing.screen * 2 - Spacing.screen * 2 + 16}
+              height={180}
+              chartConfig={chartConfig}
+              style={styles.chart}
+              fromZero
+              showValuesOnTopOfBars
+              withInnerLines={false}
+              yAxisLabel=""
+              yAxisSuffix=""
+            />
           </View>
-          <BarChart
-            data={{
-              labels: last7DaysChart.labels,
-              datasets: [{ data: last7DaysChart.data.length ? last7DaysChart.data : [0] }],
-            }}
-            width={SCREEN_WIDTH - Spacing.screen * 2 - Spacing.screen * 2 + 16}
-            height={180}
-            chartConfig={chartConfig}
-            style={styles.chart}
-            fromZero
-            showValuesOnTopOfBars
-            withInnerLines={false}
-            yAxisLabel=""
-            yAxisSuffix=""
-          />
-        </View>
+        </ChartErrorBoundary>
       )}
 
       {/* Quick Overview (admin only) */}

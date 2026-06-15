@@ -363,7 +363,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   /** Send a password-reset email via Supabase */
   const resetPassword = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(),
+        { redirectTo: 'muchlove://reset-password' },
+      );
       if (error) return { success: false, error: error.message };
       return { success: true };
     } catch (e: any) {
