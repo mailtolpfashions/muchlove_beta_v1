@@ -1,6 +1,7 @@
 -- ============================================================
 -- Attendance, Leave/Permission Requests & Employee Salaries
 -- Run this in your Supabase SQL editor after the base migration.
+-- Safe to re-run: uses DROP POLICY IF EXISTS before each policy.
 -- ============================================================
 
 -- 1. Attendance ──────────────────────────────────────────────
@@ -21,25 +22,28 @@ CREATE TABLE IF NOT EXISTS attendance (
 
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 
--- Employees can read their own attendance
+DROP POLICY IF EXISTS "Employees read own attendance" ON attendance;
 CREATE POLICY "Employees read own attendance"
   ON attendance FOR SELECT
   USING (employee_id = auth.uid());
 
--- Employees can insert their own attendance (check-in)
+DROP POLICY IF EXISTS "Employees insert own attendance" ON attendance;
 CREATE POLICY "Employees insert own attendance"
   ON attendance FOR INSERT
   WITH CHECK (employee_id = auth.uid());
 
--- Employees can update their own attendance (check-out)
+DROP POLICY IF EXISTS "Employees update own attendance" ON attendance;
 CREATE POLICY "Employees update own attendance"
   ON attendance FOR UPDATE
   USING (employee_id = auth.uid());
 
--- Admins full access
+DROP POLICY IF EXISTS "Admins full access attendance" ON attendance;
 CREATE POLICY "Admins full access attendance"
   ON attendance FOR ALL
   USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
@@ -49,7 +53,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   id            TEXT PRIMARY KEY,
   employee_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   type          TEXT NOT NULL DEFAULT 'leave'
-                  CHECK (type IN ('leave', 'compensation')),
+                  CHECK (type IN ('leave', 'compensation', 'earned')),
   start_date    DATE NOT NULL,
   end_date      DATE NOT NULL,
   reason        TEXT,
@@ -62,17 +66,23 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 
 ALTER TABLE leave_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Employees read own leave requests" ON leave_requests;
 CREATE POLICY "Employees read own leave requests"
   ON leave_requests FOR SELECT
   USING (employee_id = auth.uid());
 
+DROP POLICY IF EXISTS "Employees insert own leave requests" ON leave_requests;
 CREATE POLICY "Employees insert own leave requests"
   ON leave_requests FOR INSERT
   WITH CHECK (employee_id = auth.uid());
 
+DROP POLICY IF EXISTS "Admins full access leave requests" ON leave_requests;
 CREATE POLICY "Admins full access leave requests"
   ON leave_requests FOR ALL
   USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
@@ -94,17 +104,23 @@ CREATE TABLE IF NOT EXISTS permission_requests (
 
 ALTER TABLE permission_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Employees read own permission requests" ON permission_requests;
 CREATE POLICY "Employees read own permission requests"
   ON permission_requests FOR SELECT
   USING (employee_id = auth.uid());
 
+DROP POLICY IF EXISTS "Employees insert own permission requests" ON permission_requests;
 CREATE POLICY "Employees insert own permission requests"
   ON permission_requests FOR INSERT
   WITH CHECK (employee_id = auth.uid());
 
+DROP POLICY IF EXISTS "Admins full access permission requests" ON permission_requests;
 CREATE POLICY "Admins full access permission requests"
   ON permission_requests FOR ALL
   USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
@@ -121,14 +137,17 @@ CREATE TABLE IF NOT EXISTS employee_salaries (
 
 ALTER TABLE employee_salaries ENABLE ROW LEVEL SECURITY;
 
--- Employees can read their own salary
+DROP POLICY IF EXISTS "Employees read own salary" ON employee_salaries;
 CREATE POLICY "Employees read own salary"
   ON employee_salaries FOR SELECT
   USING (employee_id = auth.uid());
 
--- Admins full access
+DROP POLICY IF EXISTS "Admins full access salaries" ON employee_salaries;
 CREATE POLICY "Admins full access salaries"
   ON employee_salaries FOR ALL
   USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );

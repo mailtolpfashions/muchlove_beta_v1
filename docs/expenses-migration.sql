@@ -12,9 +12,11 @@ CREATE TABLE IF NOT EXISTS expense_categories (
 
 ALTER TABLE expense_categories ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Categories readable by authenticated" ON expense_categories;
 CREATE POLICY "Categories readable by authenticated"
   ON expense_categories FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Admins can manage categories" ON expense_categories;
 CREATE POLICY "Admins can manage categories"
   ON expense_categories FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'))
@@ -35,9 +37,11 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Expenses readable by authenticated" ON expenses;
 CREATE POLICY "Expenses readable by authenticated"
   ON expenses FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Admins can manage expenses" ON expenses;
 CREATE POLICY "Admins can manage expenses"
   ON expenses FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'))

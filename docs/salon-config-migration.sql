@@ -45,12 +45,21 @@ ALTER TABLE salon_config
 ALTER TABLE salon_config ENABLE ROW LEVEL SECURITY;
 
 -- Everyone can read the config
+DROP POLICY IF EXISTS "salon_config_read" ON salon_config;
 CREATE POLICY "salon_config_read" ON salon_config
   FOR SELECT USING (true);
 
 -- Only admin can update
+DROP POLICY IF EXISTS "salon_config_update" ON salon_config;
 CREATE POLICY "salon_config_update" ON salon_config
   FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+        AND profiles.role = 'admin'
+    )
+  )
+  WITH CHECK (
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
@@ -59,6 +68,7 @@ CREATE POLICY "salon_config_update" ON salon_config
   );
 
 -- Prevent inserting extra rows (should only ever be 1 row)
+DROP POLICY IF EXISTS "salon_config_insert" ON salon_config;
 CREATE POLICY "salon_config_insert" ON salon_config
   FOR INSERT WITH CHECK (
     NOT EXISTS (SELECT 1 FROM salon_config)
@@ -70,5 +80,6 @@ CREATE POLICY "salon_config_insert" ON salon_config
   );
 
 -- Prevent deletion
+DROP POLICY IF EXISTS "salon_config_no_delete" ON salon_config;
 CREATE POLICY "salon_config_no_delete" ON salon_config
   FOR DELETE USING (false);

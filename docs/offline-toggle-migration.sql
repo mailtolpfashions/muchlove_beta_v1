@@ -14,12 +14,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
 -- Everyone authenticated can read settings
+DROP POLICY IF EXISTS "Settings readable by authenticated" ON app_settings;
 CREATE POLICY "Settings readable by authenticated"
   ON app_settings FOR SELECT
   TO authenticated
   USING (true);
 
 -- Only admins can insert/update/delete settings
+DROP POLICY IF EXISTS "Admins can manage settings" ON app_settings;
 CREATE POLICY "Admins can manage settings"
   ON app_settings FOR ALL
   TO authenticated
@@ -36,4 +38,9 @@ VALUES ('offline_sales_enabled', 'true'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 -- 3. Enable Realtime on the table so clients get instant updates
-ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'app_settings') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
+  END IF;
+END $$;
